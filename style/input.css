@@ -64,4 +64,96 @@
     ::-webkit-scrollbar-thumb:hover {
         background: #555;
     }
+
+    /* Стили для SVG иконок */
+    img[src^="/icons/"] {
+        display: inline-block;
+        vertical-align: middle;
+        flex-shrink: 0;
+    }
+
+    /* Иконки наследуют цвет от родителя через фильтры */
+    .text-white img[src^="/icons/"],
+    .text-white svg {
+        filter: brightness(0) saturate(100%) invert(1);
+    }
+
+    .text-gray-400 img[src^="/icons/"] {
+        filter: brightness(0) saturate(100%) invert(72%) sepia(0%) saturate(0%)
+            hue-rotate(207deg) brightness(92%) contrast(86%);
+    }
+
+    .text-gray-500 img[src^="/icons/"] {
+        filter: brightness(0) saturate(100%) invert(46%) sepia(0%) saturate(0%)
+            hue-rotate(207deg) brightness(98%) contrast(89%);
+    }
+
+    .text-gray-600 img[src^="/icons/"] {
+        filter: brightness(0) saturate(100%) invert(38%) sepia(0%) saturate(0%)
+            hue-rotate(207deg) brightness(95%) contrast(92%);
+    }
+
+    .text-gray-300 img[src^="/icons/"] {
+        filter: brightness(0) saturate(100%) invert(87%) sepia(0%) saturate(0%)
+            hue-rotate(207deg) brightness(88%) contrast(86%);
+    }
+
+    .text-blue-600 img[src^="/icons/"] {
+        filter: brightness(0) saturate(100%) invert(28%) sepia(93%)
+            saturate(2433%) hue-rotate(212deg) brightness(95%) contrast(93%);
+    }
+
+    .text-yellow-800 img[src^="/icons/"] {
+        filter: brightness(0) saturate(100%) invert(40%) sepia(74%)
+            saturate(1055%) hue-rotate(1deg) brightness(92%) contrast(93%);
+    }
+
+    /* Hover эффекты для иконок */
+    .group:hover .group-hover\:text-blue-600 img[src^="/icons/"] {
+        filter: brightness(0) saturate(100%) invert(28%) sepia(93%)
+            saturate(2433%) hue-rotate(212deg) brightness(95%) contrast(93%);
+        transition: filter 0.2s ease-in-out;
+    }
+
+    .hover\:text-blue-600:hover img[src^="/icons/"] {
+        filter: brightness(0) saturate(100%) invert(28%) sepia(93%)
+            saturate(2433%) hue-rotate(212deg) brightness(95%) contrast(93%);
+        transition: filter 0.2s ease-in-out;
+    }
+
+    .hover\:text-blue-700:hover img[src^="/icons/"] {
+        filter: brightness(0) saturate(100%) invert(23%) sepia(93%)
+            saturate(2433%) hue-rotate(212deg) brightness(90%) contrast(98%);
+        transition: filter 0.2s ease-in-out;
+    }
+
+    /* Иконки в кнопках */
+    button img[src^="/icons/"] {
+        pointer-events: none;
+    }
+
+    /* Размеры иконок */
+    .w-3 img[src^="/icons/"],
+    .h-3 img[src^="/icons/"] {
+        width: 0.75rem;
+        height: 0.75rem;
+    }
+
+    .w-4 img[src^="/icons/"],
+    .h-4 img[src^="/icons/"] {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    .w-5 img[src^="/icons/"],
+    .h-5 img[src^="/icons/"] {
+        width: 1.25rem;
+        height: 1.25rem;
+    }
+
+    .w-6 img[src^="/icons/"],
+    .h-6 img[src^="/icons/"] {
+        width: 1.5rem;
+        height: 1.5rem;
+    }
 }
