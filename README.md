@@ -7,6 +7,10 @@
 - **Full-Stack Rust**: Built with [Leptos](https://leptos.dev/) for a seamless SSR and hydration experience.
 - **High Performance**: Powered by WebAssembly and [Petgraph](https://github.com/petgraph/petgraph) for efficient graph manipulation.
 - **Modern UI**: Styled with [Tailwind CSS](https://tailwindcss.com/) for a clean and responsive design.
+- **Interactive Canvas**: 
+  - 🔍 **Zoom**: Use `Ctrl + Scroll` or `Ctrl + +/-` to zoom in and out
+  - 🖱️ **Pan**: Hold middle mouse button to pan around the canvas
+  - ✋ **Drag & Drop**: Click and drag tables to reposition them
 
 ## 📚 Documentation
 

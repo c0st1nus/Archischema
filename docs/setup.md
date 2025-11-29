@@ -1,5 +1,7 @@
 # Setup & Installation
 
+> **New Features**: Check out [Canvas Navigation](canvas-navigation.md) for zoom and pan controls!
+
 ## Prerequisites
 
 Before you begin, ensure you have the following installed:

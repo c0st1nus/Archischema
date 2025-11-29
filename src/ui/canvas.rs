@@ -3,13 +3,28 @@ use crate::ui::sidebar::Sidebar;
 use crate::ui::table::TableNodeView;
 use crate::ui::{Icon, icons};
 use leptos::prelude::*;
-use leptos::web_sys;
+use leptos::{html, web_sys};
 use petgraph::graph::NodeIndex;
 
 #[component]
 pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
     // Состояние для drag & drop
     let (_dragging_node, set_dragging_node) = signal::<Option<(NodeIndex, f64, f64)>>(None);
+
+    // Состояние для трансформации канваса (zoom и pan)
+    #[allow(unused_variables)]
+    let (zoom, set_zoom) = signal(1.0_f64);
+    #[allow(unused_variables)]
+    let (pan_x, set_pan_x) = signal(0.0_f64);
+    #[allow(unused_variables)]
+    let (pan_y, set_pan_y) = signal(0.0_f64);
+
+    // Состояние для панорамирования средней кнопкой мыши
+    #[allow(unused_variables)]
+    let (panning, set_panning) = signal::<Option<(f64, f64)>>(None);
+
+    // Ссылка на элемент канваса для добавления обработчиков событий
+    let canvas_ref = NodeRef::<html::Div>::new();
 
     // Мемоизация индексов узлов для предотвращения лишних пересчетов
     let node_indices = Memo::new(move |_| graph.with(|g| g.node_indices().collect::<Vec<_>>()));
@@ -69,8 +84,14 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
             // Обработчик перемещения - используем batch для группировки обновлений
             let move_closure = Closure::new(move |ev: web_sys::MouseEvent| {
                 ev.prevent_default();
-                let new_x = ev.client_x() as f64 - offset_x;
-                let new_y = ev.client_y() as f64 - offset_y;
+
+                // Учитываем трансформацию канваса при перетаскивании
+                let current_zoom = zoom.get_untracked();
+                let current_pan_x = pan_x.get_untracked();
+                let current_pan_y = pan_y.get_untracked();
+
+                let new_x = (ev.client_x() as f64 - offset_x - current_pan_x) / current_zoom;
+                let new_y = (ev.client_y() as f64 - offset_y - current_pan_y) / current_zoom;
 
                 // Используем batch для минимизации реактивных пересчётов
                 batch(move || {
@@ -108,17 +129,198 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
         // TODO: Центрировать таблицу на канвасе
     };
 
+    // Обработчики для зума и панорамирования
+    #[cfg(not(feature = "ssr"))]
+    {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen::closure::Closure;
+
+        // Closures для панорамирования средней кнопкой
+        let pan_closures: Rc<
+            RefCell<
+                Option<(
+                    Closure<dyn Fn(web_sys::MouseEvent)>,
+                    Closure<dyn Fn(web_sys::MouseEvent)>,
+                )>,
+            >,
+        > = Rc::new(RefCell::new(None));
+        let pan_closures_for_effect = pan_closures.clone();
+
+        // Эффект для настройки обработчиков на элементе канваса
+        Effect::new(move || {
+            let Some(canvas_element) = canvas_ref.get() else {
+                return;
+            };
+
+            // Обработчик колеса мыши для зума
+            let wheel_handler =
+                Closure::<dyn Fn(web_sys::WheelEvent)>::new(move |ev: web_sys::WheelEvent| {
+                    if ev.ctrl_key() {
+                        ev.prevent_default();
+                        ev.stop_propagation();
+
+                        let delta = ev.delta_y();
+                        let zoom_factor = if delta < 0.0 { 1.1 } else { 0.9 };
+
+                        set_zoom.update(|z| {
+                            let new_zoom = (*z * zoom_factor).clamp(0.1, 5.0);
+                            *z = new_zoom;
+                        });
+                    }
+                });
+
+            // Добавляем обработчик wheel с опцией passive: false
+            let options = web_sys::AddEventListenerOptions::new();
+            options.set_passive(false);
+
+            canvas_element
+                .add_event_listener_with_callback_and_add_event_listener_options(
+                    "wheel",
+                    wheel_handler.as_ref().unchecked_ref(),
+                    &options,
+                )
+                .unwrap();
+
+            // Сохраняем closure чтобы он не был удален
+            wheel_handler.forget();
+        });
+
+        // Эффект для обработки панорамирования средней кнопкой
+        Effect::new(move || {
+            let panning_state = panning.get();
+
+            let document = web_sys::window()
+                .and_then(|w| w.document())
+                .expect("no document");
+
+            // Удаляем старые обработчики
+            if let Some((old_move, old_up)) = pan_closures_for_effect.borrow_mut().take() {
+                let _ = document.remove_event_listener_with_callback(
+                    "mousemove",
+                    old_move.as_ref().unchecked_ref(),
+                );
+                let _ = document.remove_event_listener_with_callback(
+                    "mouseup",
+                    old_up.as_ref().unchecked_ref(),
+                );
+            }
+
+            if panning_state.is_none() {
+                return;
+            }
+
+            let (start_x, start_y) = panning_state.unwrap();
+            let initial_pan_x = pan_x.get_untracked();
+            let initial_pan_y = pan_y.get_untracked();
+
+            // Обработчик перемещения мыши
+            let move_closure = Closure::new(move |ev: web_sys::MouseEvent| {
+                ev.prevent_default();
+
+                let dx = ev.client_x() as f64 - start_x;
+                let dy = ev.client_y() as f64 - start_y;
+
+                set_pan_x.set(initial_pan_x + dx);
+                set_pan_y.set(initial_pan_y + dy);
+            });
+
+            // Обработчик отпускания кнопки
+            let up_closure = Closure::new(move |_: web_sys::MouseEvent| {
+                set_panning.set(None);
+            });
+
+            document
+                .add_event_listener_with_callback(
+                    "mousemove",
+                    move_closure.as_ref().unchecked_ref(),
+                )
+                .unwrap();
+
+            document
+                .add_event_listener_with_callback("mouseup", up_closure.as_ref().unchecked_ref())
+                .unwrap();
+
+            *pan_closures_for_effect.borrow_mut() = Some((move_closure, up_closure));
+        });
+
+        // Обработчик клавиатуры для зума (Ctrl + "+"/"-")
+        Effect::new(move || {
+            let document = web_sys::window()
+                .and_then(|w| w.document())
+                .expect("no document");
+
+            let keyboard_handler = Closure::<dyn Fn(web_sys::KeyboardEvent)>::new(
+                move |ev: web_sys::KeyboardEvent| {
+                    // Проверяем Ctrl + "+" или Ctrl + "="
+                    if ev.ctrl_key() && (ev.key() == "+" || ev.key() == "=") {
+                        ev.prevent_default();
+                        set_zoom.update(|z| {
+                            let new_zoom = (*z * 1.1).clamp(0.1, 5.0);
+                            *z = new_zoom;
+                        });
+                    }
+                    // Проверяем Ctrl + "-"
+                    else if ev.ctrl_key() && ev.key() == "-" {
+                        ev.prevent_default();
+                        set_zoom.update(|z| {
+                            let new_zoom = (*z * 0.9).clamp(0.1, 5.0);
+                            *z = new_zoom;
+                        });
+                    }
+                },
+            );
+
+            document
+                .add_event_listener_with_callback(
+                    "keydown",
+                    keyboard_handler.as_ref().unchecked_ref(),
+                )
+                .unwrap();
+
+            keyboard_handler.forget();
+        });
+    }
+
     view! {
         <div class="relative w-full h-screen bg-gray-50 overflow-hidden flex">
             // Сайдбар
             <Sidebar graph=graph on_table_focus=handle_table_focus/>
 
             // Основной канвас (со смещением из-за сайдбара)
-            <div class="flex-1 ml-96 relative">
+            <div
+                node_ref=canvas_ref
+                class="flex-1 ml-96 relative"
+                on:mousedown=move |ev: web_sys::MouseEvent| {
+                    // Средняя кнопка мыши (button = 1)
+                    if ev.button() == 1 {
+                        ev.prevent_default();
+                        ev.stop_propagation();
+                        set_panning.set(Some((ev.client_x() as f64, ev.client_y() as f64)));
+                    }
+                }
+                on:contextmenu=move |ev: web_sys::MouseEvent| {
+                    // Отключаем контекстное меню при клике средней кнопкой
+                    ev.prevent_default();
+                }
+            >
                 // Сетка на фоне
                 <div class="absolute inset-0 bg-grid-pattern opacity-20"></div>
 
-                // Рендерим все узлы (таблицы) - используем мемоизированные индексы
+                // Контейнер с трансформацией для зума и панорамирования
+                <div
+                    style:transform=move || format!(
+                        "translate({}px, {}px) scale({})",
+                        pan_x.get(),
+                        pan_y.get(),
+                        zoom.get()
+                    )
+                    style:transform-origin="0 0"
+                    style:transition="none"
+                    class="absolute top-0 left-0"
+                >
+                    // Рендерим все узлы (таблицы) - используем мемоизированные индексы
                 {move || {
                     node_indices.get()
                         .into_iter()
@@ -142,19 +344,27 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                                 graph.with_untracked(|g| {
                                                     if let Some(n) = g.node_weight(node_idx) {
                                                         let (x, y) = n.position;
-                                                        let offset_x = ev.client_x() as f64 - x;
-                                                        let offset_y = ev.client_y() as f64 - y;
+                                                        let current_zoom = zoom.get_untracked();
+                                                        let current_pan_x = pan_x.get_untracked();
+                                                        let current_pan_y = pan_y.get_untracked();
+
+                                                        // Учитываем трансформацию канваса при расчете offset
+                                                        let transformed_x = x * current_zoom + current_pan_x;
+                                                        let transformed_y = y * current_zoom + current_pan_y;
+                                                        let offset_x = ev.client_x() as f64 - transformed_x;
+                                                        let offset_y = ev.client_y() as f64 - transformed_y;
                                                         set_dragging_node.set(Some((node_idx, offset_x, offset_y)));
                                                     }
                                                 });
                                             }
-                                        />
-                                    }
+                                            />
+                                        }
+                                    })
                                 })
                             })
-                        })
-                        .collect_view()
-                }}
+                            .collect_view()
+                        }}
+                </div>
 
                 // SVG слой для отрисовки связей
                 <svg class="absolute top-0 left-0 w-full h-full pointer-events-none">
@@ -171,8 +381,16 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                         </marker>
                     </defs>
 
-                    // Рендерим связи - используем мемоизированные индексы
-                    {move || {
+                    <g
+                        transform=move || format!(
+                            "translate({}, {}) scale({})",
+                            pan_x.get(),
+                            pan_y.get(),
+                            zoom.get()
+                        )
+                    >
+                        // Рендерим связи - используем мемоизированные индексы
+                        {move || {
                         edge_indices.get()
                             .into_iter()
                             .filter_map(|edge_idx| {
@@ -249,7 +467,8 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                 })
                             })
                             .collect_view()
-                    }}
+                        }}
+                    </g>
                 </svg>
 
                 // Панель инструментов (правый верхний угол)
@@ -260,8 +479,12 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                     </h3>
                     <div class="text-sm text-gray-600 space-y-1">
                         <p>"• Drag tables to move"</p>
+                        <p>"• Middle mouse button to pan"</p>
+                        <p>"• Ctrl + scroll / +/- to zoom"</p>
                         <p>"• Use sidebar to edit columns"</p>
-                        <p>"• Click table name to focus"</p>
+                    </div>
+                    <div class="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
+                        <p>{move || format!("Zoom: {:.0}%", zoom.get() * 100.0)}</p>
                     </div>
                 </div>
             </div>
@@ -324,39 +547,81 @@ fn calculate_edge_path(
         let to_center_x = to_x + node_width / 2.0;
 
         if to_center_x > from_center_x {
-            // Целевая таблица правее
-            let start_x = from_right;
-            let end_x = to_left;
-            let max_right = from_right.max(to_right);
-            let out_x = max_right + gap;
+            // Целевая таблица правее по центру
+            // Проверяем, не пересекается ли прямой путь from_right → to_left с целевой таблицей
+            let direct_path_crosses_target = from_right > to_left && from_right < to_right;
 
-            let path = format!(
-                "M {} {} L {} {} L {} {} L {} {}",
-                start_x, from_col_y, out_x, from_col_y, out_x, to_col_y, end_x, to_col_y
-            );
+            if direct_path_crosses_target {
+                // Путь пересекает целевую таблицу - идем с левой стороны источника к левой стороне цели
+                let start_x = from_left;
+                let end_x = to_left;
+                let min_left = from_left.min(to_left);
+                let out_x = min_left - gap;
 
-            // Позиция текста - на первом горизонтальном сегменте (выходящем вправо)
-            let label_x = (start_x + out_x) / 2.0;
-            let label_y = from_col_y - 5.0;
+                let path = format!(
+                    "M {} {} L {} {} L {} {} L {} {}",
+                    start_x, from_col_y, out_x, from_col_y, out_x, to_col_y, end_x, to_col_y
+                );
 
-            (start_x, from_col_y, end_x, to_col_y, label_x, label_y, path)
+                let label_x = (start_x + out_x) / 2.0;
+                let label_y = from_col_y - 5.0;
+
+                (start_x, from_col_y, end_x, to_col_y, label_x, label_y, path)
+            } else {
+                // Обычный путь справа
+                let start_x = from_right;
+                let end_x = to_left;
+                let max_right = from_right.max(to_right);
+                let out_x = max_right + gap;
+
+                let path = format!(
+                    "M {} {} L {} {} L {} {} L {} {}",
+                    start_x, from_col_y, out_x, from_col_y, out_x, to_col_y, end_x, to_col_y
+                );
+
+                let label_x = (start_x + out_x) / 2.0;
+                let label_y = from_col_y - 5.0;
+
+                (start_x, from_col_y, end_x, to_col_y, label_x, label_y, path)
+            }
         } else {
-            // Целевая таблица левее
-            let start_x = from_left;
-            let end_x = to_right;
-            let min_left = from_left.min(to_left);
-            let out_x = min_left - gap;
+            // Целевая таблица левее по центру
+            // Проверяем, не пересекается ли прямой путь from_left → to_right с целевой таблицей
+            let direct_path_crosses_target = from_left < to_right && from_left > to_left;
 
-            let path = format!(
-                "M {} {} L {} {} L {} {} L {} {}",
-                start_x, from_col_y, out_x, from_col_y, out_x, to_col_y, end_x, to_col_y
-            );
+            if direct_path_crosses_target {
+                // Путь пересекает целевую таблицу - идем с правой стороны источника к правой стороне цели
+                let start_x = from_right;
+                let end_x = to_right;
+                let max_right = from_right.max(to_right);
+                let out_x = max_right + gap;
 
-            // Позиция текста - на первом горизонтальном сегменте (выходящем влево)
-            let label_x = (start_x + out_x) / 2.0;
-            let label_y = from_col_y - 5.0;
+                let path = format!(
+                    "M {} {} L {} {} L {} {} L {} {}",
+                    start_x, from_col_y, out_x, from_col_y, out_x, to_col_y, end_x, to_col_y
+                );
 
-            (start_x, from_col_y, end_x, to_col_y, label_x, label_y, path)
+                let label_x = (start_x + out_x) / 2.0;
+                let label_y = from_col_y - 5.0;
+
+                (start_x, from_col_y, end_x, to_col_y, label_x, label_y, path)
+            } else {
+                // Обычный путь слева
+                let start_x = from_left;
+                let end_x = to_right;
+                let min_left = from_left.min(to_left);
+                let out_x = min_left - gap;
+
+                let path = format!(
+                    "M {} {} L {} {} L {} {} L {} {}",
+                    start_x, from_col_y, out_x, from_col_y, out_x, to_col_y, end_x, to_col_y
+                );
+
+                let label_x = (start_x + out_x) / 2.0;
+                let label_y = from_col_y - 5.0;
+
+                (start_x, from_col_y, end_x, to_col_y, label_x, label_y, path)
+            }
         }
     }
 }
