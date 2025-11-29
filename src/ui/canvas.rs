@@ -38,7 +38,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
         let closures_for_effect = closures.clone();
 
         Effect::new(move || {
-            let dragging = dragging_node.get();
+            let dragging = _dragging_node.get();
 
             // Сначала очищаем старые обработчики
             if let Some(document) = web_sys::window().and_then(|w| w.document()) {
@@ -215,7 +215,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                     let to_left = to_x;
 
                                     // Умная логика выбора пути стрелки
-                                    let (start_x, start_y, end_x, end_y, path_data) =
+                                    let (_start_x, _start_y, _end_x, _end_y, text_x, text_y, path_data) =
                                         calculate_edge_path(
                                             from_x, from_y, to_x, to_y,
                                             from_col_y, to_col_y,
@@ -223,9 +223,6 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                             NODE_WIDTH, GAP
                                         );
 
-                                    // Позиция для текста
-                                    let text_x = (start_x + end_x) / 2.0 + 5.0;
-                                    let text_y = (start_y + end_y) / 2.0;
                                     let rel_type = edge.relationship_type.to_string();
 
                                     Some(view! {
@@ -273,6 +270,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
 }
 
 /// Вычисляет путь SVG для рёбра графа с оптимизированной логикой
+/// Возвращает: (start_x, start_y, end_x, end_y, label_x, label_y, path_data)
 #[inline]
 fn calculate_edge_path(
     from_x: f64,
@@ -287,7 +285,7 @@ fn calculate_edge_path(
     to_right: f64,
     node_width: f64,
     gap: f64,
-) -> (f64, f64, f64, f64, String) {
+) -> (f64, f64, f64, f64, f64, f64, String) {
     if to_left >= from_right + 10.0 {
         // Целевая таблица ЧЁТКО справа - стандартный путь
         let start_x = from_right;
@@ -298,7 +296,12 @@ fn calculate_edge_path(
             "M {} {} L {} {} L {} {} L {} {}",
             start_x, from_col_y, mid_x, from_col_y, mid_x, to_col_y, end_x, to_col_y
         );
-        (start_x, from_col_y, end_x, to_col_y, path)
+
+        // Позиция текста - на первом горизонтальном сегменте
+        let label_x = (start_x + mid_x) / 2.0;
+        let label_y = from_col_y - 5.0;
+
+        (start_x, from_col_y, end_x, to_col_y, label_x, label_y, path)
     } else if from_left >= to_right + 10.0 {
         // Целевая таблица ЧЁТКО слева - зеркальный путь
         let start_x = from_left;
@@ -309,7 +312,12 @@ fn calculate_edge_path(
             "M {} {} L {} {} L {} {} L {} {}",
             start_x, from_col_y, mid_x, from_col_y, mid_x, to_col_y, end_x, to_col_y
         );
-        (start_x, from_col_y, end_x, to_col_y, path)
+
+        // Позиция текста - на первом горизонтальном сегменте
+        let label_x = (start_x + mid_x) / 2.0;
+        let label_y = from_col_y - 5.0;
+
+        (start_x, from_col_y, end_x, to_col_y, label_x, label_y, path)
     } else {
         // Таблицы перекрываются по X или расположены по диагонали
         let from_center_x = from_x + node_width / 2.0;
@@ -326,7 +334,12 @@ fn calculate_edge_path(
                 "M {} {} L {} {} L {} {} L {} {}",
                 start_x, from_col_y, out_x, from_col_y, out_x, to_col_y, end_x, to_col_y
             );
-            (start_x, from_col_y, end_x, to_col_y, path)
+
+            // Позиция текста - на первом горизонтальном сегменте (выходящем вправо)
+            let label_x = (start_x + out_x) / 2.0;
+            let label_y = from_col_y - 5.0;
+
+            (start_x, from_col_y, end_x, to_col_y, label_x, label_y, path)
         } else {
             // Целевая таблица левее
             let start_x = from_left;
@@ -338,7 +351,12 @@ fn calculate_edge_path(
                 "M {} {} L {} {} L {} {} L {} {}",
                 start_x, from_col_y, out_x, from_col_y, out_x, to_col_y, end_x, to_col_y
             );
-            (start_x, from_col_y, end_x, to_col_y, path)
+
+            // Позиция текста - на первом горизонтальном сегменте (выходящем влево)
+            let label_x = (start_x + out_x) / 2.0;
+            let label_y = from_col_y - 5.0;
+
+            (start_x, from_col_y, end_x, to_col_y, label_x, label_y, path)
         }
     }
 }
