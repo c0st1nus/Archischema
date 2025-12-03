@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 
-use crate::core::create_demo_graph;
+use crate::core::SchemaGraph;
 use crate::ui::SchemaCanvas;
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
@@ -27,8 +27,8 @@ pub fn App() -> impl IntoView {
     // Provides context that manages stylesheets, titles, meta tags, etc.
     provide_meta_context();
 
-    // Создаем демо-граф для визуализации
-    let graph = RwSignal::new(create_demo_graph());
+    // Создаем пустой граф для визуализации (пользователь увидит Empty State)
+    let graph = RwSignal::new(SchemaGraph::new());
 
     view! {
         // injects a stylesheet into the document <head>

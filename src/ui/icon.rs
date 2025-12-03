@@ -38,4 +38,6 @@ pub mod icons {
     pub const MENU: &str = "menu";
     pub const EXPAND: &str = "expand";
     pub const COLLAPSE: &str = "collapse";
+    pub const ALERT_CIRCLE: &str = "alert-circle";
+    pub const LOADER: &str = "loader";
 }

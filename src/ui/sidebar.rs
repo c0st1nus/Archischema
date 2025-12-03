@@ -1,9 +1,17 @@
-use crate::core::{Column, SchemaGraph};
+use crate::core::{Column, SchemaGraph, TableOps};
 use crate::ui::column_editor::ColumnEditor;
+use crate::ui::table_editor::TableEditor;
 use crate::ui::{Icon, icons};
 use leptos::prelude::*;
 use leptos::web_sys;
 use petgraph::graph::NodeIndex;
+
+#[derive(Clone, Debug, PartialEq)]
+enum EditingMode {
+    None,
+    EditingColumn(NodeIndex, Option<usize>),
+    EditingTable(NodeIndex),
+}
 
 #[component]
 pub fn Sidebar(
@@ -14,8 +22,8 @@ pub fn Sidebar(
     let (search_query, set_search_query) = signal(String::new());
     let (expanded_tables, set_expanded_tables) = signal::<Vec<NodeIndex>>(Vec::new());
 
-    // Состояние для редактора
-    let (editing_state, set_editing_state) = signal::<Option<(NodeIndex, Option<usize>)>>(None);
+    // Состояние для редактора (колонка или таблица)
+    let (editing_mode, set_editing_mode) = signal(EditingMode::None);
 
     // Мемоизация статистики для предотвращения повторных подсчетов
     let total_tables = Memo::new(move |_| graph.with(|g| g.node_count()));
@@ -88,81 +96,126 @@ pub fn Sidebar(
                         </div>
 
                         {move || {
-                            if let Some((node_idx, col_idx)) = editing_state.get() {
-                                // Режим редактирования
-                                let g = graph.get();
-                                let node = g.node_weight(node_idx).cloned();
-                                let column = col_idx.and_then(|idx| {
-                                    node.as_ref().and_then(|n| n.columns.get(idx).cloned())
-                                });
-                                let table_name = node.map(|n| n.name.clone()).unwrap_or_default();
-                                view! {
-                                    <div class="flex-1 flex flex-col overflow-hidden">
-                                        // Хлебные крошки
-                                        <div class="px-6 py-3 border-b border-gray-200 bg-gray-50">
-                                            <button
-                                                class="flex items-center text-sm text-blue-600 hover:text-blue-700 font-medium"
-                                                on:click=move |_| set_editing_state.set(None)
-                                            >
-                                                <Icon name=icons::CHEVRON_LEFT class="w-4 h-4 mr-1"/>
-                                                "Back to tables"
-                                            </button>
-                                            <div class="mt-1 text-xs text-gray-500">
-                                                <span class="font-medium text-gray-700">{table_name}</span>
-                                                {if col_idx.is_some() {
-                                                    " → Edit Column"
-                                                } else {
-                                                    " → New Column"
-                                                }}
+                            match editing_mode.get() {
+                                EditingMode::EditingColumn(node_idx, col_idx) => {
+                                    // Режим редактирования колонки
+                                    let g = graph.get();
+                                    let node = g.node_weight(node_idx).cloned();
+                                    let column = col_idx.and_then(|idx| {
+                                        node.as_ref().and_then(|n| n.columns.get(idx).cloned())
+                                    });
+                                    let table_name = node.map(|n| n.name.clone()).unwrap_or_default();
+                                    view! {
+                                        <div class="flex-1 flex flex-col overflow-hidden">
+                                            // Хлебные крошки
+                                            <div class="px-6 py-3 border-b border-gray-200 bg-gray-50">
+                                                <button
+                                                    class="flex items-center text-sm text-blue-600 hover:text-blue-700 font-medium"
+                                                    on:click=move |_| set_editing_mode.set(EditingMode::None)
+                                                >
+                                                    <Icon name=icons::CHEVRON_LEFT class="w-4 h-4 mr-1"/>
+                                                    "Back to tables"
+                                                </button>
+                                                <div class="mt-1 text-xs text-gray-500">
+                                                    <span class="font-medium text-gray-700">{table_name}</span>
+                                                    {if col_idx.is_some() {
+                                                        " → Edit Column"
+                                                    } else {
+                                                        " → New Column"
+                                                    }}
+                                                </div>
                                             </div>
-                                        </div>
 
-                                        // Редактор колонки в сайдбаре
-                                        <div class="flex-1 overflow-y-auto px-6 py-4">
-                                            <ColumnEditor
-                                                column=column
-                                                inline=true
-                                                graph=graph
-                                                current_table=node_idx
-                                                on_save=move |new_column| {
-                                                    graph
-                                                        .update(|g| {
-                                                            if let Some(node) = g.node_weight_mut(node_idx) {
-                                                                if let Some(idx) = col_idx {
-                                                                    if idx < node.columns.len() {
-                                                                        node.columns[idx] = new_column;
-                                                                    }
-                                                                } else {
-                                                                    node.columns.push(new_column);
-                                                                }
-                                                            }
-                                                        });
-                                                    set_editing_state.set(None);
-                                                }
-
-                                                on_cancel=move |_| {
-                                                    set_editing_state.set(None);
-                                                }
-
-                                                on_delete=move |_| {
-                                                    if let Some(idx) = col_idx {
+                                            // Редактор колонки в сайдбаре
+                                            <div class="flex-1 overflow-y-auto px-6 py-4">
+                                                <ColumnEditor
+                                                    column=column
+                                                    inline=true
+                                                    graph=graph
+                                                    current_table=node_idx
+                                                    on_save=move |new_column| {
                                                         graph
                                                             .update(|g| {
                                                                 if let Some(node) = g.node_weight_mut(node_idx) {
-                                                                    if idx < node.columns.len() {
-                                                                        node.columns.remove(idx);
+                                                                    if let Some(idx) = col_idx {
+                                                                        if idx < node.columns.len() {
+                                                                            node.columns[idx] = new_column;
+                                                                        }
+                                                                    } else {
+                                                                        node.columns.push(new_column);
                                                                     }
                                                                 }
                                                             });
+                                                        set_editing_mode.set(EditingMode::None);
                                                     }
-                                                    set_editing_state.set(None);
-                                                }
-                                            />
+
+                                                    on_cancel=move |_| {
+                                                        set_editing_mode.set(EditingMode::None);
+                                                    }
+
+                                                    on_delete=move |_| {
+                                                        if let Some(idx) = col_idx {
+                                                            graph
+                                                                .update(|g| {
+                                                                    if let Some(node) = g.node_weight_mut(node_idx) {
+                                                                        if idx < node.columns.len() {
+                                                                            node.columns.remove(idx);
+                                                                        }
+                                                                    }
+                                                                });
+                                                        }
+                                                        set_editing_mode.set(EditingMode::None);
+                                                    }
+                                                />
+                                            </div>
                                         </div>
-                                    </div>
+                                    }
+                                        .into_any()
                                 }
-                                    .into_any()
-                            } else {
+                                EditingMode::EditingTable(node_idx) => {
+                                    // Режим редактирования таблицы
+                                    view! {
+                                        <div class="flex-1 flex flex-col overflow-hidden">
+                                            // Хлебные крошки
+                                            <div class="px-6 py-3 border-b border-gray-200 bg-gray-50">
+                                                <button
+                                                    class="flex items-center text-sm text-blue-600 hover:text-blue-700 font-medium"
+                                                    on:click=move |_| set_editing_mode.set(EditingMode::None)
+                                                >
+                                                    <Icon name=icons::CHEVRON_LEFT class="w-4 h-4 mr-1"/>
+                                                    "Back to tables"
+                                                </button>
+                                                <div class="mt-1 text-xs text-gray-500">
+                                                    "Edit Table"
+                                                </div>
+                                            </div>
+
+                                            // Редактор таблицы в сайдбаре
+                                            <div class="flex-1 overflow-y-auto px-6 py-4">
+                                                <TableEditor
+                                                    graph=graph
+                                                    node_idx=node_idx
+                                                    on_save=move |_| {
+                                                        set_editing_mode.set(EditingMode::None);
+                                                    }
+
+                                                    on_cancel=move |_| {
+                                                        set_editing_mode.set(EditingMode::None);
+                                                    }
+
+                                                    on_delete=move |_| {
+                                                        graph.update(|g| {
+                                                            let _ = g.delete_table(node_idx);
+                                                        });
+                                                        set_editing_mode.set(EditingMode::None);
+                                                    }
+                                                />
+                                            </div>
+                                        </div>
+                                    }
+                                        .into_any()
+                                }
+                                EditingMode::None => {
                                 // Режим просмотра списка таблиц
                                 view! {
                                     <div class="flex-1 flex flex-col overflow-hidden">
@@ -207,6 +260,29 @@ pub fn Sidebar(
                                                     <div class="text-xs text-gray-500 mt-0.5">"Relations"</div>
                                                 </div>
                                             </div>
+                                        </div>
+
+                                        // Кнопка создания таблицы
+                                        <div class="px-6 py-4 border-b border-gray-200 bg-white">
+                                            <button
+                                                class="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 text-sm font-semibold flex items-center justify-center shadow-sm transition-all"
+                                                on:click=move |_| {
+                                                    // Создаем новую таблицу в центре видимой области
+                                                    let new_node_idx = graph.write().create_table_auto((300.0, 300.0));
+                                                    // Открываем редактор для новой таблицы
+                                                    set_editing_mode.set(EditingMode::EditingTable(new_node_idx));
+                                                    // Раскрываем таблицу в списке
+                                                    set_expanded_tables
+                                                        .update(|expanded| {
+                                                            if !expanded.contains(&new_node_idx) {
+                                                                expanded.push(new_node_idx);
+                                                            }
+                                                        });
+                                                }
+                                            >
+                                                <Icon name=icons::PLUS class="w-5 h-5 mr-2"/>
+                                                "New Table"
+                                            </button>
                                         </div>
 
                                         // Список таблиц
@@ -293,16 +369,29 @@ pub fn Sidebar(
                                                                         </div>
                                                                     </div>
 
-                                                                    <button
-                                                                        class="ml-2 p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                                        title="Add column"
-                                                                        on:click=move |ev: web_sys::MouseEvent| {
-                                                                            ev.stop_propagation();
-                                                                            set_editing_state.set(Some((node_idx, None)));
-                                                                        }
-                                                                    >
-                                                                        <Icon name=icons::PLUS class="w-5 h-5"/>
-                                                                    </button>
+                                                                    <div class="flex items-center space-x-1">
+                                                                        <button
+                                                                            class="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                                                                            title="Edit table"
+                                                                            on:click=move |ev: web_sys::MouseEvent| {
+                                                                                ev.stop_propagation();
+                                                                                set_editing_mode.set(EditingMode::EditingTable(node_idx));
+                                                                            }
+                                                                        >
+                                                                            <Icon name=icons::EDIT class="w-4 h-4"/>
+                                                                        </button>
+                                                                        <button
+                                                                            class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                            title="Add column"
+                                                                            on:click=move |ev: web_sys::MouseEvent| {
+                                                                                ev.stop_propagation();
+                                                                                set_editing_mode
+                                                                                    .set(EditingMode::EditingColumn(node_idx, None));
+                                                                            }
+                                                                        >
+                                                                            <Icon name=icons::PLUS class="w-5 h-5"/>
+                                                                        </button>
+                                                                    </div>
                                                                 </div>
 
                                                                 // Список колонок
@@ -316,7 +405,8 @@ pub fn Sidebar(
                                                                                         <button
                                                                                             class="block mx-auto mt-2 text-blue-600 hover:text-blue-700 font-medium"
                                                                                             on:click=move |_| {
-                                                                                                set_editing_state.set(Some((node_idx, None)));
+                                                                                                set_editing_mode
+                                                                                                    .set(EditingMode::EditingColumn(node_idx, None));
                                                                                             }
                                                                                         >
 
@@ -340,7 +430,8 @@ pub fn Sidebar(
                                                                                             <ColumnItem
                                                                                                 column=column.clone()
                                                                                                 on_click=move |_| {
-                                                                                                    set_editing_state.set(Some((node_idx, Some(col_idx))));
+                                                                                                    set_editing_mode
+                                                                                                        .set(EditingMode::EditingColumn(node_idx, Some(col_idx)));
                                                                                                 }
                                                                                             />
                                                                                         }
@@ -401,6 +492,7 @@ pub fn Sidebar(
                                     </div>
                                 }
                                     .into_any()
+                                }
                             }
                         }}
                     </div>

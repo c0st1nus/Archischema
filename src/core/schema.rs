@@ -414,6 +414,142 @@ impl std::fmt::Display for RelationshipType {
 /// Тип графа: узлы - таблицы, ребра - связи
 pub type SchemaGraph = StableGraph<TableNode, Relationship, Directed>;
 
+/// Расширение SchemaGraph для работы с таблицами
+pub trait TableOps {
+    /// Создать новую таблицу с уникальным именем
+    fn create_table(
+        &mut self,
+        name: impl Into<String>,
+        position: (f64, f64),
+    ) -> Result<petgraph::graph::NodeIndex, String>;
+
+    /// Создать таблицу с автоматическим именем (new_table_1, new_table_2, и т.д.)
+    fn create_table_auto(&mut self, position: (f64, f64)) -> petgraph::graph::NodeIndex;
+
+    /// Переименовать таблицу
+    fn rename_table(
+        &mut self,
+        node_idx: petgraph::graph::NodeIndex,
+        new_name: impl Into<String>,
+    ) -> Result<(), String>;
+
+    /// Удалить таблицу (и все связанные с ней связи)
+    fn delete_table(&mut self, node_idx: petgraph::graph::NodeIndex) -> Result<TableNode, String>;
+
+    /// Проверить, существует ли таблица с таким именем
+    fn table_exists(&self, name: &str) -> bool;
+
+    /// Найти таблицу по имени
+    fn find_table_by_name(&self, name: &str) -> Option<petgraph::graph::NodeIndex>;
+
+    /// Сгенерировать уникальное имя таблицы
+    fn generate_unique_table_name(&self, base_name: &str) -> String;
+}
+
+impl TableOps for SchemaGraph {
+    fn create_table(
+        &mut self,
+        name: impl Into<String>,
+        position: (f64, f64),
+    ) -> Result<petgraph::graph::NodeIndex, String> {
+        let name = name.into();
+
+        // Проверяем, что имя не пустое
+        if name.trim().is_empty() {
+            return Err("Table name cannot be empty".to_string());
+        }
+
+        // Проверяем уникальность имени
+        if self.table_exists(&name) {
+            return Err(format!("Table '{}' already exists", name));
+        }
+
+        // Создаем таблицу
+        let table = TableNode::new(name).with_position(position.0, position.1);
+        Ok(self.add_node(table))
+    }
+
+    fn create_table_auto(&mut self, position: (f64, f64)) -> petgraph::graph::NodeIndex {
+        let name = self.generate_unique_table_name("new_table");
+        let table = TableNode::new(name).with_position(position.0, position.1);
+        self.add_node(table)
+    }
+
+    fn rename_table(
+        &mut self,
+        node_idx: petgraph::graph::NodeIndex,
+        new_name: impl Into<String>,
+    ) -> Result<(), String> {
+        let new_name = new_name.into();
+
+        // Проверяем, что имя не пустое
+        if new_name.trim().is_empty() {
+            return Err("Table name cannot be empty".to_string());
+        }
+
+        // Получаем текущее имя
+        let current_name = self
+            .node_weight(node_idx)
+            .map(|n| n.name.clone())
+            .ok_or_else(|| "Table not found".to_string())?;
+
+        // Если имя не изменилось, просто возвращаем Ok
+        if current_name == new_name {
+            return Ok(());
+        }
+
+        // Проверяем уникальность нового имени
+        if self.table_exists(&new_name) {
+            return Err(format!("Table '{}' already exists", new_name));
+        }
+
+        // Переименовываем
+        if let Some(node) = self.node_weight_mut(node_idx) {
+            node.name = new_name;
+            Ok(())
+        } else {
+            Err("Table not found".to_string())
+        }
+    }
+
+    fn delete_table(&mut self, node_idx: petgraph::graph::NodeIndex) -> Result<TableNode, String> {
+        if let Some(table) = self.remove_node(node_idx) {
+            Ok(table)
+        } else {
+            Err("Table not found".to_string())
+        }
+    }
+
+    fn table_exists(&self, name: &str) -> bool {
+        self.node_weights().any(|node| node.name == name)
+    }
+
+    fn find_table_by_name(&self, name: &str) -> Option<petgraph::graph::NodeIndex> {
+        self.node_indices().find(|&idx| {
+            self.node_weight(idx)
+                .map(|node| node.name == name)
+                .unwrap_or(false)
+        })
+    }
+
+    fn generate_unique_table_name(&self, base_name: &str) -> String {
+        let mut counter = 1;
+        loop {
+            let name = if counter == 1 {
+                base_name.to_string()
+            } else {
+                format!("{}_{}", base_name, counter)
+            };
+
+            if !self.table_exists(&name) {
+                return name;
+            }
+
+            counter += 1;
+        }
+    }
+}
+
 /// Расширение SchemaGraph для работы со связями
 pub trait RelationshipOps {
     /// Создать новую связь между таблицами

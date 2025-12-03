@@ -1,4 +1,4 @@
-use crate::core::SchemaGraph;
+use crate::core::{SchemaGraph, TableOps, create_demo_graph};
 use crate::ui::sidebar::Sidebar;
 use crate::ui::table::TableNodeView;
 use crate::ui::{Icon, icons};
@@ -487,6 +487,70 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                         <p>{move || format!("Zoom: {:.0}%", zoom.get() * 100.0)}</p>
                     </div>
                 </div>
+
+                // FAB (Floating Action Button) для создания таблицы
+                <button
+                    class="absolute bottom-8 right-8 w-16 h-16 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white rounded-full shadow-2xl hover:shadow-3xl transition-all duration-300 flex items-center justify-center group hover:scale-110 focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50"
+                    on:click=move |_| {
+                        // Создаем новую таблицу в центре видимой области
+                        let viewport_center_x = 400.0;
+                        let viewport_center_y = 300.0;
+                        let _ = graph.write().create_table_auto((viewport_center_x, viewport_center_y));
+                    }
+                    title="Create new table (Ctrl+N)"
+                >
+                    <Icon name=icons::PLUS class="w-8 h-8"/>
+                </button>
+
+                // Empty State - показывается когда нет таблиц
+                {move || {
+                    let table_count = graph.with(|g| g.node_count());
+                    if table_count == 0 {
+                        view! {
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <div class="text-center max-w-md px-8">
+                                    <div class="w-24 h-24 mx-auto mb-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
+                                        <Icon name=icons::TABLE class="w-12 h-12 text-blue-600"/>
+                                    </div>
+                                    <h2 class="text-3xl font-bold text-gray-800 mb-3">
+                                        "Welcome to Diagramix"
+                                    </h2>
+                                    <p class="text-gray-600 mb-8 leading-relaxed">
+                                        "Start designing your database schema by creating your first table, or load a demo to see how it works."
+                                    </p>
+                                    <div class="flex flex-col gap-3 justify-center items-stretch w-full max-w-xs mx-auto">
+                                        <button
+                                            class="w-full px-6 py-3 text-white rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2"
+                                            style="background-color: #3b82f6;"
+                                            on:click=move |_| {
+                                                let _ = graph.write().create_table_auto((400.0, 300.0));
+                                            }
+                                        >
+                                            <Icon name=icons::PLUS class="w-5 h-5"/>
+                                            "Create Your First Table"
+                                        </button>
+                                        <button
+                                            class="w-full px-6 py-3 text-gray-700 rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2"
+                                            style="background-color: #f3f4f6;"
+                                            on:click=move |_| {
+                                                graph.set(create_demo_graph());
+                                            }
+                                        >
+                                            <Icon name=icons::TABLE class="w-5 h-5"/>
+                                            "Load Demo Schema"
+                                        </button>
+                                    </div>
+                                    <div class="mt-6 text-sm text-gray-500">
+                                        "Or use the \"New Table\" button in the sidebar"
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                            .into_any()
+                    } else {
+                        view! { <div></div> }.into_any()
+                    }
+                }}
             </div>
         </div>
     }

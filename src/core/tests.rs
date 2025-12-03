@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use crate::core::{Column, MySqlDataType, RelationshipOps, RelationshipType, TableNode};
+    use super::*;
+    use crate::core::{
+        Column, MySqlDataType, RelationshipOps, RelationshipType, TableNode, TableOps,
+    };
     use petgraph::stable_graph::StableGraph;
 
     #[test]
@@ -466,5 +469,230 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(graph.edge_count(), 1);
+    }
+
+    // ===== TableOps Tests =====
+
+    #[test]
+    fn test_create_table() {
+        let mut graph = StableGraph::new();
+
+        let result = graph.create_table("users", (100.0, 200.0));
+        assert!(result.is_ok());
+
+        let node_idx = result.unwrap();
+        let table = graph.node_weight(node_idx).unwrap();
+        assert_eq!(table.name, "users");
+        assert_eq!(table.position, (100.0, 200.0));
+        assert_eq!(table.columns.len(), 0);
+    }
+
+    #[test]
+    fn test_create_table_empty_name() {
+        let mut graph = StableGraph::new();
+
+        let result = graph.create_table("", (0.0, 0.0));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Table name cannot be empty");
+    }
+
+    #[test]
+    fn test_create_table_duplicate_name() {
+        let mut graph = StableGraph::new();
+
+        graph.create_table("users", (0.0, 0.0)).unwrap();
+        let result = graph.create_table("users", (100.0, 100.0));
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Table 'users' already exists");
+    }
+
+    #[test]
+    fn test_create_table_auto() {
+        let mut graph = StableGraph::new();
+
+        let node_idx1 = graph.create_table_auto((0.0, 0.0));
+        let table1 = graph.node_weight(node_idx1).unwrap();
+        assert_eq!(table1.name, "new_table");
+
+        let node_idx2 = graph.create_table_auto((100.0, 100.0));
+        let table2 = graph.node_weight(node_idx2).unwrap();
+        assert_eq!(table2.name, "new_table_2");
+
+        let node_idx3 = graph.create_table_auto((200.0, 200.0));
+        let table3 = graph.node_weight(node_idx3).unwrap();
+        assert_eq!(table3.name, "new_table_3");
+    }
+
+    #[test]
+    fn test_rename_table() {
+        let mut graph = StableGraph::new();
+
+        let node_idx = graph.create_table("users", (0.0, 0.0)).unwrap();
+        let result = graph.rename_table(node_idx, "customers");
+
+        assert!(result.is_ok());
+        let table = graph.node_weight(node_idx).unwrap();
+        assert_eq!(table.name, "customers");
+    }
+
+    #[test]
+    fn test_rename_table_empty_name() {
+        let mut graph = StableGraph::new();
+
+        let node_idx = graph.create_table("users", (0.0, 0.0)).unwrap();
+        let result = graph.rename_table(node_idx, "");
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Table name cannot be empty");
+    }
+
+    #[test]
+    fn test_rename_table_duplicate_name() {
+        let mut graph = StableGraph::new();
+
+        graph.create_table("users", (0.0, 0.0)).unwrap();
+        let node_idx2 = graph.create_table("posts", (100.0, 100.0)).unwrap();
+
+        let result = graph.rename_table(node_idx2, "users");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Table 'users' already exists");
+    }
+
+    #[test]
+    fn test_rename_table_same_name() {
+        let mut graph = StableGraph::new();
+
+        let node_idx = graph.create_table("users", (0.0, 0.0)).unwrap();
+        let result = graph.rename_table(node_idx, "users");
+
+        assert!(result.is_ok());
+        let table = graph.node_weight(node_idx).unwrap();
+        assert_eq!(table.name, "users");
+    }
+
+    #[test]
+    fn test_delete_table() {
+        let mut graph = StableGraph::new();
+
+        let node_idx = graph.create_table("users", (0.0, 0.0)).unwrap();
+        assert_eq!(graph.node_count(), 1);
+
+        let result = graph.delete_table(node_idx);
+        assert!(result.is_ok());
+
+        let deleted_table = result.unwrap();
+        assert_eq!(deleted_table.name, "users");
+        assert_eq!(graph.node_count(), 0);
+    }
+
+    #[test]
+    fn test_delete_table_with_relationships() {
+        let mut graph = StableGraph::new();
+
+        let users_idx = graph.create_table("users", (0.0, 0.0)).unwrap();
+        let posts_idx = graph.create_table("posts", (100.0, 100.0)).unwrap();
+
+        // Add columns for relationship
+        graph
+            .node_weight_mut(users_idx)
+            .unwrap()
+            .create_column(Column::new("id", "INTEGER").primary_key());
+        graph
+            .node_weight_mut(posts_idx)
+            .unwrap()
+            .create_column(Column::new("user_id", "INTEGER"));
+
+        let rel = crate::core::Relationship::new(
+            "user_posts",
+            RelationshipType::OneToMany,
+            "id",
+            "user_id",
+        );
+        graph
+            .create_relationship(users_idx, posts_idx, rel)
+            .unwrap();
+
+        assert_eq!(graph.edge_count(), 1);
+
+        let result = graph.delete_table(users_idx);
+        assert!(result.is_ok());
+
+        // Relationships are automatically removed when node is deleted
+        assert_eq!(graph.node_count(), 1);
+    }
+
+    #[test]
+    fn test_table_exists() {
+        let mut graph = StableGraph::new();
+
+        assert!(!graph.table_exists("users"));
+
+        graph.create_table("users", (0.0, 0.0)).unwrap();
+        assert!(graph.table_exists("users"));
+        assert!(!graph.table_exists("posts"));
+    }
+
+    #[test]
+    fn test_find_table_by_name() {
+        let mut graph = StableGraph::new();
+
+        let node_idx = graph.create_table("users", (0.0, 0.0)).unwrap();
+
+        let found = graph.find_table_by_name("users");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), node_idx);
+
+        let not_found = graph.find_table_by_name("posts");
+        assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn test_generate_unique_table_name() {
+        let mut graph = StableGraph::new();
+
+        let name1 = graph.generate_unique_table_name("table");
+        assert_eq!(name1, "table");
+
+        graph.create_table("table", (0.0, 0.0)).unwrap();
+
+        let name2 = graph.generate_unique_table_name("table");
+        assert_eq!(name2, "table_2");
+
+        graph.create_table("table_2", (0.0, 0.0)).unwrap();
+
+        let name3 = graph.generate_unique_table_name("table");
+        assert_eq!(name3, "table_3");
+    }
+
+    #[test]
+    fn test_table_operations_workflow() {
+        let mut graph = StableGraph::new();
+
+        // Create multiple tables
+        let users_idx = graph.create_table_auto((0.0, 0.0));
+        let posts_idx = graph.create_table_auto((100.0, 100.0));
+        let comments_idx = graph.create_table_auto((200.0, 200.0));
+
+        assert_eq!(graph.node_count(), 3);
+
+        // Rename tables
+        graph.rename_table(users_idx, "users").unwrap();
+        graph.rename_table(posts_idx, "posts").unwrap();
+        graph.rename_table(comments_idx, "comments").unwrap();
+
+        // Check all exist
+        assert!(graph.table_exists("users"));
+        assert!(graph.table_exists("posts"));
+        assert!(graph.table_exists("comments"));
+
+        // Delete one table
+        graph.delete_table(comments_idx).unwrap();
+        assert_eq!(graph.node_count(), 2);
+        assert!(!graph.table_exists("comments"));
+
+        // Can now create a new table with the same name
+        let new_comments_idx = graph.create_table("comments", (300.0, 300.0));
+        assert!(new_comments_idx.is_ok());
     }
 }
