@@ -1,4 +1,5 @@
 use crate::core::{SchemaGraph, TableOps};
+use crate::ui::liveshare_client::{ConnectionState, GraphOperation, use_liveshare_context};
 use crate::ui::{Icon, icons};
 use leptos::prelude::*;
 use leptos::web_sys;
@@ -12,6 +13,9 @@ pub fn TableEditor(
     #[prop(into)] on_cancel: Callback<()>,
     #[prop(into)] on_delete: Callback<()>,
 ) -> impl IntoView {
+    // Get LiveShare context for sync
+    let liveshare_ctx = use_liveshare_context();
+
     // Получаем текущее имя таблицы
     let initial_name = graph.with(|g| {
         g.node_weight(node_idx)
@@ -46,8 +50,15 @@ pub fn TableEditor(
         set_error.set(None);
 
         // Попытка переименовать таблицу
-        match graph.write().rename_table(node_idx, name) {
+        match graph.write().rename_table(node_idx, name.clone()) {
             Ok(()) => {
+                // Send sync op
+                if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected {
+                    liveshare_ctx.send_graph_op(GraphOperation::RenameTable {
+                        node_id: node_idx.index() as u32,
+                        new_name: name,
+                    });
+                }
                 set_is_saving.set(false);
                 on_save.run(());
             }

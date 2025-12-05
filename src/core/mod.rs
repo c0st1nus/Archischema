@@ -4,4 +4,6 @@ mod schema;
 #[cfg(test)]
 mod tests;
 
+pub mod liveshare;
+
 pub use schema::*;

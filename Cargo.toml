@@ -10,12 +10,32 @@ crate-type = ["cdylib", "rlib"]
 leptos = { version = "0.8.0" }
 leptos_meta = { version = "0.8.0" }
 axum = { version = "0.8.0", optional = true }
+axum-extra = { version = "0.10.0", features = ["typed-header", "cookie"], optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 leptos_axum = { version = "0.8.0", optional = true }
-tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "sync"], optional = true }
+tower-http = { version = "0.6", features = ["cors"], optional = true }
 wasm-bindgen = { version = "=0.2.105", optional = true }
 petgraph = { version = "0.8.3", features = ["serde-1"] }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+yrs = "0.25.0"
+y-sync = "0.4.0"
+uuid = { version = "1.19.0", features = ["v4", "serde", "js"] }
+gloo-timers = { version = "0.3", features = ["futures"], optional = true }
+web-sys = { version = "0.3", features = [
+    "Window", "Navigator", "Clipboard", "Request", "RequestInit", "Response", "Headers", "Location",
+    "WebSocket", "BinaryType", "MessageEvent", "CloseEvent", "ErrorEvent", "Event",
+    "CustomEvent", "CustomEventInit"
+], optional = true }
+js-sys = { version = "0.3", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+futures = { version = "0.3.31", optional = true }
+bcrypt = { version = "0.17.1", optional = true }
+dashmap = { version = "6.1.0", optional = true }
+chrono = { version = "0.4.42", features = ["serde"], optional = true }
+tracing = { version = "0.1.43", optional = true }
+tracing-subscriber = { version = "0.3", optional = true }
 
 [features]
 default = ["ssr"]
@@ -23,11 +43,23 @@ hydrate = [
     "leptos/hydrate",
     "dep:console_error_panic_hook",
     "dep:wasm-bindgen",
+    "dep:gloo-timers",
+    "dep:web-sys",
+    "dep:js-sys",
+    "dep:wasm-bindgen-futures",
 ]
 ssr = [
     "dep:axum",
+    "dep:axum-extra",
     "dep:tokio",
+    "dep:tower-http",
     "dep:leptos_axum",
+    "dep:futures",
+    "dep:bcrypt",
+    "dep:dashmap",
+    "dep:chrono",
+    "dep:tracing",
+    "dep:tracing-subscriber",
     "leptos/ssr",
     "leptos_meta/ssr",
 ]

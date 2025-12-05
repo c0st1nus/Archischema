@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 
 use crate::core::SchemaGraph;
-use crate::ui::SchemaCanvas;
+use crate::ui::{SchemaCanvas, provide_liveshare_context};
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -26,6 +26,9 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 pub fn App() -> impl IntoView {
     // Provides context that manages stylesheets, titles, meta tags, etc.
     provide_meta_context();
+
+    // Provide LiveShare context for real-time collaboration
+    let _liveshare_ctx = provide_liveshare_context();
 
     // Создаем пустой граф для визуализации (пользователь увидит Empty State)
     let graph = RwSignal::new(SchemaGraph::new());

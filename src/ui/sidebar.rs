@@ -1,5 +1,8 @@
 use crate::core::{Column, SchemaGraph, TableOps};
 use crate::ui::column_editor::ColumnEditor;
+use crate::ui::liveshare_client::{
+    ColumnData, ConnectionState, GraphOperation, use_liveshare_context,
+};
 use crate::ui::table_editor::TableEditor;
 use crate::ui::{Icon, icons};
 use leptos::prelude::*;
@@ -18,12 +21,22 @@ pub fn Sidebar(
     graph: RwSignal<SchemaGraph>,
     #[prop(into)] on_table_focus: Callback<NodeIndex>,
 ) -> impl IntoView {
+    // Get LiveShare context for sync
+    let liveshare_ctx = use_liveshare_context();
+
     let (is_collapsed, set_is_collapsed) = signal(false);
     let (search_query, set_search_query) = signal(String::new());
     let (expanded_tables, set_expanded_tables) = signal::<Vec<NodeIndex>>(Vec::new());
 
     // Состояние для редактора (колонка или таблица)
     let (editing_mode, set_editing_mode) = signal(EditingMode::None);
+
+    // Helper to send graph operation when connected
+    let send_graph_op = move |op: GraphOperation| {
+        if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected {
+            liveshare_ctx.send_graph_op(op);
+        }
+    };
 
     // Мемоизация статистики для предотвращения повторных подсчетов
     let total_tables = Memo::new(move |_| graph.with(|g| g.node_count()));
@@ -133,7 +146,18 @@ pub fn Sidebar(
                                                     inline=true
                                                     graph=graph
                                                     current_table=node_idx
-                                                    on_save=move |new_column| {
+                                                    on_save=move |new_column: Column| {
+                                                        let col_data = ColumnData {
+                                                            name: new_column.name.clone(),
+                                                            data_type: new_column.data_type.to_string(),
+                                                            is_primary_key: new_column.is_primary_key,
+                                                            is_nullable: new_column.is_nullable,
+                                                            is_unique: new_column.is_unique,
+                                                            default_value: new_column.default_value.clone(),
+                                                            foreign_key: None,
+                                                        };
+                                                        let is_update = col_idx.is_some();
+                                                        let col_index = col_idx.unwrap_or(0);
                                                         graph
                                                             .update(|g| {
                                                                 if let Some(node) = g.node_weight_mut(node_idx) {
@@ -146,6 +170,19 @@ pub fn Sidebar(
                                                                     }
                                                                 }
                                                             });
+                                                        // Send sync op
+                                                        if is_update {
+                                                            send_graph_op(GraphOperation::UpdateColumn {
+                                                                node_id: node_idx.index() as u32,
+                                                                column_index: col_index,
+                                                                column: col_data,
+                                                            });
+                                                        } else {
+                                                            send_graph_op(GraphOperation::AddColumn {
+                                                                node_id: node_idx.index() as u32,
+                                                                column: col_data,
+                                                            });
+                                                        }
                                                         set_editing_mode.set(EditingMode::None);
                                                     }
 
@@ -163,6 +200,11 @@ pub fn Sidebar(
                                                                         }
                                                                     }
                                                                 });
+                                                            // Send sync op
+                                                            send_graph_op(GraphOperation::DeleteColumn {
+                                                                node_id: node_idx.index() as u32,
+                                                                column_index: idx,
+                                                            });
                                                         }
                                                         set_editing_mode.set(EditingMode::None);
                                                     }
@@ -206,6 +248,10 @@ pub fn Sidebar(
                                                     on_delete=move |_| {
                                                         graph.update(|g| {
                                                             let _ = g.delete_table(node_idx);
+                                                        });
+                                                        // Send sync op
+                                                        send_graph_op(GraphOperation::DeleteTable {
+                                                            node_id: node_idx.index() as u32,
                                                         });
                                                         set_editing_mode.set(EditingMode::None);
                                                     }
@@ -269,6 +315,15 @@ pub fn Sidebar(
                                                 on:click=move |_| {
                                                     // Создаем новую таблицу в центре видимой области
                                                     let new_node_idx = graph.write().create_table_auto((300.0, 300.0));
+                                                    // Send sync op
+                                                    let name = graph.with(|g| {
+                                                        g.node_weight(new_node_idx).map(|n| n.name.clone()).unwrap_or_default()
+                                                    });
+                                                    send_graph_op(GraphOperation::CreateTable {
+                                                        node_id: new_node_idx.index() as u32,
+                                                        name,
+                                                        position: (300.0, 300.0),
+                                                    });
                                                     // Открываем редактор для новой таблицы
                                                     set_editing_mode.set(EditingMode::EditingTable(new_node_idx));
                                                     // Раскрываем таблицу в списке

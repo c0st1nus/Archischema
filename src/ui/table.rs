@@ -8,6 +8,9 @@ use leptos::web_sys;
 pub fn TableNodeView(
     node: TableNode,
     #[prop(into)] on_mouse_down: Callback<web_sys::MouseEvent>,
+    /// Whether this table is currently being dragged locally (disables transition)
+    #[prop(default = false)]
+    is_being_dragged: bool,
 ) -> impl IntoView {
     let (x, y) = node.position;
     let node_ref = NodeRef::<Div>::new();
@@ -16,10 +19,17 @@ pub fn TableNodeView(
     let table_name = node.name.clone();
     let has_columns = !node.columns.is_empty();
 
+    // Use transition only when NOT being dragged locally (for smooth remote updates)
+    let table_class = if is_being_dragged {
+        "absolute bg-white border-2 border-gray-300 rounded-lg shadow-lg select-none hover:shadow-xl"
+    } else {
+        "absolute bg-white border-2 border-gray-300 rounded-lg shadow-lg select-none hover:shadow-xl transition-[left,top] duration-100 ease-out"
+    };
+
     view! {
         <div
             node_ref=node_ref
-            class="absolute bg-white border-2 border-gray-300 rounded-lg shadow-lg select-none hover:shadow-xl transition-shadow"
+            class=table_class
             style:left=format!("{}px", x)
             style:top=format!("{}px", y)
             style:width="280px"

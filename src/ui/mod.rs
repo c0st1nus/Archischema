@@ -1,6 +1,9 @@
 pub mod canvas;
 pub mod column_editor;
 pub mod icon;
+pub mod liveshare_client;
+pub mod liveshare_panel;
+pub mod remote_cursors;
 pub mod sidebar;
 pub mod table;
 pub mod table_editor;
@@ -8,5 +11,8 @@ pub mod table_editor;
 pub use canvas::SchemaCanvas;
 pub use column_editor::ColumnEditor;
 pub use icon::{Icon, icons};
+pub use liveshare_client::{LiveShareContext, provide_liveshare_context, use_liveshare_context};
+pub use liveshare_panel::LiveSharePanel;
+pub use remote_cursors::{CursorTracker, RemoteCursors};
 pub use sidebar::Sidebar;
 pub use table_editor::TableEditor;

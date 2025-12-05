@@ -1,4 +1,9 @@
 use crate::core::{SchemaGraph, TableOps, create_demo_graph};
+#[cfg(not(feature = "ssr"))]
+use crate::ui::liveshare_client::{ColumnData, GraphStateSnapshot, TableSnapshot};
+use crate::ui::liveshare_client::{ConnectionState, GraphOperation, use_liveshare_context};
+use crate::ui::liveshare_panel::LiveSharePanel;
+use crate::ui::remote_cursors::{CursorTracker, RemoteCursors};
 use crate::ui::sidebar::Sidebar;
 use crate::ui::table::TableNodeView;
 use crate::ui::{Icon, icons};
@@ -8,6 +13,9 @@ use petgraph::graph::NodeIndex;
 
 #[component]
 pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
+    // Get LiveShare context for sync
+    let liveshare_ctx = use_liveshare_context();
+
     // Состояние для drag & drop
     let (_dragging_node, set_dragging_node) = signal::<Option<(NodeIndex, f64, f64)>>(None);
 
@@ -31,6 +39,88 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
 
     // Мемоизация индексов рёбер
     let edge_indices = Memo::new(move |_| graph.with(|g| g.edge_indices().collect::<Vec<_>>()));
+
+    // Listen for remote graph operations from LiveShare
+    #[cfg(not(feature = "ssr"))]
+    {
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen::closure::Closure;
+
+        // Handler for individual graph operations
+        Effect::new(move |_| {
+            let window = web_sys::window().expect("no window");
+
+            let graph_clone = graph;
+            let handler =
+                Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |e: web_sys::CustomEvent| {
+                    if let Some(detail) = e.detail().as_string() {
+                        if let Ok(op) = serde_json::from_str::<GraphOperation>(&detail) {
+                            apply_remote_graph_op(graph_clone, op);
+                        }
+                    }
+                });
+
+            let _ = window.add_event_listener_with_callback(
+                "liveshare-graph-op",
+                handler.as_ref().unchecked_ref(),
+            );
+            handler.forget();
+        });
+
+        // Handler for full graph state (initial sync when joining room)
+        Effect::new(move |_| {
+            let window = web_sys::window().expect("no window");
+
+            let graph_clone = graph;
+            let handler =
+                Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |e: web_sys::CustomEvent| {
+                    if let Some(detail) = e.detail().as_string() {
+                        if let Ok(state) = serde_json::from_str::<GraphStateSnapshot>(&detail) {
+                            apply_graph_state(graph_clone, state);
+                        }
+                    }
+                });
+
+            let _ = window.add_event_listener_with_callback(
+                "liveshare-graph-state",
+                handler.as_ref().unchecked_ref(),
+            );
+            handler.forget();
+        });
+
+        // Handler for graph state requests from other users
+        Effect::new(move |_| {
+            let window = web_sys::window().expect("no window");
+
+            let graph_clone = graph;
+            let ctx_clone = liveshare_ctx;
+            let handler =
+                Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |e: web_sys::CustomEvent| {
+                    if let Some(detail) = e.detail().as_string() {
+                        // Parse requester_id from the detail
+                        if let Ok(requester_id) = uuid::Uuid::parse_str(&detail) {
+                            // Create snapshot of current graph state
+                            let state = create_graph_snapshot(graph_clone);
+                            // Send it to the requester
+                            ctx_clone.send_graph_state_response(requester_id, state);
+                        }
+                    }
+                });
+
+            let _ = window.add_event_listener_with_callback(
+                "liveshare-request-graph-state",
+                handler.as_ref().unchecked_ref(),
+            );
+            handler.forget();
+        });
+    }
+
+    // Helper function to send graph op when connected
+    let send_graph_op = move |op: GraphOperation| {
+        if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected {
+            liveshare_ctx.send_graph_op(op);
+        }
+    };
 
     // Глобальный обработчик перемещения мыши
     #[cfg(not(feature = "ssr"))]
@@ -81,6 +171,10 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 .document()
                 .expect("no document");
 
+            // Throttle for live sync during drag (send every 50ms)
+            let last_sync_time = std::rc::Rc::new(std::cell::RefCell::new(0.0_f64));
+            let last_sync_time_clone = last_sync_time.clone();
+
             // Обработчик перемещения - используем batch для группировки обновлений
             let move_closure = Closure::new(move |ev: web_sys::MouseEvent| {
                 ev.prevent_default();
@@ -101,10 +195,35 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                         }
                     });
                 });
+
+                // Send live sync update with throttling (every 50ms)
+                let now = js_sys::Date::now();
+                let last = *last_sync_time_clone.borrow();
+                if now - last >= 50.0 {
+                    *last_sync_time_clone.borrow_mut() = now;
+                    if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected
+                    {
+                        liveshare_ctx.send_graph_op(GraphOperation::MoveTable {
+                            node_id: node_idx.index() as u32,
+                            position: (new_x, new_y),
+                        });
+                    }
+                }
             });
 
-            // Обработчик отпускания кнопки
+            // Обработчик отпускания кнопки - отправляем sync при завершении перетаскивания
             let up_closure = Closure::new(move |_: web_sys::MouseEvent| {
+                // Get final position and send sync op
+                let final_pos = graph.with(|g| g.node_weight(node_idx).map(|n| n.position));
+                if let Some(position) = final_pos {
+                    if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected
+                    {
+                        liveshare_ctx.send_graph_op(GraphOperation::MoveTable {
+                            node_id: node_idx.index() as u32,
+                            position,
+                        });
+                    }
+                }
                 set_dragging_node.set(None);
             });
 
@@ -322,6 +441,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 >
                     // Рендерим все узлы (таблицы) - используем мемоизированные индексы
                 {move || {
+                    let current_dragging = _dragging_node.get();
                     node_indices.get()
                         .into_iter()
                         .filter_map(|idx| {
@@ -330,10 +450,13 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                 g.node_weight(idx).map(|node| {
                                     let node_clone = node.clone();
                                     let node_idx = idx;
+                                    // Check if this specific node is being dragged
+                                    let is_dragging = current_dragging.map(|(drag_idx, _, _)| drag_idx == idx).unwrap_or(false);
 
                                     view! {
                                         <TableNodeView
                                             node=node_clone
+                                            is_being_dragged=is_dragging
                                             on_mouse_down=move |ev: web_sys::MouseEvent| {
                                                 if ev.button() != 0 {
                                                     return;
@@ -471,22 +594,14 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                     </g>
                 </svg>
 
-                // Панель инструментов (правый верхний угол)
-                <div class="absolute top-4 right-4 bg-white/90 backdrop-blur-sm p-4 rounded-xl shadow-lg border border-gray-200">
-                    <h3 class="font-bold text-gray-800 mb-2 flex items-center">
-                        <Icon name=icons::LIGHTNING class="w-5 h-5 mr-2 text-blue-600"/>
-                        "Quick Help"
-                    </h3>
-                    <div class="text-sm text-gray-600 space-y-1">
-                        <p>"• Drag tables to move"</p>
-                        <p>"• Middle mouse button to pan"</p>
-                        <p>"• Ctrl + scroll / +/- to zoom"</p>
-                        <p>"• Use sidebar to edit columns"</p>
-                    </div>
-                    <div class="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
-                        <p>{move || format!("Zoom: {:.0}%", zoom.get() * 100.0)}</p>
-                    </div>
-                </div>
+                // LiveShare панель (правый верхний угол)
+                <LiveSharePanel />
+
+                // Remote cursors overlay (показывает курсоры других пользователей)
+                <RemoteCursors />
+
+                // Cursor tracker (отслеживает и отправляет позицию локального курсора)
+                <CursorTracker />
 
                 // FAB (Floating Action Button) для создания таблицы
                 <button
@@ -495,7 +610,16 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                         // Создаем новую таблицу в центре видимой области
                         let viewport_center_x = 400.0;
                         let viewport_center_y = 300.0;
-                        let _ = graph.write().create_table_auto((viewport_center_x, viewport_center_y));
+                        let node_idx = graph.write().create_table_auto((viewport_center_x, viewport_center_y));
+                        // Send sync op
+                        let name = graph.with(|g| {
+                            g.node_weight(node_idx).map(|n| n.name.clone()).unwrap_or_default()
+                        });
+                        send_graph_op(GraphOperation::CreateTable {
+                            node_id: node_idx.index() as u32,
+                            name,
+                            position: (viewport_center_x, viewport_center_y),
+                        });
                     }
                     title="Create new table (Ctrl+N)"
                 >
@@ -523,7 +647,15 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                             class="w-full px-6 py-3 text-white rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2"
                                             style="background-color: #3b82f6;"
                                             on:click=move |_| {
-                                                let _ = graph.write().create_table_auto((400.0, 300.0));
+                                                let node_idx = graph.write().create_table_auto((400.0, 300.0));
+                                                let name = graph.with(|g| {
+                                                    g.node_weight(node_idx).map(|n| n.name.clone()).unwrap_or_default()
+                                                });
+                                                send_graph_op(GraphOperation::CreateTable {
+                                                    node_id: node_idx.index() as u32,
+                                                    name,
+                                                    position: (400.0, 300.0),
+                                                });
                                             }
                                         >
                                             <Icon name=icons::PLUS class="w-5 h-5"/>
@@ -688,4 +820,204 @@ fn calculate_edge_path(
             }
         }
     }
+}
+
+/// Apply a remote graph operation received from another user
+#[cfg(not(feature = "ssr"))]
+fn apply_remote_graph_op(graph: RwSignal<SchemaGraph>, op: GraphOperation) {
+    use crate::core::TableNode;
+
+    match op {
+        GraphOperation::CreateTable {
+            node_id: _,
+            name,
+            position,
+        } => {
+            graph.update(|g| {
+                // Check if table with this name already exists
+                let exists = g
+                    .node_indices()
+                    .any(|idx| g.node_weight(idx).map(|n| n.name == name).unwrap_or(false));
+                if !exists {
+                    g.add_node(TableNode::new(&name).with_position(position.0, position.1));
+                }
+            });
+        }
+        GraphOperation::DeleteTable { node_id } => {
+            graph.update(|g| {
+                let idx = NodeIndex::new(node_id as usize);
+                if g.node_weight(idx).is_some() {
+                    g.remove_node(idx);
+                }
+            });
+        }
+        GraphOperation::RenameTable { node_id, new_name } => {
+            graph.update(|g| {
+                let idx = NodeIndex::new(node_id as usize);
+                if let Some(node) = g.node_weight_mut(idx) {
+                    node.name = new_name;
+                }
+            });
+        }
+        GraphOperation::MoveTable { node_id, position } => {
+            graph.update(|g| {
+                let idx = NodeIndex::new(node_id as usize);
+                if let Some(node) = g.node_weight_mut(idx) {
+                    node.position = position;
+                }
+            });
+        }
+        GraphOperation::AddColumn { node_id, column } => {
+            graph.update(|g| {
+                let idx = NodeIndex::new(node_id as usize);
+                if let Some(node) = g.node_weight_mut(idx) {
+                    use crate::core::Column;
+                    let mut col = Column::new(&column.name, &column.data_type);
+                    if column.is_primary_key {
+                        col = col.primary_key();
+                    }
+                    if !column.is_nullable {
+                        col = col.not_null();
+                    }
+                    if column.is_unique {
+                        col = col.unique();
+                    }
+                    if let Some(default) = column.default_value {
+                        col = col.with_default(&default);
+                    }
+                    node.columns.push(col);
+                }
+            });
+        }
+        GraphOperation::UpdateColumn {
+            node_id,
+            column_index,
+            column,
+        } => {
+            graph.update(|g| {
+                let idx = NodeIndex::new(node_id as usize);
+                if let Some(node) = g.node_weight_mut(idx) {
+                    if column_index < node.columns.len() {
+                        use crate::core::Column;
+                        let mut col = Column::new(&column.name, &column.data_type);
+                        if column.is_primary_key {
+                            col = col.primary_key();
+                        }
+                        if !column.is_nullable {
+                            col = col.not_null();
+                        }
+                        if column.is_unique {
+                            col = col.unique();
+                        }
+                        if let Some(default) = column.default_value {
+                            col = col.with_default(&default);
+                        }
+                        node.columns[column_index] = col;
+                    }
+                }
+            });
+        }
+        GraphOperation::DeleteColumn {
+            node_id,
+            column_index,
+        } => {
+            graph.update(|g| {
+                let idx = NodeIndex::new(node_id as usize);
+                if let Some(node) = g.node_weight_mut(idx) {
+                    if column_index < node.columns.len() {
+                        node.columns.remove(column_index);
+                    }
+                }
+            });
+        }
+        GraphOperation::CreateRelationship { .. } => {
+            // TODO: implement relationship sync
+        }
+        GraphOperation::DeleteRelationship { .. } => {
+            // TODO: implement relationship sync
+        }
+    }
+}
+
+/// Apply a full graph state snapshot (for initial sync)
+#[cfg(not(feature = "ssr"))]
+fn apply_graph_state(graph: RwSignal<SchemaGraph>, state: GraphStateSnapshot) {
+    use crate::core::TableNode;
+
+    graph.update(|g| {
+        // Clear existing graph if we're receiving state from another user
+        // Only apply if we have no tables (we're the new user)
+        if g.node_count() == 0 && !state.tables.is_empty() {
+            // Apply tables from snapshot
+            for table in state.tables {
+                let mut node =
+                    TableNode::new(&table.name).with_position(table.position.0, table.position.1);
+
+                // Add columns
+                for col_data in table.columns {
+                    use crate::core::Column;
+                    let mut col = Column::new(&col_data.name, &col_data.data_type);
+                    if col_data.is_primary_key {
+                        col = col.primary_key();
+                    }
+                    if !col_data.is_nullable {
+                        col = col.not_null();
+                    }
+                    if col_data.is_unique {
+                        col = col.unique();
+                    }
+                    if let Some(default) = col_data.default_value {
+                        col = col.with_default(&default);
+                    }
+                    node.columns.push(col);
+                }
+
+                g.add_node(node);
+            }
+
+            // TODO: Apply relationships from snapshot
+        }
+    });
+}
+
+/// Create a snapshot of the current graph state
+#[cfg(not(feature = "ssr"))]
+fn create_graph_snapshot(graph: RwSignal<SchemaGraph>) -> GraphStateSnapshot {
+    graph.with(|g| {
+        let tables: Vec<TableSnapshot> = g
+            .node_indices()
+            .filter_map(|idx| {
+                g.node_weight(idx).map(|node| {
+                    let columns: Vec<ColumnData> = node
+                        .columns
+                        .iter()
+                        .map(|col| ColumnData {
+                            name: col.name.clone(),
+                            data_type: col.data_type.to_string(),
+                            is_primary_key: col.is_primary_key,
+                            is_nullable: col.is_nullable,
+                            is_unique: col.is_unique,
+                            default_value: col.default_value.clone(),
+                            foreign_key: None, // TODO: handle FK
+                        })
+                        .collect();
+
+                    TableSnapshot {
+                        node_id: idx.index() as u32,
+                        name: node.name.clone(),
+                        position: node.position,
+                        columns,
+                    }
+                })
+            })
+            .collect();
+
+        // TODO: collect relationships
+        let relationships = vec![];
+
+        GraphStateSnapshot {
+            tables,
+            relationships,
+        }
+    })
 }
