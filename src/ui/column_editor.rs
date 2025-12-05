@@ -1,4 +1,7 @@
 use crate::core::{Column, MySqlDataType, RelationshipOps, RelationshipType, SchemaGraph};
+use crate::ui::liveshare_client::{
+    ConnectionState, GraphOperation, RelationshipData, use_liveshare_context,
+};
 use crate::ui::{Icon, icons};
 use leptos::prelude::*;
 use petgraph::graph::NodeIndex;
@@ -113,16 +116,40 @@ pub fn ColumnEditor(
 
                 // Создание связи
                 use crate::core::Relationship;
+                let rel_name = format!("fk_{}_{}", new_column.name, target_col);
+                let rel_type = fk_relationship_type.get();
+                let from_col = new_column.name.clone();
+                let to_col = target_col.clone();
+
                 g.update(|graph| {
-                    let rel_name = format!("fk_{}_{}", new_column.name, target_col);
                     let relationship = Relationship::new(
-                        rel_name,
-                        fk_relationship_type.get(),
-                        new_column.name.clone(),
-                        target_col,
+                        rel_name.clone(),
+                        rel_type.clone(),
+                        from_col.clone(),
+                        to_col.clone(),
                     );
 
-                    let _ = graph.create_relationship(current_node, target_node, relationship);
+                    if let Ok(edge_idx) =
+                        graph.create_relationship(current_node, target_node, relationship)
+                    {
+                        // Send LiveShare sync
+                        let liveshare_ctx = use_liveshare_context();
+                        if liveshare_ctx.connection_state.get_untracked()
+                            == ConnectionState::Connected
+                        {
+                            liveshare_ctx.send_graph_op(GraphOperation::CreateRelationship {
+                                edge_id: edge_idx.index() as u32,
+                                from_node: current_node.index() as u32,
+                                to_node: target_node.index() as u32,
+                                relationship: RelationshipData {
+                                    name: rel_name,
+                                    relationship_type: rel_type.to_string(),
+                                    from_column: from_col,
+                                    to_column: to_col,
+                                },
+                            });
+                        }
+                    }
                 });
             }
         }

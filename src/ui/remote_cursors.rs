@@ -6,12 +6,19 @@
 use crate::ui::liveshare_client::{ConnectionState, RemoteUser, use_liveshare_context};
 use leptos::prelude::*;
 
+/// Sidebar width in pixels (ml-96 = 24rem = 384px)
+const SIDEBAR_WIDTH: f64 = 384.0;
+
 /// Remote cursors overlay component
 ///
 /// This component should be placed inside the canvas container
 /// and will render cursors for all remote users.
 #[component]
-pub fn RemoteCursors() -> impl IntoView {
+pub fn RemoteCursors(
+    #[prop(into)] zoom: Signal<f64>,
+    #[prop(into)] pan_x: Signal<f64>,
+    #[prop(into)] pan_y: Signal<f64>,
+) -> impl IntoView {
     let ctx = use_liveshare_context();
 
     view! {
@@ -27,7 +34,12 @@ pub fn RemoteCursors() -> impl IntoView {
                         each=move || ctx.remote_users.get()
                         key=|user| user.user_id
                         children=move |user| {
-                            view! { <UserCursor user=user /> }
+                            view! { <UserCursor
+                                user=user
+                                zoom=zoom
+                                pan_x=pan_x
+                                pan_y=pan_y
+                            /> }
                         }
                     />
                 }.into_any()
@@ -38,7 +50,12 @@ pub fn RemoteCursors() -> impl IntoView {
 
 /// Individual user cursor component with smooth animation
 #[component]
-fn UserCursor(user: RemoteUser) -> impl IntoView {
+fn UserCursor(
+    user: RemoteUser,
+    #[prop(into)] zoom: Signal<f64>,
+    #[prop(into)] pan_x: Signal<f64>,
+    #[prop(into)] pan_y: Signal<f64>,
+) -> impl IntoView {
     let color = user.color.clone();
     let username = user.username.clone();
     let user_id = user.user_id;
@@ -72,14 +89,24 @@ fn UserCursor(user: RemoteUser) -> impl IntoView {
             let color = color.clone();
             let username = username.clone();
 
+            // Get current transform values
+            let current_zoom = zoom.get();
+            let current_pan_x = pan_x.get();
+            let current_pan_y = pan_y.get();
+
             match pos {
-                Some((x, y)) => {
+                Some((canvas_x, canvas_y)) => {
+                    // Convert canvas coordinates back to viewport coordinates
+                    // The remote cursor sends canvas coordinates, we need to display in viewport
+                    let viewport_x = canvas_x * current_zoom + current_pan_x + SIDEBAR_WIDTH;
+                    let viewport_y = canvas_y * current_zoom + current_pan_y;
+
                     view! {
                         <div
                             class="absolute pointer-events-none cursor-wrapper"
                             style=move || format!(
                                 "left: {}px; top: {}px; transition: left 80ms linear, top 80ms linear;",
-                                x, y
+                                viewport_x, viewport_y
                             )
                         >
                             // Cursor pointer SVG - classic arrow shape
@@ -128,8 +155,16 @@ fn UserCursor(user: RemoteUser) -> impl IntoView {
 }
 
 /// Component to track and send local cursor position
+/// Converts viewport coordinates to canvas coordinates before sending
 #[component]
-pub fn CursorTracker() -> impl IntoView {
+pub fn CursorTracker(
+    #[prop(into)] zoom: Signal<f64>,
+    #[prop(into)] pan_x: Signal<f64>,
+    #[prop(into)] pan_y: Signal<f64>,
+) -> impl IntoView {
+    // Suppress unused warnings for SSR builds
+    let _ = (&zoom, &pan_x, &pan_y);
+
     #[cfg(not(feature = "ssr"))]
     let ctx = use_liveshare_context();
 
@@ -165,12 +200,28 @@ pub fn CursorTracker() -> impl IntoView {
                 }
                 *last_update_move.borrow_mut() = now;
 
-                // Use clientX/clientY for viewport-relative coordinates
-                // This matches the fixed positioning of the cursor overlay
-                let x = e.client_x() as f64;
-                let y = e.client_y() as f64;
+                // Get viewport coordinates
+                let viewport_x = e.client_x() as f64;
+                let viewport_y = e.client_y() as f64;
 
-                ctx_move.send_awareness(Some((x, y)), vec![]);
+                // Only track if cursor is in the canvas area (past the sidebar)
+                if viewport_x < SIDEBAR_WIDTH {
+                    // Cursor is over the sidebar, don't send
+                    return;
+                }
+
+                // Get current transform values
+                let current_zoom = zoom.get_untracked();
+                let current_pan_x = pan_x.get_untracked();
+                let current_pan_y = pan_y.get_untracked();
+
+                // Convert viewport coordinates to canvas coordinates
+                // Reverse the transform: viewport = canvas * zoom + pan + sidebar_offset
+                // Therefore: canvas = (viewport - sidebar_offset - pan) / zoom
+                let canvas_x = (viewport_x - SIDEBAR_WIDTH - current_pan_x) / current_zoom;
+                let canvas_y = (viewport_y - current_pan_y) / current_zoom;
+
+                ctx_move.send_awareness(Some((canvas_x, canvas_y)), vec![]);
             }) as Box<dyn FnMut(web_sys::MouseEvent)>);
 
             let ctx_leave = ctx.clone();

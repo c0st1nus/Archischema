@@ -10,7 +10,8 @@ use uuid::Uuid;
 // Re-export protocol types for convenience
 pub use crate::core::liveshare::{
     AwarenessState, ClientMessage, ColumnData, GraphOperation, GraphStateSnapshot,
-    RelationshipSnapshot, RoomResponse, ServerMessage, TableSnapshot, UserInfo, WsErrorCode,
+    RelationshipData, RelationshipSnapshot, RoomResponse, ServerMessage, TableSnapshot, UserInfo,
+    WsErrorCode,
 };
 
 /// User ID type

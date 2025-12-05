@@ -1,6 +1,8 @@
 use crate::core::{SchemaGraph, TableOps, create_demo_graph};
 #[cfg(not(feature = "ssr"))]
-use crate::ui::liveshare_client::{ColumnData, GraphStateSnapshot, TableSnapshot};
+use crate::ui::liveshare_client::{
+    ColumnData, GraphStateSnapshot, RelationshipData, RelationshipSnapshot, TableSnapshot,
+};
 use crate::ui::liveshare_client::{ConnectionState, GraphOperation, use_liveshare_context};
 use crate::ui::liveshare_panel::LiveSharePanel;
 use crate::ui::remote_cursors::{CursorTracker, RemoteCursors};
@@ -598,10 +600,10 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 <LiveSharePanel />
 
                 // Remote cursors overlay (показывает курсоры других пользователей)
-                <RemoteCursors />
+                <RemoteCursors zoom=Signal::from(zoom) pan_x=Signal::from(pan_x) pan_y=Signal::from(pan_y) />
 
                 // Cursor tracker (отслеживает и отправляет позицию локального курсора)
-                <CursorTracker />
+                <CursorTracker zoom=Signal::from(zoom) pan_x=Signal::from(pan_x) pan_y=Signal::from(pan_y) />
 
                 // FAB (Floating Action Button) для создания таблицы
                 <button
@@ -930,11 +932,55 @@ fn apply_remote_graph_op(graph: RwSignal<SchemaGraph>, op: GraphOperation) {
                 }
             });
         }
-        GraphOperation::CreateRelationship { .. } => {
-            // TODO: implement relationship sync
+        GraphOperation::CreateRelationship {
+            edge_id: _,
+            from_node,
+            to_node,
+            relationship,
+        } => {
+            graph.update(|g| {
+                use crate::core::{Relationship, RelationshipType};
+
+                let from_idx = NodeIndex::new(from_node as usize);
+                let to_idx = NodeIndex::new(to_node as usize);
+
+                // Check if both nodes exist
+                if g.node_weight(from_idx).is_none() || g.node_weight(to_idx).is_none() {
+                    return;
+                }
+
+                // Check if relationship already exists
+                let exists = g.edges_connecting(from_idx, to_idx).any(|e| {
+                    e.weight().from_column == relationship.from_column
+                        && e.weight().to_column == relationship.to_column
+                });
+
+                if !exists {
+                    let rel_type = match relationship.relationship_type.as_str() {
+                        "1:1" => RelationshipType::OneToOne,
+                        "1:N" => RelationshipType::OneToMany,
+                        "N:M" => RelationshipType::ManyToMany,
+                        _ => RelationshipType::OneToMany,
+                    };
+
+                    let rel = Relationship::new(
+                        &relationship.name,
+                        rel_type,
+                        &relationship.from_column,
+                        &relationship.to_column,
+                    );
+
+                    g.add_edge(from_idx, to_idx, rel);
+                }
+            });
         }
-        GraphOperation::DeleteRelationship { .. } => {
-            // TODO: implement relationship sync
+        GraphOperation::DeleteRelationship { edge_id } => {
+            graph.update(|g| {
+                let idx = petgraph::graph::EdgeIndex::new(edge_id as usize);
+                if g.edge_weight(idx).is_some() {
+                    g.remove_edge(idx);
+                }
+            });
         }
     }
 }
@@ -975,7 +1021,32 @@ fn apply_graph_state(graph: RwSignal<SchemaGraph>, state: GraphStateSnapshot) {
                 g.add_node(node);
             }
 
-            // TODO: Apply relationships from snapshot
+            // Apply relationships from snapshot
+            for rel_snap in state.relationships {
+                use crate::core::{Relationship, RelationshipType};
+
+                let from_idx = NodeIndex::new(rel_snap.from_node as usize);
+                let to_idx = NodeIndex::new(rel_snap.to_node as usize);
+
+                // Only add if both nodes exist
+                if g.node_weight(from_idx).is_some() && g.node_weight(to_idx).is_some() {
+                    let rel_type = match rel_snap.data.relationship_type.as_str() {
+                        "1:1" => RelationshipType::OneToOne,
+                        "1:N" => RelationshipType::OneToMany,
+                        "N:M" => RelationshipType::ManyToMany,
+                        _ => RelationshipType::OneToMany,
+                    };
+
+                    let rel = Relationship::new(
+                        &rel_snap.data.name,
+                        rel_type,
+                        &rel_snap.data.from_column,
+                        &rel_snap.data.to_column,
+                    );
+
+                    g.add_edge(from_idx, to_idx, rel);
+                }
+            }
         }
     });
 }
@@ -1012,8 +1083,26 @@ fn create_graph_snapshot(graph: RwSignal<SchemaGraph>) -> GraphStateSnapshot {
             })
             .collect();
 
-        // TODO: collect relationships
-        let relationships = vec![];
+        // Collect relationships (edges)
+        let relationships: Vec<RelationshipSnapshot> = g
+            .edge_indices()
+            .filter_map(|idx| {
+                let (from_idx, to_idx) = g.edge_endpoints(idx)?;
+                let edge = g.edge_weight(idx)?;
+
+                Some(RelationshipSnapshot {
+                    edge_id: idx.index() as u32,
+                    from_node: from_idx.index() as u32,
+                    to_node: to_idx.index() as u32,
+                    data: RelationshipData {
+                        name: edge.name.clone(),
+                        relationship_type: edge.relationship_type.to_string(),
+                        from_column: edge.from_column.clone(),
+                        to_column: edge.to_column.clone(),
+                    },
+                })
+            })
+            .collect();
 
         GraphStateSnapshot {
             tables,
