@@ -161,18 +161,18 @@ pub fn ColumnEditor(
         <div class=if inline {
             ""
         } else {
-            "bg-white rounded-lg shadow-xl p-6 w-full max-w-md"
+            "bg-theme-surface border border-theme-primary rounded-lg shadow-theme-xl p-6 w-full max-w-md theme-transition"
         }>
             {if !inline {
                 view! {
-                    <h2 class="text-2xl font-bold text-gray-800 mb-4">
+                    <h2 class="text-2xl font-bold text-theme-primary mb-4">
                         {if column.is_some() { "Edit Column" } else { "New Column" }}
                     </h2>
                 }
                     .into_any()
             } else {
                 view! {
-                    <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                    <h3 class="text-lg font-semibold text-theme-primary mb-4">
                         {if column.is_some() { "Edit Column" } else { "New Column" }}
                     </h3>
                 }
@@ -184,7 +184,7 @@ pub fn ColumnEditor(
                     .get()
                     .map(|err| {
                         view! {
-                            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                            <div class="bg-theme-error border border-theme-error text-theme-error px-4 py-3 rounded mb-4 theme-transition">
                                 {err}
                             </div>
                         }
@@ -194,13 +194,13 @@ pub fn ColumnEditor(
             <div class="space-y-4">
                 // Имя колонки
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                    <label class="block text-sm font-medium text-theme-secondary mb-1">
                         "Column Name"
                         <span class="text-red-500">"*"</span>
                     </label>
                     <input
                         type="text"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        class="w-full px-3 py-2 input-theme rounded-md"
                         placeholder="e.g., user_id"
                         prop:value=move || name.get()
                         on:input=move |ev| {
@@ -212,12 +212,12 @@ pub fn ColumnEditor(
 
                 // Тип данных
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                    <label class="block text-sm font-medium text-theme-secondary mb-1">
                         "Data Type"
                         <span class="text-red-500">"*"</span>
                     </label>
                     <select
-                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        class="w-full px-3 py-2 input-theme rounded-md"
                         on:change=move |ev| {
                             set_data_type.set(event_target_value(&ev));
                         }
@@ -242,7 +242,7 @@ pub fn ColumnEditor(
                     <label class="flex items-center">
                         <input
                             type="checkbox"
-                            class="mr-2 h-4 w-4 text-blue-600 rounded focus:ring-blue-500"
+                            class="mr-2 h-4 w-4 text-blue-600 rounded focus:ring-blue-500 bg-theme-surface border-theme-secondary"
                             prop:checked=move || is_primary_key.get()
                             on:change=move |ev| {
                                 let checked = event_target_checked(&ev);
@@ -252,43 +252,43 @@ pub fn ColumnEditor(
                                 }
                             }
                         />
-                        <span class="text-sm text-gray-700">"Primary Key"</span>
+                        <span class="text-sm text-theme-secondary">"Primary Key"</span>
                     </label>
 
                     <label class="flex items-center">
                         <input
                             type="checkbox"
-                            class="mr-2 h-4 w-4 text-blue-600 rounded focus:ring-blue-500"
+                            class="mr-2 h-4 w-4 text-blue-600 rounded focus:ring-blue-500 bg-theme-surface border-theme-secondary"
                             prop:checked=move || is_nullable.get()
                             prop:disabled=move || is_primary_key.get()
                             on:change=move |ev| {
                                 set_is_nullable.set(event_target_checked(&ev));
                             }
                         />
-                        <span class="text-sm text-gray-700">"Nullable"</span>
+                        <span class="text-sm text-theme-secondary">"Nullable"</span>
                     </label>
 
                     <label class="flex items-center">
                         <input
                             type="checkbox"
-                            class="mr-2 h-4 w-4 text-blue-600 rounded focus:ring-blue-500"
+                            class="mr-2 h-4 w-4 text-blue-600 rounded focus:ring-blue-500 bg-theme-surface border-theme-secondary"
                             prop:checked=move || is_unique.get()
                             on:change=move |ev| {
                                 set_is_unique.set(event_target_checked(&ev));
                             }
                         />
-                        <span class="text-sm text-gray-700">"Unique"</span>
+                        <span class="text-sm text-theme-secondary">"Unique"</span>
                     </label>
                 </div>
 
                 // Значение по умолчанию
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                    <label class="block text-sm font-medium text-theme-secondary mb-1">
                         "Default Value"
                     </label>
                     <input
                         type="text"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        class="w-full px-3 py-2 input-theme rounded-md"
                         placeholder="Leave empty for no default"
                         prop:value=move || default_value.get()
                         on:input=move |ev| {
@@ -301,31 +301,31 @@ pub fn ColumnEditor(
                 {move || {
                     if graph.is_some() && current_table.is_some() {
                         view! {
-                            <div class="border-t border-gray-200 pt-4">
+                            <div class="border-t border-theme-primary pt-4">
                                 <label class="flex items-center mb-3">
                                     <input
                                         type="checkbox"
-                                        class="mr-2 h-4 w-4 text-blue-600 rounded focus:ring-blue-500"
+                                        class="mr-2 h-4 w-4 text-blue-600 rounded focus:ring-blue-500 bg-theme-surface border-theme-secondary"
                                         prop:checked=move || is_foreign_key.get()
                                         on:change=move |ev| {
                                             set_is_foreign_key.set(event_target_checked(&ev));
                                         }
                                     />
-                                    <span class="text-sm font-medium text-gray-700">"Foreign Key"</span>
+                                    <span class="text-sm font-medium text-theme-secondary">"Foreign Key"</span>
                                 </label>
 
                                 {move || {
                                     if is_foreign_key.get() {
                                         let g = graph.unwrap();
                                         view! {
-                                            <div class="ml-6 space-y-3 bg-gray-50 p-3 rounded-md">
+                                            <div class="ml-6 space-y-3 bg-theme-secondary p-3 rounded-md theme-transition">
                                                 // Выбор целевой таблицы
                                                 <div>
-                                                    <label class="block text-xs font-medium text-gray-700 mb-1">
+                                                    <label class="block text-xs font-medium text-theme-secondary mb-1">
                                                         "References Table"
                                                     </label>
                                                     <select
-                                                        class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                        class="w-full px-2 py-1.5 text-sm input-theme rounded-md"
                                                         on:change=move |ev| {
                                                             let value = event_target_value(&ev);
                                                             if !value.is_empty() {
@@ -382,11 +382,11 @@ pub fn ColumnEditor(
 
                                                             view! {
                                                                 <div>
-                                                                    <label class="block text-xs font-medium text-gray-700 mb-1">
+                                                                    <label class="block text-xs font-medium text-theme-secondary mb-1">
                                                                         "References Column"
                                                                     </label>
                                                                     <select
-                                                                        class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                                        class="w-full px-2 py-1.5 text-sm input-theme rounded-md"
                                                                         on:change=move |ev| {
                                                                             let value = event_target_value(&ev);
                                                                             if !value.is_empty() {
@@ -421,7 +421,7 @@ pub fn ColumnEditor(
                                                                     {move || {
                                                                         if is_empty {
                                                                             view! {
-                                                                                <p class="text-xs text-amber-600 mt-1">
+                                                                                <p class="text-xs text-theme-warning mt-1">
                                                                                     "⚠ No compatible columns found in target table"
                                                                                 </p>
                                                                             }
@@ -443,11 +443,11 @@ pub fn ColumnEditor(
 
                                                 // Выбор типа связи
                                                 <div>
-                                                    <label class="block text-xs font-medium text-gray-700 mb-1">
+                                                    <label class="block text-xs font-medium text-theme-secondary mb-1">
                                                         "Relationship Type"
                                                     </label>
                                                     <select
-                                                        class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                        class="w-full px-2 py-1.5 text-sm input-theme rounded-md"
                                                         on:change=move |ev| {
                                                             let value = event_target_value(&ev);
                                                             let rel_type = match value.as_str() {
@@ -485,7 +485,7 @@ pub fn ColumnEditor(
                     {if column.is_some() {
                         view! {
                             <button
-                                class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 flex items-center"
+                                class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 flex items-center dark:bg-red-700 dark:hover:bg-red-600"
                                 on:click=move |_| on_delete.run(())
                             >
                                 <Icon name=icons::TRASH class="w-4 h-4 mr-2"/>
@@ -499,14 +499,14 @@ pub fn ColumnEditor(
                 </div>
                 <div class="flex space-x-3">
                     <button
-                        class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 flex items-center"
+                        class="px-4 py-2 border border-theme-primary rounded-md text-theme-secondary hover:bg-theme-tertiary focus:outline-none focus:ring-2 focus:ring-theme-accent flex items-center theme-transition"
                         on:click=move |_| on_cancel.run(())
                     >
                         <Icon name=icons::X class="w-4 h-4 mr-2"/>
                         "Cancel"
                     </button>
                     <button
-                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center"
+                        class="px-4 py-2 btn-theme-primary rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center"
                         on:click=handle_save
                     >
                         <Icon name=icons::CHECK class="w-4 h-4 mr-2"/>
@@ -521,7 +521,7 @@ pub fn ColumnEditor(
         form_content.into_any()
     } else {
         view! {
-            <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="fixed inset-0 modal-backdrop-theme flex items-center justify-center z-50">
                 {form_content}
             </div>
         }

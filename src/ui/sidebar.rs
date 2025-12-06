@@ -62,18 +62,18 @@ pub fn Sidebar(
     view! {
         <div class=move || {
             if is_collapsed.get() {
-                "fixed left-0 top-0 h-screen w-14 bg-white border-r border-gray-200 shadow-lg z-20 transition-all duration-300"
+                "fixed left-0 top-0 h-screen w-14 bg-theme-surface border-r border-theme-primary shadow-theme-lg z-20 transition-all duration-300 theme-transition"
             } else {
-                "fixed left-0 top-0 h-screen w-96 bg-white border-r border-gray-200 shadow-xl z-20 transition-all duration-300"
+                "fixed left-0 top-0 h-screen w-96 bg-theme-surface border-r border-theme-primary shadow-theme-xl z-20 transition-all duration-300 theme-transition"
             }
         }>
         {move || {
             if is_collapsed.get() {
                 // Свернутый вид
                 view! {
-                    <div class="h-full flex flex-col items-center py-4">
+                    <div class="h-full flex flex-col items-center py-4 bg-theme-surface theme-transition">
                         <button
-                            class="text-gray-600 hover:text-blue-600 hover:bg-blue-50 p-3 rounded-lg transition-colors"
+                            class="text-theme-tertiary hover:text-theme-accent hover:bg-theme-secondary p-3 rounded-lg transition-colors"
                             on:click=move |_| set_is_collapsed.set(false)
                             title="Expand sidebar"
                         >
@@ -85,21 +85,21 @@ pub fn Sidebar(
             } else {
                 // Развернутый вид
                 view! {
-                    <div class="h-full flex flex-col">
+                    <div class="h-full flex flex-col bg-theme-surface theme-transition">
                         // Заголовок
-                        <div class="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-slate-50 to-white">
+                        <div class="px-6 py-4 border-b border-theme-primary bg-theme-secondary theme-transition">
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center space-x-3">
-                                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                                    <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: linear-gradient(to bottom right, var(--accent-primary), var(--accent-secondary));">
                                         <Icon name=icons::TABLE class="w-6 h-6 text-white"/>
                                     </div>
                                     <div>
-                                        <h2 class="text-lg font-bold text-gray-900">"Schema"</h2>
-                                        <p class="text-xs text-gray-500">"Database Explorer"</p>
+                                        <h2 class="text-lg font-bold text-theme-primary">"Schema"</h2>
+                                        <p class="text-xs text-theme-muted">"Database Explorer"</p>
                                     </div>
                                 </div>
                                 <button
-                                    class="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-2 rounded-lg transition-colors"
+                                    class="text-theme-muted hover:text-theme-secondary hover:bg-theme-tertiary p-2 rounded-lg transition-colors"
                                     on:click=move |_| set_is_collapsed.set(true)
                                     title="Collapse sidebar"
                                 >
@@ -121,16 +121,16 @@ pub fn Sidebar(
                                     view! {
                                         <div class="flex-1 flex flex-col overflow-hidden">
                                             // Хлебные крошки
-                                            <div class="px-6 py-3 border-b border-gray-200 bg-gray-50">
+                                            <div class="px-6 py-3 border-b border-theme-primary bg-theme-secondary theme-transition">
                                                 <button
-                                                    class="flex items-center text-sm text-blue-600 hover:text-blue-700 font-medium"
+                                                    class="flex items-center text-sm text-theme-accent hover:opacity-80 font-medium"
                                                     on:click=move |_| set_editing_mode.set(EditingMode::None)
                                                 >
                                                     <Icon name=icons::CHEVRON_LEFT class="w-4 h-4 mr-1"/>
                                                     "Back to tables"
                                                 </button>
-                                                <div class="mt-1 text-xs text-gray-500">
-                                                    <span class="font-medium text-gray-700">{table_name}</span>
+                                                <div class="mt-1 text-xs text-theme-muted">
+                                                    <span class="font-medium text-theme-secondary">{table_name}</span>
                                                     {if col_idx.is_some() {
                                                         " → Edit Column"
                                                     } else {
@@ -140,7 +140,7 @@ pub fn Sidebar(
                                             </div>
 
                                             // Редактор колонки в сайдбаре
-                                            <div class="flex-1 overflow-y-auto px-6 py-4">
+                                            <div class="flex-1 overflow-y-auto px-6 py-4 bg-theme-surface theme-transition">
                                                 <ColumnEditor
                                                     column=column
                                                     inline=true
@@ -219,21 +219,21 @@ pub fn Sidebar(
                                     view! {
                                         <div class="flex-1 flex flex-col overflow-hidden">
                                             // Хлебные крошки
-                                            <div class="px-6 py-3 border-b border-gray-200 bg-gray-50">
+                                            <div class="px-6 py-3 border-b border-theme-primary bg-theme-secondary theme-transition">
                                                 <button
-                                                    class="flex items-center text-sm text-blue-600 hover:text-blue-700 font-medium"
+                                                    class="flex items-center text-sm text-theme-accent hover:opacity-80 font-medium"
                                                     on:click=move |_| set_editing_mode.set(EditingMode::None)
                                                 >
                                                     <Icon name=icons::CHEVRON_LEFT class="w-4 h-4 mr-1"/>
                                                     "Back to tables"
                                                 </button>
-                                                <div class="mt-1 text-xs text-gray-500">
+                                                <div class="mt-1 text-xs text-theme-muted">
                                                     "Edit Table"
                                                 </div>
                                             </div>
 
                                             // Редактор таблицы в сайдбаре
-                                            <div class="flex-1 overflow-y-auto px-6 py-4">
+                                            <div class="flex-1 overflow-y-auto px-6 py-4 bg-theme-surface theme-transition">
                                                 <TableEditor
                                                     graph=graph
                                                     node_idx=node_idx
@@ -264,13 +264,13 @@ pub fn Sidebar(
                                 EditingMode::None => {
                                 // Режим просмотра списка таблиц
                                 view! {
-                                    <div class="flex-1 flex flex-col overflow-hidden">
+                                    <div class="flex-1 flex flex-col overflow-hidden bg-theme-surface theme-transition">
                                         // Поиск
-                                        <div class="px-6 py-4 border-b border-gray-200">
+                                        <div class="px-6 py-4 border-b border-theme-primary">
                                             <div class="relative">
                                                 <input
                                                     type="text"
-                                                    class="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-sm"
+                                                    class="w-full pl-10 pr-4 py-2.5 input-theme rounded-xl text-sm"
                                                     placeholder="Search tables and columns..."
                                                     prop:value=move || search_query.get()
                                                     on:input=move |ev| {
@@ -279,39 +279,39 @@ pub fn Sidebar(
                                                 />
 
                                                 <div class="absolute left-3 top-3 pointer-events-none">
-                                                    <Icon name=icons::SEARCH class="w-5 h-5 text-gray-400"/>
+                                                    <Icon name=icons::SEARCH class="w-5 h-5 text-theme-muted"/>
                                                 </div>
                                             </div>
                                         </div>
 
                                         // Статистика
-                                        <div class="px-6 py-3 bg-slate-50 border-b border-gray-200">
+                                        <div class="px-6 py-3 bg-theme-secondary border-b border-theme-primary theme-transition">
                                             <div class="grid grid-cols-3 gap-3">
                                                 <div class="text-center">
-                                                    <div class="text-2xl font-bold text-blue-600">
+                                                    <div class="text-2xl font-bold text-blue-500">
                                                         {move || total_tables.get()}
                                                     </div>
-                                                    <div class="text-xs text-gray-500 mt-0.5">"Tables"</div>
+                                                    <div class="text-xs text-theme-muted mt-0.5">"Tables"</div>
                                                 </div>
                                                 <div class="text-center">
-                                                    <div class="text-2xl font-bold text-purple-600">
+                                                    <div class="text-2xl font-bold text-purple-500">
                                                         {move || total_columns.get()}
                                                     </div>
-                                                    <div class="text-xs text-gray-500 mt-0.5">"Columns"</div>
+                                                    <div class="text-xs text-theme-muted mt-0.5">"Columns"</div>
                                                 </div>
                                                 <div class="text-center">
-                                                    <div class="text-2xl font-bold text-green-600">
+                                                    <div class="text-2xl font-bold text-green-500">
                                                         {move || total_relations.get()}
                                                     </div>
-                                                    <div class="text-xs text-gray-500 mt-0.5">"Relations"</div>
+                                                    <div class="text-xs text-theme-muted mt-0.5">"Relations"</div>
                                                 </div>
                                             </div>
                                         </div>
 
                                         // Кнопка создания таблицы
-                                        <div class="px-6 py-4 border-b border-gray-200 bg-white">
+                                        <div class="px-6 py-4 border-b border-theme-primary bg-theme-surface theme-transition">
                                             <button
-                                                class="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 text-sm font-semibold flex items-center justify-center shadow-sm transition-all"
+                                                class="w-full px-4 py-3 btn-theme-primary rounded-lg text-sm font-semibold flex items-center justify-center shadow-sm transition-all"
                                                 on:click=move |_| {
                                                     // Создаем новую таблицу в центре видимой области
                                                     let new_node_idx = graph.write().create_table_auto((300.0, 300.0));
@@ -372,9 +372,9 @@ pub fn Sidebar(
                                                         let is_expanded = expanded.contains(&node_idx);
                                                         let query_clone = query.clone();
                                                         view! {
-                                                            <div class="mb-2 rounded-xl border border-gray-200 overflow-hidden hover:border-blue-300 transition-colors bg-white">
+                                                            <div class="mb-2 rounded-xl border border-theme-primary overflow-hidden hover:border-theme-accent theme-transition bg-theme-surface">
                                                                 // Заголовок таблицы
-                                                                <div class="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-gray-50 to-white hover:from-blue-50 hover:to-white transition-all cursor-pointer group">
+                                                                <div class="flex items-center justify-between px-4 py-3 bg-theme-secondary hover:bg-theme-tertiary theme-transition cursor-pointer group">
                                                                     <div
                                                                         class="flex items-center flex-1"
                                                                         on:click=move |_| {
@@ -386,7 +386,7 @@ pub fn Sidebar(
                                                                     >
 
                                                                         <button
-                                                                            class="mr-2 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors"
+                                                                            class="mr-2 text-theme-muted hover:text-theme-accent focus:outline-none transition-colors"
                                                                             on:click=move |ev: web_sys::MouseEvent| {
                                                                                 ev.stop_propagation();
                                                                                 toggle_table(node_idx);
@@ -409,15 +409,15 @@ pub fn Sidebar(
                                                                             }}
                                                                         </button>
 
-                                                                        <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center mr-3 shadow-sm">
+                                                                        <div class="w-8 h-8 rounded-lg flex items-center justify-center mr-3 shadow-sm" style="background: linear-gradient(to bottom right, var(--accent-primary), var(--accent-secondary));">
                                                                             <Icon name=icons::TABLE class="w-5 h-5 text-white"/>
                                                                         </div>
 
                                                                         <div class="flex-1 min-w-0">
-                                                                            <div class="font-semibold text-gray-900 truncate">
+                                                                            <div class="font-semibold text-theme-primary truncate">
                                                                                 {node.name.clone()}
                                                                             </div>
-                                                                            <div class="text-xs text-gray-500">
+                                                                            <div class="text-xs text-theme-muted">
                                                                                 {node.columns.len()}
                                                                                 " columns"
                                                                             </div>
@@ -426,7 +426,7 @@ pub fn Sidebar(
 
                                                                     <div class="flex items-center space-x-1">
                                                                         <button
-                                                                            class="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                                                                            class="p-1.5 text-theme-muted hover:text-purple-500 hover:bg-theme-tertiary rounded-lg transition-colors"
                                                                             title="Edit table"
                                                                             on:click=move |ev: web_sys::MouseEvent| {
                                                                                 ev.stop_propagation();
@@ -436,7 +436,7 @@ pub fn Sidebar(
                                                                             <Icon name=icons::EDIT class="w-4 h-4"/>
                                                                         </button>
                                                                         <button
-                                                                            class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                            class="p-1.5 text-theme-muted hover:text-theme-accent hover:bg-theme-tertiary rounded-lg transition-colors"
                                                                             title="Add column"
                                                                             on:click=move |ev: web_sys::MouseEvent| {
                                                                                 ev.stop_propagation();
@@ -452,13 +452,13 @@ pub fn Sidebar(
                                                                 // Список колонок
                                                                 {if is_expanded {
                                                                     view! {
-                                                                        <div class="bg-gray-50">
+                                                                        <div class="bg-theme-tertiary theme-transition">
                                                                             {if node.columns.is_empty() {
                                                                                 view! {
-                                                                                    <div class="px-4 py-6 text-center text-gray-400 text-sm">
+                                                                                    <div class="px-4 py-6 text-center text-theme-muted text-sm">
                                                                                         "No columns yet"
                                                                                         <button
-                                                                                            class="block mx-auto mt-2 text-blue-600 hover:text-blue-700 font-medium"
+                                                                                            class="block mx-auto mt-2 text-theme-accent hover:opacity-80 font-medium"
                                                                                             on:click=move |_| {
                                                                                                 set_editing_mode
                                                                                                     .set(EditingMode::EditingColumn(node_idx, None));
@@ -508,9 +508,9 @@ pub fn Sidebar(
                                         </div>
 
                                         // Футер
-                                        <div class="px-6 py-4 border-t border-gray-200 bg-gradient-to-r from-slate-50 to-white">
+                                        <div class="px-6 py-4 border-t border-theme-primary bg-theme-secondary theme-transition">
                                             <button
-                                                class="w-full px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 text-sm font-medium flex items-center justify-center shadow-sm transition-all"
+                                                class="w-full px-4 py-2.5 btn-theme-primary rounded-xl text-sm font-medium flex items-center justify-center shadow-sm transition-all"
                                                 on:click=move |_| {
                                                     set_expanded_tables
                                                         .update(|expanded| {
@@ -564,7 +564,7 @@ pub fn Sidebar(
 fn ColumnItem(column: Column, #[prop(into)] on_click: Callback<()>) -> impl IntoView {
     view! {
         <div
-            class="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-200 last:border-b-0 transition-colors group"
+            class="px-4 py-3 hover:bg-theme-secondary cursor-pointer border-b border-theme-primary last:border-b-0 theme-transition group"
             on:click=move |_| on_click.run(())
         >
             <div class="flex items-start justify-between">
@@ -572,7 +572,7 @@ fn ColumnItem(column: Column, #[prop(into)] on_click: Callback<()>) -> impl Into
                     <div class="flex items-center">
                         {if column.is_primary_key {
                             view! {
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-yellow-100 text-yellow-800 mr-2 border border-yellow-200">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-yellow-100 text-yellow-800 mr-2 border border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200 dark:border-yellow-700">
                                     <Icon name=icons::KEY class="w-3 h-3 mr-1"/>
                                     "PK"
                                 </span>
@@ -581,17 +581,17 @@ fn ColumnItem(column: Column, #[prop(into)] on_click: Callback<()>) -> impl Into
                         } else {
                             view! { <span></span> }.into_any()
                         }}
-                        <span class="font-medium text-gray-900 text-sm truncate group-hover:text-blue-700 transition-colors">
+                        <span class="font-medium text-theme-primary text-sm truncate group-hover:text-theme-accent transition-colors">
                             {column.name.clone()}
                         </span>
                     </div>
                     <div class="flex flex-wrap items-center gap-2 mt-1.5">
-                        <code class="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md font-mono border border-gray-200">
+                        <code class="text-xs bg-theme-tertiary text-theme-secondary px-2 py-0.5 rounded-md font-mono border border-theme-primary">
                             {column.data_type.clone()}
                         </code>
                         {if !column.is_nullable {
                             view! {
-                                <span class="inline-flex items-center text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-md border border-red-200">
+                                <span class="inline-flex items-center text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-md border border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800">
                                     "NOT NULL"
                                 </span>
                             }
@@ -601,7 +601,7 @@ fn ColumnItem(column: Column, #[prop(into)] on_click: Callback<()>) -> impl Into
                         }}
                         {if column.is_unique {
                             view! {
-                                <span class="inline-flex items-center text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                                <span class="inline-flex items-center text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800">
                                     "UNIQUE"
                                 </span>
                             }
@@ -614,9 +614,9 @@ fn ColumnItem(column: Column, #[prop(into)] on_click: Callback<()>) -> impl Into
                         .default_value
                         .map(|def| {
                             view! {
-                                <div class="mt-1.5 text-xs text-gray-600">
-                                    <span class="text-gray-400">"DEFAULT: "</span>
-                                    <code class="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200 font-mono">
+                                <div class="mt-1.5 text-xs text-theme-tertiary">
+                                    <span class="text-theme-muted">"DEFAULT: "</span>
+                                    <code class="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200 font-mono dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800">
                                         {def}
                                     </code>
                                 </div>
@@ -626,7 +626,7 @@ fn ColumnItem(column: Column, #[prop(into)] on_click: Callback<()>) -> impl Into
                 </div>
                 <Icon
                     name=icons::CHEVRON_RIGHT
-                    class="w-5 h-5 text-gray-300 group-hover:text-blue-600 ml-3 flex-shrink-0 transition-colors"
+                    class="w-5 h-5 text-theme-muted group-hover:text-theme-accent ml-3 flex-shrink-0 transition-colors"
                 />
             </div>
         </div>

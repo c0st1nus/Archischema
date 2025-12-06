@@ -40,4 +40,6 @@ pub mod icons {
     pub const COLLAPSE: &str = "collapse";
     pub const ALERT_CIRCLE: &str = "alert-circle";
     pub const LOADER: &str = "loader";
+    pub const DICES: &str = "dices";
+    pub const SETTINGS: &str = "settings";
 }

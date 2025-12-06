@@ -26,7 +26,8 @@ gloo-timers = { version = "0.3", features = ["futures"], optional = true }
 web-sys = { version = "0.3", features = [
     "Window", "Navigator", "Clipboard", "Request", "RequestInit", "Response", "Headers", "Location",
     "WebSocket", "BinaryType", "MessageEvent", "CloseEvent", "ErrorEvent", "Event",
-    "CustomEvent", "CustomEventInit"
+    "CustomEvent", "CustomEventInit",
+    "Storage", "MediaQueryList", "MediaQueryListEvent"
 ], optional = true }
 js-sys = { version = "0.3", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
@@ -36,6 +37,7 @@ dashmap = { version = "6.1.0", optional = true }
 chrono = { version = "0.4.42", features = ["serde"], optional = true }
 tracing = { version = "0.1.43", optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
+tower = "0.5.2"
 
 [features]
 default = ["ssr"]
@@ -46,7 +48,7 @@ hydrate = [
     "dep:gloo-timers",
     "dep:web-sys",
     "dep:js-sys",
-    "dep:wasm-bindgen-futures",
+    "dep:wasm-bindgen-futures"
 ]
 ssr = [
     "dep:axum",

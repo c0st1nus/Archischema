@@ -21,9 +21,9 @@ pub fn TableNodeView(
 
     // Use transition only when NOT being dragged locally (for smooth remote updates)
     let table_class = if is_being_dragged {
-        "absolute bg-white border-2 border-gray-300 rounded-lg shadow-lg select-none hover:shadow-xl"
+        "absolute bg-theme-surface border-2 border-theme-primary shadow-theme-lg select-none hover:shadow-theme-xl theme-transition"
     } else {
-        "absolute bg-white border-2 border-gray-300 rounded-lg shadow-lg select-none hover:shadow-xl transition-[left,top] duration-100 ease-out"
+        "absolute bg-theme-surface border-2 border-theme-primary shadow-theme-lg select-none hover:shadow-theme-xl theme-transition transition-[left,top] duration-100 ease-out"
     };
 
     view! {
@@ -35,10 +35,12 @@ pub fn TableNodeView(
             style:width="280px"
             style:user-select="none"
             style:z-index="10"
+            style:border-radius="8px"
         >
             // Заголовок таблицы
             <div
-                class="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-3 rounded-t-lg font-bold cursor-move flex items-center justify-between"
+                class="text-white px-4 py-3 font-bold cursor-move flex items-center justify-between"
+                style="background: linear-gradient(to right, var(--accent-primary), var(--accent-secondary)); border-radius: 6px 6px 0 0;"
                 on:mousedown=move |ev| on_mouse_down.run(ev)
             >
                 <span class="text-lg">{table_name}</span>
@@ -49,9 +51,9 @@ pub fn TableNodeView(
             <div class="p-2 max-h-96 overflow-y-auto">
                 {if !has_columns {
                     view! {
-                        <div class="text-center py-4 text-gray-400 text-sm">
+                        <div class="text-center py-4 text-theme-muted text-sm">
                             "No columns"
-                            <div class="text-xs mt-1 text-gray-500">"Use sidebar to add"</div>
+                            <div class="text-xs mt-1 text-theme-tertiary">"Use sidebar to add"</div>
                         </div>
                     }
                         .into_any()
@@ -73,7 +75,7 @@ pub fn TableNodeView(
 #[component]
 fn ColumnRow(column: Column) -> impl IntoView {
     view! {
-        <div class="flex items-center justify-between py-2 px-2 hover:bg-gray-50 rounded text-sm border-b border-gray-100 last:border-b-0 transition-colors">
+        <div class="flex items-center justify-between py-2 px-2 hover:bg-theme-secondary rounded text-sm border-b border-theme-primary last:border-b-0 theme-transition">
             <div class="flex items-center flex-1 min-w-0">
                 {if column.is_primary_key {
                     view! {
@@ -85,7 +87,7 @@ fn ColumnRow(column: Column) -> impl IntoView {
                 } else {
                     view! { <span class="w-6"></span> }.into_any()
                 }}
-                <span class="font-medium text-gray-800 truncate">{column.name}</span>
+                <span class="font-medium text-theme-primary truncate">{column.name}</span>
                 {if !column.is_nullable {
                     view! {
                         <span class="text-red-500 text-xs ml-1 flex-shrink-0" title="NOT NULL">
@@ -108,7 +110,7 @@ fn ColumnRow(column: Column) -> impl IntoView {
                 }}
             </div>
             <div class="flex items-center space-x-2">
-                <span class="text-gray-500 text-xs ml-2 flex-shrink-0">{column.data_type.to_string()}</span>
+                <span class="text-theme-tertiary text-xs ml-2 flex-shrink-0">{column.data_type.to_string()}</span>
             </div>
         </div>
     }

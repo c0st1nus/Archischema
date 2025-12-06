@@ -122,6 +122,8 @@ pub struct LiveShareContext {
     pub error: RwSignal<Option<String>>,
     /// Local cursor position (to send to others)
     pub local_cursor: RwSignal<Option<(f64, f64)>>,
+    /// Pending room to join from URL (e.g., /?room=uuid)
+    pub pending_join_room: RwSignal<Option<String>>,
 }
 
 impl LiveShareContext {
@@ -130,6 +132,7 @@ impl LiveShareContext {
         let user_id = Uuid::new_v4();
         let username = format!("User_{}", &user_id.to_string()[..6]);
 
+        // pending_join_room starts as None - will be set on client-side hydration
         Self {
             connection_state: RwSignal::new(ConnectionState::Disconnected),
             user_id: RwSignal::new(user_id),
@@ -139,7 +142,45 @@ impl LiveShareContext {
             remote_users: RwSignal::new(vec![]),
             error: RwSignal::new(None),
             local_cursor: RwSignal::new(None),
+            pending_join_room: RwSignal::new(None),
         }
+    }
+
+    /// Check URL for room parameter and set pending_join_room if found
+    /// This should be called on client-side after hydration
+    #[cfg(not(feature = "ssr"))]
+    pub fn check_url_for_room(&self) {
+        if let Some(room_id) = Self::get_room_from_url() {
+            self.pending_join_room.set(Some(room_id));
+        }
+    }
+
+    /// Check URL stub for SSR
+    #[cfg(feature = "ssr")]
+    pub fn check_url_for_room(&self) {
+        // No-op on server
+    }
+
+    /// Extract room ID from URL query parameter (?room=uuid)
+    #[cfg(not(feature = "ssr"))]
+    fn get_room_from_url() -> Option<String> {
+        use leptos::web_sys;
+
+        let window = web_sys::window()?;
+        let location = window.location();
+        let search = location.search().ok()?;
+
+        // Parse query string: ?room=uuid
+        if search.starts_with('?') {
+            for param in search[1..].split('&') {
+                if let Some((key, value)) = param.split_once('=') {
+                    if key == "room" && !value.is_empty() {
+                        return Some(value.to_string());
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Check if connected to a room
@@ -433,6 +474,14 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
                 ctx.remote_users.update(|users| {
                     if let Some(user) = users.iter_mut().find(|u| u.user_id == user_id) {
                         user.update_awareness(&state);
+                    } else {
+                        // User not found - they might have joined before we got the UserJoined message
+                        // Add them now with a generic name
+                        leptos::logging::log!("Adding unknown user from awareness: {:?}", user_id);
+                        let mut new_user =
+                            RemoteUser::new(user_id, format!("User_{}", &user_id.to_string()[..6]));
+                        new_user.update_awareness(&state);
+                        users.push(new_user);
                     }
                 });
             }
@@ -587,6 +636,13 @@ pub struct DisplayUser {
 pub fn provide_liveshare_context() -> LiveShareContext {
     let ctx = LiveShareContext::new();
     provide_context(ctx);
+
+    // Check URL for room parameter on client-side (handles invite links)
+    #[cfg(not(feature = "ssr"))]
+    {
+        ctx.check_url_for_room();
+    }
+
     ctx
 }
 

@@ -3,6 +3,99 @@
 @tailwind utilities;
 
 @layer base {
+    :root {
+        /* Light theme colors */
+        --bg-primary: #ffffff;
+        --bg-secondary: #f9fafb;
+        --bg-tertiary: #f3f4f6;
+        --bg-surface: #ffffff;
+        --bg-canvas: #f8fafc;
+
+        --text-primary: #111827;
+        --text-secondary: #374151;
+        --text-tertiary: #6b7280;
+        --text-muted: #9ca3af;
+
+        --border-primary: #e5e7eb;
+        --border-secondary: #d1d5db;
+        --border-focus: #3b82f6;
+
+        --accent-primary: #2563eb;
+        --accent-secondary: #1d4ed8;
+        --accent-light: #dbeafe;
+
+        --success-bg: #f0fdf4;
+        --success-border: #bbf7d0;
+        --success-text: #166534;
+
+        --error-bg: #fef2f2;
+        --error-border: #fecaca;
+        --error-text: #dc2626;
+
+        --warning-bg: #fffbeb;
+        --warning-border: #fde68a;
+        --warning-text: #92400e;
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+        --shadow-md:
+            0 4px 6px -1px rgba(0, 0, 0, 0.1),
+            0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        --shadow-lg:
+            0 10px 15px -3px rgba(0, 0, 0, 0.1),
+            0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        --shadow-xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+
+        --backdrop-blur: rgba(255, 255, 255, 0.8);
+
+        --grid-line: rgba(0, 0, 0, 0.05);
+    }
+
+    .dark {
+        /* Dark theme colors */
+        --bg-primary: #0f172a;
+        --bg-secondary: #1e293b;
+        --bg-tertiary: #334155;
+        --bg-surface: #1e293b;
+        --bg-canvas: #0c1222;
+
+        --text-primary: #f1f5f9;
+        --text-secondary: #cbd5e1;
+        --text-tertiary: #94a3b8;
+        --text-muted: #64748b;
+
+        --border-primary: #334155;
+        --border-secondary: #475569;
+        --border-focus: #3b82f6;
+
+        --accent-primary: #3b82f6;
+        --accent-secondary: #2563eb;
+        --accent-light: #1e3a5f;
+
+        --success-bg: #052e16;
+        --success-border: #166534;
+        --success-text: #86efac;
+
+        --error-bg: #450a0a;
+        --error-border: #991b1b;
+        --error-text: #fca5a5;
+
+        --warning-bg: #451a03;
+        --warning-border: #92400e;
+        --warning-text: #fde68a;
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+        --shadow-md:
+            0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+        --shadow-lg:
+            0 10px 15px -3px rgba(0, 0, 0, 0.3),
+            0 4px 6px -2px rgba(0, 0, 0, 0.15);
+        --shadow-xl: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+
+        --backdrop-blur: rgba(15, 23, 42, 0.8);
+
+        --grid-line: rgba(255, 255, 255, 0.05);
+    }
+
     body {
         font-family:
             "Inter",
@@ -20,6 +113,11 @@
         margin: 0;
         padding: 0;
         overflow: hidden;
+        background-color: var(--bg-primary);
+        color: var(--text-primary);
+        transition:
+            background-color 0.2s ease,
+            color 0.2s ease;
     }
 
     * {
@@ -28,54 +126,224 @@
 }
 
 @layer utilities {
-    /* Сетка на фоне для канваса */
+    /* Canvas grid pattern with theme support */
     .bg-grid-pattern {
         background-image:
-            linear-gradient(rgba(0, 0, 0, 0.05) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+            linear-gradient(var(--grid-line) 1px, transparent 1px),
+            linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
         background-size: 20px 20px;
     }
 
-    /* Дополнительные утилиты для редактора */
+    /* Theme-aware backgrounds */
+    .bg-theme-primary {
+        background-color: var(--bg-primary);
+    }
+
+    .bg-theme-secondary {
+        background-color: var(--bg-secondary);
+    }
+
+    .bg-theme-tertiary {
+        background-color: var(--bg-tertiary);
+    }
+
+    .bg-theme-surface {
+        background-color: var(--bg-surface);
+    }
+
+    .bg-theme-canvas {
+        background-color: var(--bg-canvas);
+    }
+
+    /* Theme-aware text colors */
+    .text-theme-primary {
+        color: var(--text-primary);
+    }
+
+    .text-theme-secondary {
+        color: var(--text-secondary);
+    }
+
+    .text-theme-tertiary {
+        color: var(--text-tertiary);
+    }
+
+    .text-theme-muted {
+        color: var(--text-muted);
+    }
+
+    /* Theme-aware borders */
+    .border-theme-primary {
+        border-color: var(--border-primary);
+    }
+
+    .border-theme-secondary {
+        border-color: var(--border-secondary);
+    }
+
+    /* Theme-aware shadows */
+    .shadow-theme-sm {
+        box-shadow: var(--shadow-sm);
+    }
+
+    .shadow-theme-md {
+        box-shadow: var(--shadow-md);
+    }
+
+    .shadow-theme-lg {
+        box-shadow: var(--shadow-lg);
+    }
+
+    .shadow-theme-xl {
+        box-shadow: var(--shadow-xl);
+    }
+
+    /* Backdrop blur */
+    .backdrop-theme {
+        background-color: var(--backdrop-blur);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+    }
+
+    /* Success states */
+    .bg-theme-success {
+        background-color: var(--success-bg);
+    }
+
+    .border-theme-success {
+        border-color: var(--success-border);
+    }
+
+    .text-theme-success {
+        color: var(--success-text);
+    }
+
+    /* Error states */
+    .bg-theme-error {
+        background-color: var(--error-bg);
+    }
+
+    .border-theme-error {
+        border-color: var(--error-border);
+    }
+
+    .text-theme-error {
+        color: var(--error-text);
+    }
+
+    /* Warning states */
+    .bg-theme-warning {
+        background-color: var(--warning-bg);
+    }
+
+    .border-theme-warning {
+        border-color: var(--warning-border);
+    }
+
+    .text-theme-warning {
+        color: var(--warning-text);
+    }
+
+    /* Accent colors */
+    .bg-theme-accent {
+        background-color: var(--accent-primary);
+    }
+
+    .bg-theme-accent-light {
+        background-color: var(--accent-light);
+    }
+
+    .text-theme-accent {
+        color: var(--accent-primary);
+    }
+
+    .border-theme-accent {
+        border-color: var(--accent-primary);
+    }
+
+    /* Selection prevention */
     .select-none {
         user-select: none;
         -webkit-user-select: none;
         -moz-user-select: none;
         -ms-user-select: none;
     }
+
+    /* Transitions for theme changes */
+    .theme-transition {
+        transition:
+            background-color 0.2s ease,
+            color 0.2s ease,
+            border-color 0.2s ease,
+            box-shadow 0.2s ease;
+    }
 }
 
 @layer components {
-    /* Стили для скроллбара */
+    /* Scrollbar styles with theme support */
     ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
     }
 
     ::-webkit-scrollbar-track {
-        background: #f1f1f1;
+        background: var(--bg-tertiary);
     }
 
     ::-webkit-scrollbar-thumb {
-        background: #888;
+        background: var(--text-muted);
         border-radius: 4px;
     }
 
     ::-webkit-scrollbar-thumb:hover {
-        background: #555;
+        background: var(--text-tertiary);
     }
 
-    /* Стили для SVG иконок */
+    /* SVG icon styles */
     img[src^="/icons/"] {
         display: inline-block;
         vertical-align: middle;
         flex-shrink: 0;
     }
 
-    /* Иконки наследуют цвет от родителя через фильтры */
+    /* Icon color inheritance */
     .text-white img[src^="/icons/"],
     .text-white svg {
         filter: brightness(0) saturate(100%) invert(1);
+    }
+
+    /* Dark mode - make all icons light/white by default */
+    .dark img[src^="/icons/"] {
+        filter: brightness(0) saturate(100%) invert(85%) sepia(0%) saturate(0%)
+            hue-rotate(0deg) brightness(100%) contrast(100%);
+    }
+
+    /* Dark mode - white icons for specific contexts */
+    .dark .text-white img[src^="/icons/"],
+    .dark .text-white svg {
+        filter: brightness(0) saturate(100%) invert(1);
+    }
+
+    .dark .text-gray-400 img[src^="/icons/"],
+    .dark .text-gray-500 img[src^="/icons/"],
+    .dark .text-gray-600 img[src^="/icons/"] {
+        filter: brightness(0) saturate(100%) invert(70%) sepia(0%) saturate(0%)
+            hue-rotate(207deg) brightness(92%) contrast(86%);
+    }
+
+    /* Dark mode - theme-aware icon classes */
+    .dark .text-theme-primary img[src^="/icons/"],
+    .dark .text-theme-secondary img[src^="/icons/"],
+    .dark .text-theme-tertiary img[src^="/icons/"],
+    .dark .text-theme-muted img[src^="/icons/"] {
+        filter: brightness(0) saturate(100%) invert(85%) sepia(0%) saturate(0%)
+            hue-rotate(0deg) brightness(100%) contrast(100%);
+    }
+
+    /* Dark mode - accent colored icons */
+    .dark .text-theme-accent img[src^="/icons/"] {
+        filter: brightness(0) saturate(100%) invert(45%) sepia(98%)
+            saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(95%);
     }
 
     .text-gray-400 img[src^="/icons/"] {
@@ -108,7 +376,7 @@
             saturate(1055%) hue-rotate(1deg) brightness(92%) contrast(93%);
     }
 
-    /* Hover эффекты для иконок */
+    /* Hover effects for icons */
     .group:hover .group-hover\:text-blue-600 img[src^="/icons/"] {
         filter: brightness(0) saturate(100%) invert(28%) sepia(93%)
             saturate(2433%) hue-rotate(212deg) brightness(95%) contrast(93%);
@@ -127,12 +395,12 @@
         transition: filter 0.2s ease-in-out;
     }
 
-    /* Иконки в кнопках */
+    /* Icon buttons */
     button img[src^="/icons/"] {
         pointer-events: none;
     }
 
-    /* Размеры иконок */
+    /* Icon sizes */
     .w-3 img[src^="/icons/"],
     .h-3 img[src^="/icons/"] {
         width: 0.75rem;
@@ -155,5 +423,91 @@
     .h-6 img[src^="/icons/"] {
         width: 1.5rem;
         height: 1.5rem;
+    }
+
+    /* Theme-aware input styles */
+    .input-theme {
+        background-color: var(--bg-surface);
+        border: 1px solid var(--border-primary);
+        color: var(--text-primary);
+        transition:
+            border-color 0.2s ease,
+            box-shadow 0.2s ease;
+    }
+
+    .input-theme:focus {
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px var(--accent-light);
+        outline: none;
+    }
+
+    .input-theme::placeholder {
+        color: var(--text-muted);
+    }
+
+    /* Theme-aware button styles */
+    .btn-theme-primary {
+        background: linear-gradient(
+            to right,
+            var(--accent-primary),
+            var(--accent-secondary)
+        );
+        color: white;
+        transition:
+            opacity 0.2s ease,
+            transform 0.2s ease;
+    }
+
+    .btn-theme-primary:hover {
+        opacity: 0.9;
+    }
+
+    .btn-theme-primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .btn-theme-secondary {
+        background-color: var(--bg-tertiary);
+        color: var(--text-secondary);
+        transition: background-color 0.2s ease;
+    }
+
+    .btn-theme-secondary:hover {
+        background-color: var(--border-primary);
+    }
+
+    /* Theme-aware card styles */
+    .card-theme {
+        background-color: var(--bg-surface);
+        border: 1px solid var(--border-primary);
+        box-shadow: var(--shadow-md);
+    }
+
+    /* Modal backdrop */
+    .modal-backdrop-theme {
+        background-color: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+    }
+
+    .dark .modal-backdrop-theme {
+        background-color: rgba(0, 0, 0, 0.7);
+    }
+
+    /* Tab styles */
+    .tab-theme-active {
+        background-color: var(--bg-surface);
+        color: var(--accent-primary);
+        box-shadow: var(--shadow-sm);
+    }
+
+    .tab-theme-inactive {
+        background-color: transparent;
+        color: var(--text-tertiary);
+    }
+
+    .tab-theme-inactive:hover {
+        color: var(--text-secondary);
     }
 }

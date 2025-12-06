@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::core::{
         Column, MySqlDataType, RelationshipOps, RelationshipType, TableNode, TableOps,
     };

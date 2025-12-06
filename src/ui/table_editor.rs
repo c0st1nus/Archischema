@@ -94,8 +94,8 @@ pub fn TableEditor(
         <div class="space-y-4">
             // Заголовок
             <div>
-                <h3 class="text-lg font-semibold text-gray-900 mb-1">"Edit Table"</h3>
-                <p class="text-sm text-gray-500">
+                <h3 class="text-lg font-semibold text-theme-primary">"Edit Table"</h3>
+                <p class="text-sm text-theme-muted">
                     "Rename your table or manage its properties"
                 </p>
             </div>
@@ -104,14 +104,14 @@ pub fn TableEditor(
             <div class="space-y-4">
                 // Поле имени таблицы
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <label class="block text-sm font-medium text-theme-secondary mb-2">
                         "Table Name"
                         <span class="text-red-500">"*"</span>
                     </label>
                     <input
                         node_ref=input_ref
                         type="text"
-                        class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        class="w-full px-4 py-2.5 input-theme rounded-lg transition-all"
                         placeholder="Enter table name"
                         prop:value=move || table_name.get()
                         on:input=move |ev| {
@@ -127,7 +127,7 @@ pub fn TableEditor(
                             .get()
                             .map(|err| {
                                 view! {
-                                    <div class="mt-2 flex items-center text-sm text-red-600">
+                                    <div class="mt-2 flex items-center text-sm text-theme-error">
                                         <Icon name=icons::ALERT_CIRCLE class="w-4 h-4 mr-1.5"/>
                                         <span>{err}</span>
                                     </div>
@@ -137,10 +137,10 @@ pub fn TableEditor(
                 </div>
 
                 // Информация о таблице
-                <div class="p-4 bg-gray-50 rounded-lg space-y-2">
+                <div class="p-4 bg-theme-secondary rounded-lg space-y-2 theme-transition">
                     <div class="flex items-center justify-between text-sm">
-                        <span class="text-gray-600">"Columns:"</span>
-                        <span class="font-medium text-gray-900">
+                        <span class="text-theme-tertiary">"Columns:"</span>
+                        <span class="font-medium text-theme-primary">
                             {move || {
                                 graph
                                     .with(|g| {
@@ -151,8 +151,8 @@ pub fn TableEditor(
                         </span>
                     </div>
                     <div class="flex items-center justify-between text-sm">
-                        <span class="text-gray-600">"Relationships:"</span>
-                        <span class="font-medium text-gray-900">
+                        <span class="text-theme-tertiary">"Relationships:"</span>
+                        <span class="font-medium text-theme-primary">
                             {move || {
                                 graph
                                     .with(|g| {
@@ -166,9 +166,9 @@ pub fn TableEditor(
             </div>
 
             // Кнопки действий
-            <div class="flex items-center justify-between pt-4 border-t border-gray-200">
+            <div class="flex items-center justify-between pt-4 border-t border-theme-primary">
                 <button
-                    class="px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors flex items-center"
+                    class="px-4 py-2 text-sm font-medium text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center"
                     on:click=move |_| handle_delete()
                     disabled=move || is_saving.get()
                 >
@@ -178,14 +178,14 @@ pub fn TableEditor(
 
                 <div class="flex items-center space-x-2">
                     <button
-                        class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                        class="px-4 py-2 text-sm font-medium text-theme-secondary hover:bg-theme-tertiary rounded-lg transition-colors"
                         on:click=move |_| handle_cancel()
                         disabled=move || is_saving.get()
                     >
                         "Cancel"
                     </button>
                     <button
-                        class="px-6 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                        class="px-6 py-2 text-sm font-medium btn-theme-primary rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
                         on:click=move |_| handle_save()
                         disabled=move || is_saving.get() || table_name.get().trim().is_empty()
                     >
@@ -214,16 +214,16 @@ pub fn TableEditor(
             </div>
 
             // Подсказка по горячим клавишам
-            <div class="pt-2 border-t border-gray-100">
-                <div class="flex items-center justify-center space-x-4 text-xs text-gray-500">
+            <div class="pt-2 border-t border-theme-primary">
+                <div class="flex items-center justify-center space-x-4 text-xs text-theme-muted">
                     <div class="flex items-center">
-                        <kbd class="px-2 py-1 bg-gray-100 rounded border border-gray-300 font-mono">
+                        <kbd class="px-2 py-1 bg-theme-tertiary rounded border border-theme-secondary font-mono text-theme-secondary">
                             "Enter"
                         </kbd>
                         <span class="ml-1">"to save"</span>
                     </div>
                     <div class="flex items-center">
-                        <kbd class="px-2 py-1 bg-gray-100 rounded border border-gray-300 font-mono">
+                        <kbd class="px-2 py-1 bg-theme-tertiary rounded border border-theme-secondary font-mono text-theme-secondary">
                             "Esc"
                         </kbd>
                         <span class="ml-1">"to cancel"</span>

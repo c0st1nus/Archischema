@@ -4,8 +4,8 @@ use crate::ui::liveshare_client::{
     ColumnData, GraphStateSnapshot, RelationshipData, RelationshipSnapshot, TableSnapshot,
 };
 use crate::ui::liveshare_client::{ConnectionState, GraphOperation, use_liveshare_context};
-use crate::ui::liveshare_panel::LiveSharePanel;
 use crate::ui::remote_cursors::{CursorTracker, RemoteCursors};
+use crate::ui::settings_modal::{SettingsButton, SettingsModal};
 use crate::ui::sidebar::Sidebar;
 use crate::ui::table::TableNodeView;
 use crate::ui::{Icon, icons};
@@ -57,6 +57,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |e: web_sys::CustomEvent| {
                     if let Some(detail) = e.detail().as_string() {
                         if let Ok(op) = serde_json::from_str::<GraphOperation>(&detail) {
+                            leptos::logging::log!("Applying remote graph op: {:?}", op);
                             apply_remote_graph_op(graph_clone, op);
                         }
                     }
@@ -78,6 +79,11 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |e: web_sys::CustomEvent| {
                     if let Some(detail) = e.detail().as_string() {
                         if let Ok(state) = serde_json::from_str::<GraphStateSnapshot>(&detail) {
+                            leptos::logging::log!(
+                                "Applying graph state: {} tables, {} relationships",
+                                state.tables.len(),
+                                state.relationships.len()
+                            );
                             apply_graph_state(graph_clone, state);
                         }
                     }
@@ -103,6 +109,11 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                         if let Ok(requester_id) = uuid::Uuid::parse_str(&detail) {
                             // Create snapshot of current graph state
                             let state = create_graph_snapshot(graph_clone);
+                            leptos::logging::log!(
+                                "Sending graph state to {:?}: {} tables",
+                                requester_id,
+                                state.tables.len()
+                            );
                             // Send it to the requester
                             ctx_clone.send_graph_state_response(requester_id, state);
                         }
@@ -405,14 +416,14 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
     }
 
     view! {
-        <div class="relative w-full h-screen bg-gray-50 overflow-hidden flex">
+        <div class="relative w-full h-screen bg-theme-canvas overflow-hidden flex theme-transition">
             // Сайдбар
             <Sidebar graph=graph on_table_focus=handle_table_focus/>
 
             // Основной канвас (со смещением из-за сайдбара)
             <div
                 node_ref=canvas_ref
-                class="flex-1 ml-96 relative"
+                class="flex-1 ml-96 relative bg-theme-canvas theme-transition"
                 on:mousedown=move |ev: web_sys::MouseEvent| {
                     // Средняя кнопка мыши (button = 1)
                     if ev.button() == 1 {
@@ -502,7 +513,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                             refY="3"
                             orient="auto"
                         >
-                            <polygon points="0 0, 10 3, 0 6" fill="#4B5563" />
+                            <polygon points="0 0, 10 3, 0 6" class="fill-current text-gray-500 dark:text-gray-400" />
                         </marker>
                     </defs>
 
@@ -572,7 +583,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                         <g>
                                             <path
                                                 d=path_data
-                                                stroke="#4B5563"
+                                                class="stroke-current text-gray-500 dark:text-gray-400"
                                                 stroke-width="2"
                                                 fill="none"
                                                 marker-end="url(#arrowhead)"
@@ -580,10 +591,9 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                             <text
                                                 x=text_x
                                                 y=text_y
-                                                fill="#4B5563"
+                                                class="fill-current text-gray-500 dark:text-gray-400 select-none"
                                                 font-size="12"
                                                 text-anchor="start"
-                                                class="select-none"
                                             >
                                                 {rel_type}
                                             </text>
@@ -596,37 +606,59 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                     </g>
                 </svg>
 
-                // LiveShare панель (правый верхний угол)
-                <LiveSharePanel />
+                // Settings button (правый верхний угол)
+                {
+                    let settings_open = RwSignal::new(false);
+                    let initial_room_id = RwSignal::new(String::new());
+
+                    // Auto-open settings and connect when there's a pending room from URL
+                    #[cfg(not(feature = "ssr"))]
+                    {
+                        let ctx = liveshare_ctx;
+                        let settings_open_clone = settings_open;
+                        let initial_room_id_clone = initial_room_id;
+
+                        Effect::new(move |_| {
+                            if let Some(room_id) = ctx.pending_join_room.get() {
+                                // Clear the pending room immediately to avoid re-triggering
+                                ctx.pending_join_room.set(None);
+
+                                // Set initial room ID for the modal
+                                initial_room_id_clone.set(room_id.clone());
+
+                                // Open settings modal
+                                settings_open_clone.set(true);
+
+                                // Clear the URL query parameter
+                                if let Some(window) = web_sys::window() {
+                                    if let Ok(history) = window.history() {
+                                        let _ = history.replace_state_with_url(
+                                            &wasm_bindgen::JsValue::NULL,
+                                            "",
+                                            Some("/"),
+                                        );
+                                    }
+                                }
+
+                                // Connect to the room (without password for now)
+                                ctx.connect(room_id, None);
+                            }
+                        });
+                    }
+
+                    view! {
+                        <div class="absolute top-4 right-4 z-50">
+                            <SettingsButton is_open=settings_open />
+                        </div>
+                        <SettingsModal is_open=settings_open initial_room_id=initial_room_id />
+                    }
+                }
 
                 // Remote cursors overlay (показывает курсоры других пользователей)
                 <RemoteCursors zoom=Signal::from(zoom) pan_x=Signal::from(pan_x) pan_y=Signal::from(pan_y) />
 
                 // Cursor tracker (отслеживает и отправляет позицию локального курсора)
                 <CursorTracker zoom=Signal::from(zoom) pan_x=Signal::from(pan_x) pan_y=Signal::from(pan_y) />
-
-                // FAB (Floating Action Button) для создания таблицы
-                <button
-                    class="absolute bottom-8 right-8 w-16 h-16 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white rounded-full shadow-2xl hover:shadow-3xl transition-all duration-300 flex items-center justify-center group hover:scale-110 focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50"
-                    on:click=move |_| {
-                        // Создаем новую таблицу в центре видимой области
-                        let viewport_center_x = 400.0;
-                        let viewport_center_y = 300.0;
-                        let node_idx = graph.write().create_table_auto((viewport_center_x, viewport_center_y));
-                        // Send sync op
-                        let name = graph.with(|g| {
-                            g.node_weight(node_idx).map(|n| n.name.clone()).unwrap_or_default()
-                        });
-                        send_graph_op(GraphOperation::CreateTable {
-                            node_id: node_idx.index() as u32,
-                            name,
-                            position: (viewport_center_x, viewport_center_y),
-                        });
-                    }
-                    title="Create new table (Ctrl+N)"
-                >
-                    <Icon name=icons::PLUS class="w-8 h-8"/>
-                </button>
 
                 // Empty State - показывается когда нет таблиц
                 {move || {
@@ -635,19 +667,18 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                         view! {
                             <div class="absolute inset-0 flex items-center justify-center">
                                 <div class="text-center max-w-md px-8">
-                                    <div class="w-24 h-24 mx-auto mb-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
-                                        <Icon name=icons::TABLE class="w-12 h-12 text-blue-600"/>
+                                    <div class="w-24 h-24 mx-auto mb-6 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900 dark:to-purple-900 rounded-full flex items-center justify-center">
+                                        <Icon name=icons::TABLE class="w-12 h-12 text-blue-600 dark:text-blue-400"/>
                                     </div>
-                                    <h2 class="text-3xl font-bold text-gray-800 mb-3">
+                                    <h2 class="text-3xl font-bold text-theme-primary mb-3">
                                         "Welcome to Diagramix"
                                     </h2>
-                                    <p class="text-gray-600 mb-8 leading-relaxed">
+                                    <p class="text-theme-tertiary mb-8 leading-relaxed">
                                         "Start designing your database schema by creating your first table, or load a demo to see how it works."
                                     </p>
                                     <div class="flex flex-col gap-3 justify-center items-stretch w-full max-w-xs mx-auto">
                                         <button
-                                            class="w-full px-6 py-3 text-white rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2"
-                                            style="background-color: #3b82f6;"
+                                            class="w-full px-6 py-3 btn-theme-primary rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2"
                                             on:click=move |_| {
                                                 let node_idx = graph.write().create_table_auto((400.0, 300.0));
                                                 let name = graph.with(|g| {
@@ -664,8 +695,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                             "Create Your First Table"
                                         </button>
                                         <button
-                                            class="w-full px-6 py-3 text-gray-700 rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2"
-                                            style="background-color: #f3f4f6;"
+                                            class="w-full px-6 py-3 text-theme-secondary bg-theme-tertiary rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2 theme-transition"
                                             on:click=move |_| {
                                                 graph.set(create_demo_graph());
                                             }
@@ -674,7 +704,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                             "Load Demo Schema"
                                         </button>
                                     </div>
-                                    <div class="mt-6 text-sm text-gray-500">
+                                    <div class="mt-6 text-sm text-theme-muted">
                                         "Or use the \"New Table\" button in the sidebar"
                                     </div>
                                 </div>
