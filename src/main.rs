@@ -7,13 +7,28 @@ async fn main() {
     use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{LeptosRoutes, generate_route_list};
+    use std::net::SocketAddr;
+
+    // Load .env file (if exists)
+    let _ = dotenvy::dotenv();
 
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
     let conf = get_configuration(None).unwrap();
-    let addr = conf.leptos_options.site_addr;
+
+    // Get host and port from environment variables, falling back to leptos config
+    let default_addr = conf.leptos_options.site_addr;
     let leptos_options = conf.leptos_options;
+    let host = std::env::var("HOST").unwrap_or_else(|_| default_addr.ip().to_string());
+    let port = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or_else(|| default_addr.port());
+
+    let addr: SocketAddr = format!("{}:{}", host, port)
+        .parse()
+        .expect("Invalid HOST:PORT combination");
 
     // Generate the list of routes in your Leptos App
     let routes = generate_route_list(App);

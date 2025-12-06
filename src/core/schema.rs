@@ -299,7 +299,31 @@ impl Column {
         }
     }
 
+    /// Статические группы типов для проверки совместимости (без аллокаций)
+    const INTEGER_TYPES: &'static [&'static str] =
+        &["TINYINT", "SMALLINT", "MEDIUMINT", "INT", "BIGINT"];
+    const STRING_TYPES: &'static [&'static str] = &[
+        "CHAR",
+        "VARCHAR",
+        "TINYTEXT",
+        "TEXT",
+        "MEDIUMTEXT",
+        "LONGTEXT",
+    ];
+    const FLOAT_TYPES: &'static [&'static str] = &["FLOAT", "DOUBLE", "DECIMAL"];
+    const BINARY_TYPES: &'static [&'static str] = &[
+        "BINARY",
+        "VARBINARY",
+        "TINYBLOB",
+        "BLOB",
+        "MEDIUMBLOB",
+        "LONGBLOB",
+    ];
+    const DATETIME_TYPES: &'static [&'static str] = &["DATE", "DATETIME", "TIMESTAMP", "TIME"];
+
     /// Проверяет совместимость типов данных между PK и FK
+    /// Оптимизировано: использует статические массивы вместо создания Vec при каждом вызове
+    #[inline]
     pub fn is_type_compatible_with(&self, other: &Column) -> bool {
         let self_base = self.get_base_type();
         let other_base = other.get_base_type();
@@ -309,57 +333,15 @@ impl Column {
             return true;
         }
 
-        // Целочисленные типы совместимы между собой
-        let integer_types = vec!["TINYINT", "SMALLINT", "MEDIUMINT", "INT", "BIGINT"];
-        if integer_types.contains(&self_base.as_str())
-            && integer_types.contains(&other_base.as_str())
-        {
-            return true;
-        }
+        let self_str = self_base.as_str();
+        let other_str = other_base.as_str();
 
-        // Строковые типы совместимы между собой
-        let string_types = vec![
-            "CHAR",
-            "VARCHAR",
-            "TINYTEXT",
-            "TEXT",
-            "MEDIUMTEXT",
-            "LONGTEXT",
-        ];
-        if string_types.contains(&self_base.as_str()) && string_types.contains(&other_base.as_str())
-        {
-            return true;
-        }
-
-        // Типы с плавающей точкой совместимы между собой
-        let float_types = vec!["FLOAT", "DOUBLE", "DECIMAL"];
-        if float_types.contains(&self_base.as_str()) && float_types.contains(&other_base.as_str()) {
-            return true;
-        }
-
-        // Бинарные типы совместимы между собой
-        let binary_types = vec![
-            "BINARY",
-            "VARBINARY",
-            "TINYBLOB",
-            "BLOB",
-            "MEDIUMBLOB",
-            "LONGBLOB",
-        ];
-        if binary_types.contains(&self_base.as_str()) && binary_types.contains(&other_base.as_str())
-        {
-            return true;
-        }
-
-        // Типы дат/времени совместимы между собой
-        let datetime_types = vec!["DATE", "DATETIME", "TIMESTAMP", "TIME"];
-        if datetime_types.contains(&self_base.as_str())
-            && datetime_types.contains(&other_base.as_str())
-        {
-            return true;
-        }
-
-        false
+        // Проверяем совместимость по группам типов
+        Self::INTEGER_TYPES.contains(&self_str) && Self::INTEGER_TYPES.contains(&other_str)
+            || Self::STRING_TYPES.contains(&self_str) && Self::STRING_TYPES.contains(&other_str)
+            || Self::FLOAT_TYPES.contains(&self_str) && Self::FLOAT_TYPES.contains(&other_str)
+            || Self::BINARY_TYPES.contains(&self_str) && Self::BINARY_TYPES.contains(&other_str)
+            || Self::DATETIME_TYPES.contains(&self_str) && Self::DATETIME_TYPES.contains(&other_str)
     }
 }
 
@@ -533,20 +515,24 @@ impl TableOps for SchemaGraph {
     }
 
     fn generate_unique_table_name(&self, base_name: &str) -> String {
-        let mut counter = 1;
-        loop {
-            let name = if counter == 1 {
-                base_name.to_string()
-            } else {
-                format!("{}_{}", base_name, counter)
-            };
-
-            if !self.table_exists(&name) {
-                return name;
-            }
-
-            counter += 1;
+        // Сначала проверяем базовое имя без суффикса
+        if !self.table_exists(base_name) {
+            return base_name.to_string();
         }
+
+        // Собираем максимальный суффикс за один проход по графу
+        let prefix = format!("{}_", base_name);
+        let max_suffix: u32 = self
+            .node_weights()
+            .filter_map(|node| {
+                node.name
+                    .strip_prefix(&prefix)
+                    .and_then(|s| s.parse::<u32>().ok())
+            })
+            .max()
+            .unwrap_or(1);
+
+        format!("{}_{}", base_name, max_suffix + 1)
     }
 }
 

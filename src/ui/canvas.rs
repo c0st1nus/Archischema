@@ -12,6 +12,8 @@ use crate::ui::{Icon, icons};
 use leptos::prelude::*;
 use leptos::{html, web_sys};
 use petgraph::graph::NodeIndex;
+#[cfg(not(feature = "ssr"))]
+use std::collections::HashMap;
 
 #[component]
 pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
@@ -20,6 +22,10 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
 
     // Состояние для drag & drop
     let (_dragging_node, set_dragging_node) = signal::<Option<(NodeIndex, f64, f64)>>(None);
+
+    // Track which nodes are currently being remotely dragged (for UI purposes)
+    // This is a RwSignal so it can be used in reactive contexts
+    let remote_dragging_nodes = RwSignal::new(std::collections::HashSet::<u32>::new());
 
     // Состояние для трансформации канваса (zoom и pan)
     #[allow(unused_variables)]
@@ -43,22 +49,183 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
     let edge_indices = Memo::new(move |_| graph.with(|g| g.edge_indices().collect::<Vec<_>>()));
 
     // Listen for remote graph operations from LiveShare
+    // NOTE: We use handler.forget() here which technically leaks memory, but:
+    // 1. These are global event listeners that live for the entire app lifetime
+    // 2. Leptos's on_cleanup requires Send+Sync which JS closures don't implement
+    // 3. In WASM single-threaded context, this is acceptable for long-lived handlers
     #[cfg(not(feature = "ssr"))]
     {
         use wasm_bindgen::JsCast;
         use wasm_bindgen::closure::Closure;
 
+        // Setup smooth interpolation for remote table movements
+        // Using Rc<RefCell> for internal state that doesn't need to cross reactive boundaries
+        let remote_drag_targets: std::rc::Rc<std::cell::RefCell<HashMap<u32, (f64, f64, f64)>>> =
+            std::rc::Rc::new(std::cell::RefCell::new(HashMap::new()));
+        let animation_running: std::rc::Rc<std::cell::RefCell<bool>> =
+            std::rc::Rc::new(std::cell::RefCell::new(false));
+
+        // Animation function that will be called recursively
+        fn start_animation_loop(
+            targets: std::rc::Rc<std::cell::RefCell<HashMap<u32, (f64, f64, f64)>>>,
+            animation_running: std::rc::Rc<std::cell::RefCell<bool>>,
+            remote_dragging_signal: RwSignal<std::collections::HashSet<u32>>,
+            graph: RwSignal<SchemaGraph>,
+        ) {
+            use wasm_bindgen::JsCast;
+            use wasm_bindgen::closure::Closure;
+
+            // Check if already running
+            if *animation_running.borrow() {
+                return;
+            }
+            *animation_running.borrow_mut() = true;
+
+            fn animate(
+                targets: std::rc::Rc<std::cell::RefCell<HashMap<u32, (f64, f64, f64)>>>,
+                animation_running: std::rc::Rc<std::cell::RefCell<bool>>,
+                remote_dragging_signal: RwSignal<std::collections::HashSet<u32>>,
+                graph: RwSignal<SchemaGraph>,
+            ) {
+                use wasm_bindgen::JsCast;
+                use wasm_bindgen::closure::Closure;
+
+                let window = match web_sys::window() {
+                    Some(w) => w,
+                    None => {
+                        *animation_running.borrow_mut() = false;
+                        return;
+                    }
+                };
+
+                let now = js_sys::Date::now();
+                let mut has_active_animations = false;
+                let lerp_factor = 0.25; // Smooth interpolation factor (higher = faster catch-up)
+
+                // Get current targets and update positions
+                let updates: Vec<(u32, f64, f64, bool)> = {
+                    let targets_ref = targets.borrow();
+                    targets_ref
+                        .iter()
+                        .map(|(&node_id, &(target_x, target_y, last_update))| {
+                            // Check if stale (no update for 200ms = drag ended)
+                            let is_stale = now - last_update > 200.0;
+                            (node_id, target_x, target_y, is_stale)
+                        })
+                        .collect()
+                };
+
+                // Apply smooth interpolation and track which nodes are done
+                let mut nodes_to_remove: Vec<u32> = Vec::new();
+                for (node_id, target_x, target_y, is_stale) in updates {
+                    let is_done = graph
+                        .try_update(|g| {
+                            let idx = NodeIndex::new(node_id as usize);
+                            if let Some(node) = g.node_weight_mut(idx) {
+                                let (current_x, current_y) = node.position;
+                                let dx = target_x - current_x;
+                                let dy = target_y - current_y;
+
+                                // If close enough, snap to target
+                                if dx.abs() < 0.5 && dy.abs() < 0.5 {
+                                    node.position = (target_x, target_y);
+                                    true // Done with this node
+                                } else {
+                                    // Lerp towards target
+                                    node.position = (
+                                        current_x + dx * lerp_factor,
+                                        current_y + dy * lerp_factor,
+                                    );
+                                    false // Still animating
+                                }
+                            } else {
+                                true // Node doesn't exist, remove from tracking
+                            }
+                        })
+                        .unwrap_or(true);
+
+                    // Remove if stale AND animation complete
+                    if is_stale && is_done {
+                        nodes_to_remove.push(node_id);
+                    } else {
+                        has_active_animations = true;
+                    }
+                }
+
+                // Clean up completed/stale targets
+                if !nodes_to_remove.is_empty() {
+                    let mut targets_mut = targets.borrow_mut();
+                    for node_id in nodes_to_remove {
+                        targets_mut.remove(&node_id);
+                    }
+                    // Update the signal with current dragging nodes
+                    let current_nodes: std::collections::HashSet<u32> =
+                        targets_mut.keys().cloned().collect();
+                    remote_dragging_signal.set(current_nodes);
+                }
+
+                // Continue animation if there are active targets
+                if has_active_animations {
+                    let targets_next = targets.clone();
+                    let running_next = animation_running.clone();
+                    let closure = Closure::once(move || {
+                        animate(targets_next, running_next, remote_dragging_signal, graph);
+                    });
+                    let _ = window.request_animation_frame(closure.as_ref().unchecked_ref());
+                    closure.forget();
+                } else {
+                    *animation_running.borrow_mut() = false;
+                    // Clear the signal when animation stops
+                    remote_dragging_signal.set(std::collections::HashSet::new());
+                }
+            }
+
+            // Start the animation loop
+            let targets_clone = targets.clone();
+            let running_clone = animation_running.clone();
+            let closure = Closure::once(move || {
+                animate(targets_clone, running_clone, remote_dragging_signal, graph);
+            });
+            if let Some(window) = web_sys::window() {
+                let _ = window.request_animation_frame(closure.as_ref().unchecked_ref());
+            }
+            closure.forget();
+        }
+
         // Handler for individual graph operations
+        let targets_for_handler = remote_drag_targets.clone();
+        let animation_running_for_handler = animation_running.clone();
         Effect::new(move |_| {
             let window = web_sys::window().expect("no window");
 
             let graph_clone = graph;
+            let targets = targets_for_handler.clone();
+            let anim_running = animation_running_for_handler.clone();
             let handler =
                 Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |e: web_sys::CustomEvent| {
                     if let Some(detail) = e.detail().as_string() {
                         if let Ok(op) = serde_json::from_str::<GraphOperation>(&detail) {
                             leptos::logging::log!("Applying remote graph op: {:?}", op);
-                            apply_remote_graph_op(graph_clone, op);
+                            // For MoveTable, use interpolation instead of direct update
+                            if let GraphOperation::MoveTable { node_id, position } = &op {
+                                let now = js_sys::Date::now();
+                                targets
+                                    .borrow_mut()
+                                    .insert(*node_id, (position.0, position.1, now));
+                                // Update signal to mark this node as being remotely dragged
+                                remote_dragging_nodes.update(|set| {
+                                    set.insert(*node_id);
+                                });
+                                // Start animation loop if not already running
+                                start_animation_loop(
+                                    targets.clone(),
+                                    anim_running.clone(),
+                                    remote_dragging_nodes,
+                                    graph_clone,
+                                );
+                            } else {
+                                apply_remote_graph_op(graph_clone, op);
+                            }
                         }
                     }
                 });
@@ -67,6 +234,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 "liveshare-graph-op",
                 handler.as_ref().unchecked_ref(),
             );
+            // Intentionally leaked - global listener for app lifetime
             handler.forget();
         });
 
@@ -93,6 +261,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 "liveshare-graph-state",
                 handler.as_ref().unchecked_ref(),
             );
+            // Intentionally leaked - global listener for app lifetime
             handler.forget();
         });
 
@@ -124,6 +293,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 "liveshare-request-graph-state",
                 handler.as_ref().unchecked_ref(),
             );
+            // Intentionally leaked - global listener for app lifetime
             handler.forget();
         });
     }
@@ -315,7 +485,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 )
                 .unwrap();
 
-            // Сохраняем closure чтобы он не был удален
+            // Intentionally leaked - canvas element listener for app lifetime
             wheel_handler.forget();
         });
 
@@ -411,6 +581,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 )
                 .unwrap();
 
+            // Intentionally leaked - global keyboard listener for app lifetime
             keyboard_handler.forget();
         });
     }
@@ -455,6 +626,9 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                     // Рендерим все узлы (таблицы) - используем мемоизированные индексы
                 {move || {
                     let current_dragging = _dragging_node.get();
+                    // Get which tables are being remotely dragged (for disabling CSS transitions)
+                    let current_remote_dragging = remote_dragging_nodes.get();
+
                     node_indices.get()
                         .into_iter()
                         .filter_map(|idx| {
@@ -463,8 +637,10 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                 g.node_weight(idx).map(|node| {
                                     let node_clone = node.clone();
                                     let node_idx = idx;
-                                    // Check if this specific node is being dragged
-                                    let is_dragging = current_dragging.map(|(drag_idx, _, _)| drag_idx == idx).unwrap_or(false);
+                                    // Check if this specific node is being dragged locally or remotely
+                                    let is_local_dragging = current_dragging.map(|(drag_idx, _, _)| drag_idx == idx).unwrap_or(false);
+                                    let is_remote_dragging = current_remote_dragging.contains(&(idx.index() as u32));
+                                    let is_dragging = is_local_dragging || is_remote_dragging;
 
                                     view! {
                                         <TableNodeView

@@ -18,3 +18,4 @@ target/
 tailwindcss-linux-x64
 style/output.css
 .DS_Store
+.env

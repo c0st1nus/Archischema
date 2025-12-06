@@ -1,5 +1,6 @@
 pub mod canvas;
 pub mod column_editor;
+pub mod graph_ops;
 pub mod icon;
 pub mod liveshare_client;
 pub mod liveshare_panel;
@@ -12,6 +13,7 @@ pub mod theme;
 
 pub use canvas::SchemaCanvas;
 pub use column_editor::ColumnEditor;
+pub use graph_ops::{GraphOpsSender, use_graph_ops};
 pub use icon::{Icon, icons};
 pub use liveshare_client::{LiveShareContext, provide_liveshare_context, use_liveshare_context};
 pub use liveshare_panel::LiveSharePanel;

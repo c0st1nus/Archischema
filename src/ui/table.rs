@@ -19,12 +19,10 @@ pub fn TableNodeView(
     let table_name = node.name.clone();
     let has_columns = !node.columns.is_empty();
 
-    // Use transition only when NOT being dragged locally (for smooth remote updates)
-    let table_class = if is_being_dragged {
-        "absolute bg-theme-surface border-2 border-theme-primary shadow-theme-lg select-none hover:shadow-theme-xl theme-transition"
-    } else {
-        "absolute bg-theme-surface border-2 border-theme-primary shadow-theme-lg select-none hover:shadow-theme-xl theme-transition transition-[left,top] duration-100 ease-out"
-    };
+    // No CSS transition for position - we use requestAnimationFrame interpolation for smooth remote updates
+    // is_being_dragged disables any remaining transitions for both local and remote drags
+    let table_class = "absolute bg-theme-surface border-2 border-theme-primary shadow-theme-lg select-none hover:shadow-theme-xl theme-transition";
+    let _ = is_being_dragged; // Used in canvas.rs to track dragging state
 
     view! {
         <div
@@ -72,45 +70,45 @@ pub fn TableNodeView(
     }
 }
 
+/// Optimized ColumnRow component using CSS-based conditional styling
+/// instead of multiple into_any() calls for conditional rendering
 #[component]
 fn ColumnRow(column: Column) -> impl IntoView {
+    // Pre-compute CSS classes and text content to avoid runtime branching in view
+    let pk_class = if column.is_primary_key {
+        "text-yellow-500 font-bold mr-2 text-xs flex-shrink-0"
+    } else {
+        "w-6 inline-block"
+    };
+    let pk_text = if column.is_primary_key { "PK" } else { "" };
+
+    // NOT NULL indicator - use visibility instead of conditional render
+    let not_null_class = if !column.is_nullable {
+        "text-red-500 text-xs ml-1 flex-shrink-0"
+    } else {
+        "hidden"
+    };
+
+    // UNIQUE indicator
+    let unique_class = if column.is_unique {
+        "text-blue-500 text-xs ml-1 flex-shrink-0"
+    } else {
+        "hidden"
+    };
+
+    // Clone data_type once for display
+    let data_type_display = column.data_type.clone();
+
     view! {
         <div class="flex items-center justify-between py-2 px-2 hover:bg-theme-secondary rounded text-sm border-b border-theme-primary last:border-b-0 theme-transition">
             <div class="flex items-center flex-1 min-w-0">
-                {if column.is_primary_key {
-                    view! {
-                        <span class="text-yellow-500 font-bold mr-2 text-xs flex-shrink-0" title="Primary Key">
-                            "PK"
-                        </span>
-                    }
-                        .into_any()
-                } else {
-                    view! { <span class="w-6"></span> }.into_any()
-                }}
+                <span class=pk_class title="Primary Key">{pk_text}</span>
                 <span class="font-medium text-theme-primary truncate">{column.name}</span>
-                {if !column.is_nullable {
-                    view! {
-                        <span class="text-red-500 text-xs ml-1 flex-shrink-0" title="NOT NULL">
-                            "*"
-                        </span>
-                    }
-                        .into_any()
-                } else {
-                    view! { <span></span> }.into_any()
-                }}
-                {if column.is_unique {
-                    view! {
-                        <span class="text-blue-500 text-xs ml-1 flex-shrink-0" title="UNIQUE">
-                            "U"
-                        </span>
-                    }
-                        .into_any()
-                } else {
-                    view! { <span></span> }.into_any()
-                }}
+                <span class=not_null_class title="NOT NULL">"*"</span>
+                <span class=unique_class title="UNIQUE">"U"</span>
             </div>
             <div class="flex items-center space-x-2">
-                <span class="text-theme-tertiary text-xs ml-2 flex-shrink-0">{column.data_type.to_string()}</span>
+                <span class="text-theme-tertiary text-xs ml-2 flex-shrink-0">{data_type_display}</span>
             </div>
         </div>
     }
