@@ -8,6 +8,7 @@ async fn main() {
     use leptos::prelude::*;
     use leptos_axum::{LeptosRoutes, generate_route_list};
     use std::net::SocketAddr;
+    use tower_http::compression::CompressionLayer;
 
     // Load .env file (if exists)
     let _ = dotenvy::dotenv();
@@ -49,7 +50,7 @@ async fn main() {
     // Build the LiveShare API router
     let liveshare_api = liveshare_router(liveshare_state.clone());
 
-    // Build the main application router
+    // Build the main application router with compression
     let app = Router::new()
         // WebSocket endpoint for real-time sync: ws://{host}/room/{room_id}
         .route(
@@ -59,7 +60,9 @@ async fn main() {
         // REST API for room management
         .merge(liveshare_api)
         // Leptos routes (nested to avoid state conflicts)
-        .merge(leptos_router);
+        .merge(leptos_router)
+        // Add gzip/brotli/deflate compression for faster loading
+        .layer(CompressionLayer::new());
 
     // Run our app with hyper
     log!("listening on http://{}", &addr);

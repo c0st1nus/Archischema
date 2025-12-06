@@ -14,7 +14,7 @@ axum-extra = { version = "0.10.0", features = ["typed-header", "cookie"], option
 console_error_panic_hook = { version = "0.1", optional = true }
 leptos_axum = { version = "0.8.0", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "sync"], optional = true }
-tower-http = { version = "0.6", features = ["cors"], optional = true }
+tower-http = { version = "0.6", features = ["cors", "compression-full"], optional = true }
 wasm-bindgen = { version = "=0.2.105", optional = true }
 petgraph = { version = "0.8.3", features = ["serde-1"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -76,6 +76,7 @@ opt-level = 'z'
 lto = true
 codegen-units = 1
 panic = "abort"
+strip = true
 
 [package.metadata.leptos]
 # The name used by wasm-bindgen/cargo-leptos for the JS/WASM bundle
