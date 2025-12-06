@@ -201,11 +201,13 @@ pub fn SettingsModal(
         {
             if let Some(room_id) = _ctx_copy.room_id.get() {
                 if let Some(window) = web_sys::window() {
-                    if let Ok(origin) = window.location().origin() {
-                        let link = format!("{}?room={}", origin, room_id);
-                        let js_code = format!("navigator.clipboard.writeText('{}')", link);
-                        let _ = js_sys::eval(&js_code);
-                    }
+                    let location = window.location();
+                    // Build URL manually to ensure port is included
+                    let protocol = location.protocol().unwrap_or_default();
+                    let host = location.host().unwrap_or_default(); // host includes port
+                    let link = format!("{}//{}?room={}", protocol, host, room_id);
+                    let js_code = format!("navigator.clipboard.writeText('{}')", link);
+                    let _ = js_sys::eval(&js_code);
                 }
             }
         }
@@ -363,17 +365,31 @@ pub fn SettingsModal(
                                                         <p class="text-theme-success" style="font-size: 14px; margin-bottom: 8px;">{info.name}</p>
                                                     })}
                                                     <div class="flex items-center" style="gap: 8px;">
-                                                        <code class="bg-theme-surface border border-theme-success text-theme-success theme-transition" style="font-size: 12px; padding: 4px 8px; border-radius: 6px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; flex: 1;">
-                                                            {move || {
-                                                                room_id.get().map(|id| {
-                                                                    if id.len() > 12 {
-                                                                        format!("{}...", &id[..12])
-                                                                    } else {
-                                                                        id
-                                                                    }
-                                                                }).unwrap_or_default()
-                                                            }}
-                                                        </code>
+                                                        <input
+                                                            type="text"
+                                                            readonly
+                                                            class="bg-theme-surface border border-theme-success text-theme-success theme-transition"
+                                                            style="font-size: 11px; padding: 4px 8px; border-radius: 6px; font-family: monospace; flex: 1; outline: none; cursor: text;"
+                                                            prop:value=move || {
+                                                                #[cfg(not(feature = "ssr"))]
+                                                                {
+                                                                    room_id.get().map(|id| {
+                                                                        if let Some(window) = web_sys::window() {
+                                                                            let location = window.location();
+                                                                            let protocol = location.protocol().unwrap_or_default();
+                                                                            let host = location.host().unwrap_or_default();
+                                                                            format!("{}//{}?room={}", protocol, host, id)
+                                                                        } else {
+                                                                            id
+                                                                        }
+                                                                    }).unwrap_or_default()
+                                                                }
+                                                                #[cfg(feature = "ssr")]
+                                                                {
+                                                                    room_id.get().unwrap_or_default()
+                                                                }
+                                                            }
+                                                        />
                                                         <button
                                                             class="text-theme-success"
                                                             style="padding: 4px;"

@@ -165,11 +165,13 @@ pub fn LiveSharePanel() -> impl IntoView {
         {
             if let Some(room_id) = _ctx_copy.room_id.get() {
                 if let Some(window) = web_sys::window() {
-                    if let Ok(origin) = window.location().origin() {
-                        let link = format!("{}/room/{}", origin, room_id);
-                        let js_code = format!("navigator.clipboard.writeText('{}')", link);
-                        let _ = js_sys::eval(&js_code);
-                    }
+                    let location = window.location();
+                    // Build URL manually to ensure port is included
+                    let protocol = location.protocol().unwrap_or_default();
+                    let host = location.host().unwrap_or_default(); // host includes port
+                    let link = format!("{}//{}?room={}", protocol, host, room_id);
+                    let js_code = format!("navigator.clipboard.writeText('{}')", link);
+                    let _ = js_sys::eval(&js_code);
                 }
             }
         }
