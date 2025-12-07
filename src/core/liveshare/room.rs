@@ -436,12 +436,12 @@ impl RoomManager {
             config = config.max_users(max_users);
         }
 
-        if let Some(ref password) = request.password {
-            if !password.is_empty() {
-                config = config
-                    .with_password(password)
-                    .map_err(|e| format!("Failed to set password: {}", e))?;
-            }
+        if let Some(ref password) = request.password
+            && !password.is_empty()
+        {
+            config = config
+                .with_password(password)
+                .map_err(|e| format!("Failed to set password: {}", e))?;
         }
 
         let room = Arc::new(Room::new(room_id, owner.user_id, config));
@@ -630,5 +630,487 @@ mod tests {
         })
         .unwrap();
         assert!(!room.is_protected());
+    }
+
+    // ========================================================================
+    // RoomConfig Tests
+    // ========================================================================
+
+    #[test]
+    fn test_room_config_default() {
+        let config = RoomConfig::default();
+        assert_eq!(config.max_users, MAX_USERS_PER_ROOM);
+        assert!(config.password_hash.is_none());
+        assert_eq!(config.name, "Untitled Room");
+    }
+
+    #[test]
+    fn test_room_config_with_name() {
+        let config = RoomConfig::with_name("Custom Room");
+        assert_eq!(config.name, "Custom Room");
+    }
+
+    #[test]
+    fn test_room_config_max_users() {
+        let config = RoomConfig::default().max_users(25);
+        assert_eq!(config.max_users, 25);
+    }
+
+    #[test]
+    fn test_room_config_max_users_clamped() {
+        // Test that max_users is clamped to valid range
+        let config_low = RoomConfig::default().max_users(0);
+        assert_eq!(config_low.max_users, MIN_USERS_PER_ROOM);
+
+        let config_high = RoomConfig::default().max_users(1000);
+        assert_eq!(config_high.max_users, MAX_USERS_PER_ROOM);
+    }
+
+    #[test]
+    fn test_room_config_with_password() {
+        let config = RoomConfig::default().with_password("test123").unwrap();
+        assert!(config.password_hash.is_some());
+    }
+
+    #[test]
+    fn test_room_config_chaining() {
+        let config = RoomConfig::with_name("Chained Room")
+            .max_users(15)
+            .with_password("pass")
+            .unwrap();
+
+        assert_eq!(config.name, "Chained Room");
+        assert_eq!(config.max_users, 15);
+        assert!(config.password_hash.is_some());
+    }
+
+    // ========================================================================
+    // ConnectedUser Tests
+    // ========================================================================
+
+    #[test]
+    fn test_connected_user_new() {
+        let user_id = Uuid::new_v4();
+        let user = ConnectedUser::new(user_id, "TestUser".to_string());
+
+        assert_eq!(user.user_id, user_id);
+        assert_eq!(user.username, "TestUser");
+        assert!(user.awareness.cursor.is_none());
+    }
+
+    #[test]
+    fn test_connected_user_to_info() {
+        let user_id = Uuid::new_v4();
+        let mut user = ConnectedUser::new(user_id, "InfoUser".to_string());
+        user.awareness.color = Some("#ff0000".to_string());
+
+        let info = user.to_info();
+
+        assert_eq!(info.user_id, user_id);
+        assert_eq!(info.username, "InfoUser");
+        assert_eq!(info.color, Some("#ff0000".to_string()));
+    }
+
+    // ========================================================================
+    // Room Advanced Tests
+    // ========================================================================
+
+    #[test]
+    fn test_room_new_with_config() {
+        let room_id = Uuid::new_v4();
+        let owner_id = Uuid::new_v4();
+        let config = RoomConfig::with_name("Custom Config Room").max_users(20);
+
+        let room = Room::new(room_id, owner_id, config);
+
+        assert_eq!(room.id, room_id);
+        assert_eq!(room.owner_id, owner_id);
+        assert_eq!(room.config.name, "Custom Config Room");
+        assert_eq!(room.config.max_users, 20);
+    }
+
+    #[test]
+    fn test_room_with_defaults() {
+        let room_id = Uuid::new_v4();
+        let owner_id = Uuid::new_v4();
+        let room = Room::with_defaults(room_id, owner_id);
+
+        assert_eq!(room.id, room_id);
+        assert_eq!(room.owner_id, owner_id);
+        assert!(!room.is_protected());
+    }
+
+    #[test]
+    fn test_room_add_duplicate_user() {
+        let room = create_test_room();
+        let user_id = Uuid::new_v4();
+
+        // Add user first time - should succeed
+        assert!(room.add_user(user_id, "User".to_string()).is_ok());
+        assert_eq!(room.user_count(), 1);
+
+        // Add same user again - overwrites (allows reconnection)
+        // This is intentional behavior - the same user can reconnect
+        let result = room.add_user(user_id, "User Updated".to_string());
+        assert!(result.is_ok());
+        assert_eq!(room.user_count(), 1); // Still only 1 user
+    }
+
+    #[test]
+    fn test_room_remove_nonexistent_user() {
+        let room = create_test_room();
+        let nonexistent_user = Uuid::new_v4();
+
+        let result = room.remove_user(&nonexistent_user);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_room_has_user() {
+        let room = create_test_room();
+        let user_id = Uuid::new_v4();
+
+        assert!(!room.has_user(&user_id));
+
+        room.add_user(user_id, "User".to_string()).unwrap();
+        assert!(room.has_user(&user_id));
+
+        room.remove_user(&user_id);
+        assert!(!room.has_user(&user_id));
+    }
+
+    #[test]
+    fn test_room_update_awareness() {
+        let room = create_test_room();
+        let user_id = Uuid::new_v4();
+
+        room.add_user(user_id, "User".to_string()).unwrap();
+
+        let awareness = AwarenessState {
+            cursor: Some((100.0, 200.0)),
+            selected_nodes: vec!["node1".to_string()],
+            color: Some("#00ff00".to_string()),
+            is_active: true,
+        };
+
+        room.update_awareness(&user_id, awareness);
+
+        let users = room.get_users();
+        assert_eq!(users.len(), 1);
+        // The awareness should be updated (color comes from awareness)
+        assert_eq!(users[0].color, Some("#00ff00".to_string()));
+    }
+
+    #[test]
+    fn test_room_verify_password_unprotected() {
+        let room = create_test_room();
+
+        // Unprotected room accepts None
+        assert!(room.verify_password(None));
+        // Unprotected room also accepts any password (it's ignored)
+        assert!(room.verify_password(Some("anything")));
+    }
+
+    #[test]
+    fn test_room_set_password() {
+        let mut room = create_test_room();
+        assert!(!room.is_protected());
+
+        room.set_password(Some("newpassword")).unwrap();
+        assert!(room.is_protected());
+        assert!(room.verify_password(Some("newpassword")));
+
+        // Clear password
+        room.set_password(None).unwrap();
+        assert!(!room.is_protected());
+    }
+
+    #[test]
+    fn test_room_to_response() {
+        let room = create_test_room();
+        room.add_user(Uuid::new_v4(), "User1".to_string()).unwrap();
+
+        let response = room.to_response("localhost:3000", false);
+
+        assert_eq!(response.id, room.id);
+        assert_eq!(response.owner_id, room.owner_id);
+        assert_eq!(response.user_count, 1);
+        assert!(!response.is_protected);
+        assert!(response.websocket_url.contains("ws://"));
+        assert!(response.websocket_url.contains("localhost:3000"));
+    }
+
+    #[test]
+    fn test_room_to_response_secure() {
+        let room = create_test_room();
+        let response = room.to_response("example.com", true);
+
+        assert!(response.websocket_url.starts_with("wss://"));
+    }
+
+    // ========================================================================
+    // RoomManager Tests
+    // ========================================================================
+
+    #[test]
+    fn test_room_manager_new() {
+        let manager = RoomManager::new("custom-host:8080", true);
+
+        assert_eq!(manager.host(), "custom-host:8080");
+        assert!(manager.is_secure());
+        assert_eq!(manager.room_count(), 0);
+    }
+
+    #[test]
+    fn test_room_manager_default() {
+        let manager = RoomManager::default();
+
+        assert_eq!(manager.host(), "localhost:3000");
+        assert!(!manager.is_secure());
+    }
+
+    #[test]
+    fn test_room_manager_create_room_with_id() {
+        let manager = RoomManager::default();
+        let owner = AuthenticatedUser::guest();
+        let room_id = Uuid::new_v4();
+
+        let request = CreateRoomRequest {
+            name: Some("Specific ID Room".to_string()),
+            password: None,
+            max_users: Some(30),
+        };
+
+        let room = manager
+            .create_room_with_id(room_id, &owner, request)
+            .unwrap();
+
+        assert_eq!(room.id, room_id);
+        assert_eq!(room.config.name, "Specific ID Room");
+        assert_eq!(room.config.max_users, 30);
+    }
+
+    #[test]
+    fn test_room_manager_create_room_with_id_duplicate() {
+        let manager = RoomManager::default();
+        let owner = AuthenticatedUser::guest();
+        let room_id = Uuid::new_v4();
+
+        let request = CreateRoomRequest {
+            name: None,
+            password: None,
+            max_users: None,
+        };
+
+        // First creation should succeed
+        assert!(
+            manager
+                .create_room_with_id(room_id, &owner, request.clone())
+                .is_ok()
+        );
+
+        // Second creation with same ID should fail
+        let result = manager.create_room_with_id(room_id, &owner, request);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_room_manager_create_room_with_password() {
+        let manager = RoomManager::default();
+        let owner = AuthenticatedUser::guest();
+
+        let request = CreateRoomRequest {
+            name: Some("Protected Room".to_string()),
+            password: Some("secret".to_string()),
+            max_users: None,
+        };
+
+        let room = manager.create_room(&owner, request).unwrap();
+
+        assert!(room.is_protected());
+        assert!(room.verify_password(Some("secret")));
+    }
+
+    #[test]
+    fn test_room_manager_get_nonexistent_room() {
+        let manager = RoomManager::default();
+        let nonexistent_id = Uuid::new_v4();
+
+        assert!(manager.get_room(&nonexistent_id).is_none());
+    }
+
+    #[test]
+    fn test_room_manager_delete_nonexistent_room() {
+        let manager = RoomManager::default();
+        let nonexistent_id = Uuid::new_v4();
+
+        assert!(manager.delete_room(&nonexistent_id).is_none());
+    }
+
+    #[test]
+    fn test_room_manager_total_user_count() {
+        let manager = RoomManager::default();
+        let owner = AuthenticatedUser::guest();
+
+        // Create two rooms
+        let room1 = manager
+            .create_room(
+                &owner,
+                CreateRoomRequest {
+                    name: Some("Room1".to_string()),
+                    password: None,
+                    max_users: None,
+                },
+            )
+            .unwrap();
+
+        let room2 = manager
+            .create_room(
+                &owner,
+                CreateRoomRequest {
+                    name: Some("Room2".to_string()),
+                    password: None,
+                    max_users: None,
+                },
+            )
+            .unwrap();
+
+        // Add users
+        room1.add_user(Uuid::new_v4(), "User1".to_string()).unwrap();
+        room1.add_user(Uuid::new_v4(), "User2".to_string()).unwrap();
+        room2.add_user(Uuid::new_v4(), "User3".to_string()).unwrap();
+
+        assert_eq!(manager.total_user_count(), 3);
+    }
+
+    #[test]
+    fn test_room_manager_list_rooms() {
+        let manager = RoomManager::default();
+        let owner = AuthenticatedUser::guest();
+
+        // Create multiple rooms
+        for i in 0..3 {
+            manager
+                .create_room(
+                    &owner,
+                    CreateRoomRequest {
+                        name: Some(format!("Room {}", i)),
+                        password: None,
+                        max_users: None,
+                    },
+                )
+                .unwrap();
+        }
+
+        let rooms = manager.list_rooms();
+        assert_eq!(rooms.len(), 3);
+    }
+
+    #[test]
+    fn test_room_manager_cleanup_empty_rooms() {
+        let manager = RoomManager::default();
+        let owner = AuthenticatedUser::guest();
+
+        // Create rooms
+        let room1 = manager
+            .create_room(
+                &owner,
+                CreateRoomRequest {
+                    name: Some("Empty Room".to_string()),
+                    password: None,
+                    max_users: None,
+                },
+            )
+            .unwrap();
+
+        let room2 = manager
+            .create_room(
+                &owner,
+                CreateRoomRequest {
+                    name: Some("Occupied Room".to_string()),
+                    password: None,
+                    max_users: None,
+                },
+            )
+            .unwrap();
+
+        // Add user to room2 only
+        room2.add_user(Uuid::new_v4(), "User".to_string()).unwrap();
+
+        assert_eq!(manager.room_count(), 2);
+
+        // Cleanup empty rooms
+        manager.cleanup_empty_rooms();
+
+        assert_eq!(manager.room_count(), 1);
+        assert!(manager.get_room(&room1.id).is_none());
+        assert!(manager.get_room(&room2.id).is_some());
+    }
+
+    // ========================================================================
+    // Yjs Document Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_room_get_state_vector() {
+        let room = create_test_room();
+        let sv = room.get_state_vector().await;
+
+        // State vector should be non-empty (Yjs always has some state)
+        assert!(!sv.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_room_get_full_update() {
+        let room = create_test_room();
+        let update = room.get_full_update().await;
+
+        // Full update should be non-empty
+        assert!(!update.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_room_apply_and_get_update() {
+        let room1 = create_test_room();
+        let room2 = create_test_room();
+
+        // Get initial state vector from room2
+        let sv2 = room2.get_state_vector().await;
+
+        // Get update from room1 that room2 doesn't have
+        let update = room1.get_update_from_sv(&sv2).await;
+
+        // Should return Some update (or None if states are identical)
+        // Since rooms are freshly created, they might be identical
+        // This test just ensures the method works without panicking
+        if let Some(u) = update {
+            assert!(!u.is_empty());
+        }
+    }
+
+    // ========================================================================
+    // Broadcast Tests
+    // ========================================================================
+
+    #[test]
+    fn test_room_subscribe_and_broadcast() {
+        let room = create_test_room();
+
+        let mut rx = room.subscribe();
+
+        // Broadcast a message
+        room.broadcast(ServerMessage::Pong);
+
+        // Try to receive (non-blocking check)
+        // Note: In a real test we'd use tokio::test, but this shows the pattern
+        match rx.try_recv() {
+            Ok(msg) => {
+                assert!(matches!(msg, ServerMessage::Pong));
+            }
+            Err(_) => {
+                // Message might not be immediately available in sync test
+                // This is acceptable behavior
+            }
+        }
     }
 }

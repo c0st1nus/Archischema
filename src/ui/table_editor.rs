@@ -33,7 +33,7 @@ pub fn TableEditor(
     Effect::new(move || {
         if let Some(input) = input_ref.get() {
             let _ = input.focus();
-            let _ = input.select();
+            input.select();
         }
     });
 

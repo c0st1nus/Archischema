@@ -42,4 +42,18 @@ pub mod icons {
     pub const LOADER: &str = "loader";
     pub const DICES: &str = "dices";
     pub const SETTINGS: &str = "settings";
+    pub const GRIP_HORIZONTAL: &str = "grip-horizontal";
+    pub const GRIP_VERTICAL: &str = "grip-vertical";
+    pub const USER: &str = "user";
+    pub const USER_PLUS: &str = "user-plus";
+    pub const USER_CHECK: &str = "user-check";
+    pub const USER_MINUS: &str = "user-minus";
+    pub const SIGNAL_ZERO: &str = "signal-zero";
+    pub const SIGNAL_LOW: &str = "signal-low";
+    pub const SIGNAL_MEDIUM: &str = "signal-medium";
+    pub const SIGNAL_HIGH: &str = "signal-high";
+    pub const SIGNAL_BRILLIANT: &str = "signal-brilliant";
+    pub const DATABASE: &str = "database";
+    pub const DATABASE_BACKUP: &str = "database-backup";
+    pub const DATABASE_ZAP: &str = "database-zap";
 }

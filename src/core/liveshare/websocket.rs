@@ -104,16 +104,16 @@ async fn handle_socket(socket: WebSocket, room_id: Uuid, state: LiveshareState) 
             }
             Ok(Message::Binary(data)) => {
                 // Handle binary Yjs updates directly (more efficient than JSON)
-                if session.is_authenticated() {
-                    if let Some(ref room) = session.room {
-                        if let Err(e) = room.apply_update(&data).await {
-                            tracing::error!("Failed to apply binary update: {}", e);
-                        } else {
-                            // Broadcast to other clients
-                            room.broadcast(ServerMessage::Update {
-                                update: data.to_vec(),
-                            });
-                        }
+                if session.is_authenticated()
+                    && let Some(ref room) = session.room
+                {
+                    if let Err(e) = room.apply_update(&data).await {
+                        tracing::error!("Failed to apply binary update: {}", e);
+                    } else {
+                        // Broadcast to other clients
+                        room.broadcast(ServerMessage::Update {
+                            update: data.to_vec(),
+                        });
                     }
                 }
             }
@@ -262,11 +262,11 @@ impl ConnectionSession {
 
     /// Handle graph operation - broadcast to all other users in room
     async fn handle_graph_op(&self, op: super::protocol::GraphOperation) -> Result<(), String> {
-        if let Some(ref room) = self.room {
-            if let Some(user_id) = self.user_id {
-                // Broadcast to all other clients in the room
-                room.broadcast(ServerMessage::GraphOp { user_id, op });
-            }
+        if let Some(ref room) = self.room
+            && let Some(user_id) = self.user_id
+        {
+            // Broadcast to all other clients in the room
+            room.broadcast(ServerMessage::GraphOp { user_id, op });
         }
         Ok(())
     }
@@ -274,13 +274,13 @@ impl ConnectionSession {
     /// Handle request for full graph state
     /// Broadcasts a request to all other users in the room - they should respond with their graph state
     async fn handle_request_graph_state(&self) -> Result<(), String> {
-        if let Some(ref room) = self.room {
-            if let Some(user_id) = self.user_id {
-                // Broadcast request to all other users - they should respond with GraphState
-                room.broadcast(ServerMessage::RequestGraphState {
-                    requester_id: user_id,
-                });
-            }
+        if let Some(ref room) = self.room
+            && let Some(user_id) = self.user_id
+        {
+            // Broadcast request to all other users - they should respond with GraphState
+            room.broadcast(ServerMessage::RequestGraphState {
+                requester_id: user_id,
+            });
         }
         Ok(())
     }
@@ -367,10 +367,8 @@ impl ConnectionSession {
                     _ => true,
                 };
 
-                if should_send {
-                    if tx.send(msg).await.is_err() {
-                        break;
-                    }
+                if should_send && tx.send(msg).await.is_err() {
+                    break;
                 }
             }
         }));
@@ -474,6 +472,10 @@ impl Drop for ConnectionSession {
 mod tests {
     use super::*;
 
+    // ========================================================================
+    // ConnectionSession Tests
+    // ========================================================================
+
     #[test]
     fn test_connection_session_initial_state() {
         let (tx, _rx) = mpsc::channel(16);
@@ -490,5 +492,528 @@ mod tests {
         let session = ConnectionSession::new(Uuid::new_v4(), tx);
 
         assert!(session.require_auth().is_err());
+    }
+
+    #[test]
+    fn test_connection_session_room_id_stored() {
+        let (tx, _rx) = mpsc::channel(16);
+        let room_id = Uuid::new_v4();
+        let session = ConnectionSession::new(room_id, tx);
+
+        assert_eq!(session.room_id, room_id);
+    }
+
+    #[test]
+    fn test_connection_session_username_initially_none() {
+        let (tx, _rx) = mpsc::channel(16);
+        let session = ConnectionSession::new(Uuid::new_v4(), tx);
+
+        assert!(session.username.is_none());
+    }
+
+    #[test]
+    fn test_connection_session_broadcast_task_initially_none() {
+        let (tx, _rx) = mpsc::channel(16);
+        let session = ConnectionSession::new(Uuid::new_v4(), tx);
+
+        assert!(session.broadcast_task.is_none());
+    }
+
+    #[test]
+    fn test_require_auth_error_message() {
+        let (tx, _rx) = mpsc::channel(16);
+        let session = ConnectionSession::new(Uuid::new_v4(), tx);
+
+        let result = session.require_auth();
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Not authenticated");
+    }
+
+    #[test]
+    fn test_is_authenticated_false_by_default() {
+        let (tx, _rx) = mpsc::channel(16);
+        let session = ConnectionSession::new(Uuid::new_v4(), tx);
+
+        assert!(!session.is_authenticated());
+        assert!(!session.authenticated);
+    }
+
+    // ========================================================================
+    // Constants Tests
+    // ========================================================================
+
+    #[test]
+    fn test_outgoing_buffer_size() {
+        assert_eq!(OUTGOING_BUFFER_SIZE, 64);
+    }
+
+    #[test]
+    fn test_auth_timeout_secs() {
+        assert_eq!(AUTH_TIMEOUT_SECS, 30);
+    }
+
+    // ========================================================================
+    // Message Handling Tests (unit tests for helper methods)
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_handle_ping_sends_pong() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut session = ConnectionSession::new(Uuid::new_v4(), tx);
+
+        // Set authenticated to bypass auth check for Ping
+        // Note: Ping doesn't require auth in the actual implementation
+        let result = session
+            .handle_message(ClientMessage::Ping, &LiveshareState::new())
+            .await;
+
+        assert!(result.is_ok());
+
+        // Check that Pong was sent
+        let msg = rx.try_recv();
+        assert!(msg.is_ok());
+        assert!(matches!(msg.unwrap(), ServerMessage::Pong));
+    }
+
+    #[tokio::test]
+    async fn test_handle_sync_step1_requires_auth() {
+        let (tx, _rx) = mpsc::channel(16);
+        let mut session = ConnectionSession::new(Uuid::new_v4(), tx);
+
+        let result = session
+            .handle_message(
+                ClientMessage::SyncStep1 {
+                    state_vector: vec![1, 2, 3],
+                },
+                &LiveshareState::new(),
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Not authenticated"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_sync_step2_requires_auth() {
+        let (tx, _rx) = mpsc::channel(16);
+        let mut session = ConnectionSession::new(Uuid::new_v4(), tx);
+
+        let result = session
+            .handle_message(
+                ClientMessage::SyncStep2 {
+                    update: vec![1, 2, 3],
+                },
+                &LiveshareState::new(),
+            )
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_update_requires_auth() {
+        let (tx, _rx) = mpsc::channel(16);
+        let mut session = ConnectionSession::new(Uuid::new_v4(), tx);
+
+        let result = session
+            .handle_message(
+                ClientMessage::Update {
+                    update: vec![1, 2, 3],
+                },
+                &LiveshareState::new(),
+            )
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_awareness_requires_auth() {
+        let (tx, _rx) = mpsc::channel(16);
+        let mut session = ConnectionSession::new(Uuid::new_v4(), tx);
+
+        let result = session
+            .handle_message(
+                ClientMessage::Awareness {
+                    state: AwarenessState::default(),
+                },
+                &LiveshareState::new(),
+            )
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_graph_op_requires_auth() {
+        let (tx, _rx) = mpsc::channel(16);
+        let mut session = ConnectionSession::new(Uuid::new_v4(), tx);
+
+        let result = session
+            .handle_message(
+                ClientMessage::GraphOp {
+                    op: GraphOperation::CreateTable {
+                        node_id: 1,
+                        name: "test".to_string(),
+                        position: (0.0, 0.0),
+                    },
+                },
+                &LiveshareState::new(),
+            )
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_request_graph_state_requires_auth() {
+        let (tx, _rx) = mpsc::channel(16);
+        let mut session = ConnectionSession::new(Uuid::new_v4(), tx);
+
+        let result = session
+            .handle_message(ClientMessage::RequestGraphState, &LiveshareState::new())
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_auth_room_not_found() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut session = ConnectionSession::new(Uuid::new_v4(), tx);
+
+        let result = session
+            .handle_message(
+                ClientMessage::Auth {
+                    user_id: Uuid::new_v4(),
+                    username: "TestUser".to_string(),
+                    password: None,
+                },
+                &LiveshareState::new(),
+            )
+            .await;
+
+        // Should return Ok (error is sent via channel, not returned)
+        assert!(result.is_ok());
+
+        // Check that auth failed message was sent
+        let msg = rx.try_recv();
+        assert!(msg.is_ok());
+        match msg.unwrap() {
+            ServerMessage::AuthResult { success, error, .. } => {
+                assert!(!success);
+                assert!(error.is_some());
+                assert!(error.unwrap().contains("not found"));
+            }
+            _ => panic!("Expected AuthResult message"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_auth_success() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let room_id = Uuid::new_v4();
+        let mut session = ConnectionSession::new(room_id, tx);
+
+        // Create a state with a room
+        let state = LiveshareState::new();
+        let owner = super::super::auth::AuthenticatedUser::guest();
+        state
+            .room_manager
+            .create_room_with_id(
+                room_id,
+                &owner,
+                CreateRoomRequest {
+                    name: Some("Test Room".to_string()),
+                    password: None,
+                    max_users: None,
+                },
+            )
+            .unwrap();
+
+        let user_id = Uuid::new_v4();
+        let result = session
+            .handle_message(
+                ClientMessage::Auth {
+                    user_id,
+                    username: "TestUser".to_string(),
+                    password: None,
+                },
+                &state,
+            )
+            .await;
+
+        assert!(result.is_ok());
+        assert!(session.is_authenticated());
+        assert_eq!(session.user_id, Some(user_id));
+        assert_eq!(session.username, Some("TestUser".to_string()));
+        assert!(session.room.is_some());
+
+        // Check that auth success message was sent
+        let msg = rx.try_recv();
+        assert!(msg.is_ok());
+        match msg.unwrap() {
+            ServerMessage::AuthResult {
+                success, room_info, ..
+            } => {
+                assert!(success);
+                assert!(room_info.is_some());
+            }
+            _ => panic!("Expected AuthResult message"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_auth_wrong_password() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let room_id = Uuid::new_v4();
+        let mut session = ConnectionSession::new(room_id, tx);
+
+        // Create a password-protected room
+        let state = LiveshareState::new();
+        let owner = super::super::auth::AuthenticatedUser::guest();
+        state
+            .room_manager
+            .create_room_with_id(
+                room_id,
+                &owner,
+                CreateRoomRequest {
+                    name: Some("Protected Room".to_string()),
+                    password: Some("secret123".to_string()),
+                    max_users: None,
+                },
+            )
+            .unwrap();
+
+        let result = session
+            .handle_message(
+                ClientMessage::Auth {
+                    user_id: Uuid::new_v4(),
+                    username: "TestUser".to_string(),
+                    password: Some("wrong_password".to_string()),
+                },
+                &state,
+            )
+            .await;
+
+        assert!(result.is_ok());
+        assert!(!session.is_authenticated());
+
+        // Check that auth failed message was sent
+        let msg = rx.try_recv();
+        assert!(msg.is_ok());
+        match msg.unwrap() {
+            ServerMessage::AuthResult { success, error, .. } => {
+                assert!(!success);
+                assert!(error.is_some());
+                assert!(error.unwrap().contains("password"));
+            }
+            _ => panic!("Expected AuthResult message"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_auth_room_full() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let room_id = Uuid::new_v4();
+        let mut session = ConnectionSession::new(room_id, tx);
+
+        // Create a room with max_users = 1
+        let state = LiveshareState::new();
+        let owner = super::super::auth::AuthenticatedUser::guest();
+        let room = state
+            .room_manager
+            .create_room_with_id(
+                room_id,
+                &owner,
+                CreateRoomRequest {
+                    name: Some("Small Room".to_string()),
+                    password: None,
+                    max_users: Some(1),
+                },
+            )
+            .unwrap();
+
+        // Fill the room
+        room.add_user(Uuid::new_v4(), "User1".to_string()).unwrap();
+
+        // Try to join
+        let result = session
+            .handle_message(
+                ClientMessage::Auth {
+                    user_id: Uuid::new_v4(),
+                    username: "TestUser".to_string(),
+                    password: None,
+                },
+                &state,
+            )
+            .await;
+
+        assert!(result.is_ok());
+        assert!(!session.is_authenticated());
+
+        // Check that auth failed message was sent
+        let msg = rx.try_recv();
+        assert!(msg.is_ok());
+        match msg.unwrap() {
+            ServerMessage::AuthResult { success, error, .. } => {
+                assert!(!success);
+                assert!(error.is_some());
+                assert!(error.unwrap().contains("full"));
+            }
+            _ => panic!("Expected AuthResult message"),
+        }
+    }
+
+    // ========================================================================
+    // Cleanup Tests
+    // ========================================================================
+
+    #[test]
+    fn test_cleanup_removes_user_from_room() {
+        let (tx, _rx) = mpsc::channel(16);
+        let room_id = Uuid::new_v4();
+        let mut session = ConnectionSession::new(room_id, tx);
+
+        // Create a room and add user manually
+        let state = LiveshareState::new();
+        let owner = super::super::auth::AuthenticatedUser::guest();
+        let room = state
+            .room_manager
+            .create_room_with_id(
+                room_id,
+                &owner,
+                CreateRoomRequest {
+                    name: None,
+                    password: None,
+                    max_users: None,
+                },
+            )
+            .unwrap();
+
+        let user_id = Uuid::new_v4();
+        room.add_user(user_id, "TestUser".to_string()).unwrap();
+
+        // Set session state as if authenticated
+        session.user_id = Some(user_id);
+        session.room = Some(room.clone());
+        session.authenticated = true;
+
+        assert_eq!(room.user_count(), 1);
+
+        // Cleanup should remove user
+        session.cleanup();
+
+        assert_eq!(room.user_count(), 0);
+    }
+
+    #[test]
+    fn test_cleanup_without_room() {
+        let (tx, _rx) = mpsc::channel(16);
+        let mut session = ConnectionSession::new(Uuid::new_v4(), tx);
+
+        // Cleanup should not panic when no room is set
+        session.cleanup();
+
+        assert!(session.room.is_none());
+    }
+
+    #[test]
+    fn test_drop_calls_cleanup() {
+        let (tx, _rx) = mpsc::channel(16);
+        let room_id = Uuid::new_v4();
+
+        // Create a room
+        let state = LiveshareState::new();
+        let owner = super::super::auth::AuthenticatedUser::guest();
+        let room = state
+            .room_manager
+            .create_room_with_id(
+                room_id,
+                &owner,
+                CreateRoomRequest {
+                    name: None,
+                    password: None,
+                    max_users: None,
+                },
+            )
+            .unwrap();
+
+        let user_id = Uuid::new_v4();
+        room.add_user(user_id, "TestUser".to_string()).unwrap();
+        assert_eq!(room.user_count(), 1);
+
+        {
+            let mut session = ConnectionSession::new(room_id, tx);
+            session.user_id = Some(user_id);
+            session.room = Some(room.clone());
+            session.authenticated = true;
+            // session drops here
+        }
+
+        // User should be removed after drop
+        assert_eq!(room.user_count(), 0);
+    }
+
+    // ========================================================================
+    // Integration-style Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_full_auth_and_sync_flow() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let room_id = Uuid::new_v4();
+        let mut session = ConnectionSession::new(room_id, tx);
+
+        // Create room
+        let state = LiveshareState::new();
+        let owner = super::super::auth::AuthenticatedUser::guest();
+        state
+            .room_manager
+            .create_room_with_id(
+                room_id,
+                &owner,
+                CreateRoomRequest {
+                    name: Some("Sync Test Room".to_string()),
+                    password: None,
+                    max_users: None,
+                },
+            )
+            .unwrap();
+
+        // Authenticate
+        session
+            .handle_message(
+                ClientMessage::Auth {
+                    user_id: Uuid::new_v4(),
+                    username: "SyncUser".to_string(),
+                    password: None,
+                },
+                &state,
+            )
+            .await
+            .unwrap();
+
+        assert!(session.is_authenticated());
+
+        // Drain auth result
+        let _ = rx.try_recv();
+
+        // Now sync step 1 should work
+        let result = session
+            .handle_message(
+                ClientMessage::SyncStep1 {
+                    state_vector: vec![],
+                },
+                &state,
+            )
+            .await;
+
+        assert!(result.is_ok());
+
+        // Should receive sync messages
+        let msg = rx.try_recv();
+        assert!(msg.is_ok());
+        assert!(matches!(msg.unwrap(), ServerMessage::SyncStep1 { .. }));
     }
 }

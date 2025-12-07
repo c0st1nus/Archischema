@@ -91,67 +91,64 @@ pub fn ColumnEditor(
         }
 
         // Создание FK связи, если нужно
-        if is_foreign_key.get() {
-            if let (Some(g), Some(current_node), Some(target_node), Some(target_col)) = (
+        if is_foreign_key.get()
+            && let (Some(g), Some(current_node), Some(target_node), Some(target_col)) = (
                 graph,
                 current_table,
                 fk_target_table.get(),
                 fk_target_column.get(),
-            ) {
-                let g_value = g.get();
-                // Проверка совместимости типов
-                if let Some(target_table) = g_value.node_weight(target_node) {
-                    if let Some(target_column_obj) =
-                        target_table.columns.iter().find(|c| c.name == target_col)
+            )
+        {
+            let g_value = g.get();
+            // Проверка совместимости типов
+            if let Some(target_table) = g_value.node_weight(target_node)
+                && let Some(target_column_obj) =
+                    target_table.columns.iter().find(|c| c.name == target_col)
+                && !new_column.is_type_compatible_with(target_column_obj)
+            {
+                set_error.set(Some(format!(
+                    "Column type {} is not compatible with target column type {}",
+                    new_column.data_type, target_column_obj.data_type
+                )));
+                return;
+            }
+
+            // Создание связи
+            use crate::core::Relationship;
+            let rel_name = format!("fk_{}_{}", new_column.name, target_col);
+            let rel_type = fk_relationship_type.get();
+            let from_col = new_column.name.clone();
+            let to_col = target_col.clone();
+
+            g.update(|graph| {
+                let relationship = Relationship::new(
+                    rel_name.clone(),
+                    rel_type.clone(),
+                    from_col.clone(),
+                    to_col.clone(),
+                );
+
+                if let Ok(edge_idx) =
+                    graph.create_relationship(current_node, target_node, relationship)
+                {
+                    // Send LiveShare sync
+                    let liveshare_ctx = use_liveshare_context();
+                    if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected
                     {
-                        if !new_column.is_type_compatible_with(target_column_obj) {
-                            set_error.set(Some(format!(
-                                "Column type {} is not compatible with target column type {}",
-                                new_column.data_type, target_column_obj.data_type
-                            )));
-                            return;
-                        }
+                        liveshare_ctx.send_graph_op(GraphOperation::CreateRelationship {
+                            edge_id: edge_idx.index() as u32,
+                            from_node: current_node.index() as u32,
+                            to_node: target_node.index() as u32,
+                            relationship: RelationshipData {
+                                name: rel_name,
+                                relationship_type: rel_type.to_string(),
+                                from_column: from_col,
+                                to_column: to_col,
+                            },
+                        });
                     }
                 }
-
-                // Создание связи
-                use crate::core::Relationship;
-                let rel_name = format!("fk_{}_{}", new_column.name, target_col);
-                let rel_type = fk_relationship_type.get();
-                let from_col = new_column.name.clone();
-                let to_col = target_col.clone();
-
-                g.update(|graph| {
-                    let relationship = Relationship::new(
-                        rel_name.clone(),
-                        rel_type.clone(),
-                        from_col.clone(),
-                        to_col.clone(),
-                    );
-
-                    if let Ok(edge_idx) =
-                        graph.create_relationship(current_node, target_node, relationship)
-                    {
-                        // Send LiveShare sync
-                        let liveshare_ctx = use_liveshare_context();
-                        if liveshare_ctx.connection_state.get_untracked()
-                            == ConnectionState::Connected
-                        {
-                            liveshare_ctx.send_graph_op(GraphOperation::CreateRelationship {
-                                edge_id: edge_idx.index() as u32,
-                                from_node: current_node.index() as u32,
-                                to_node: target_node.index() as u32,
-                                relationship: RelationshipData {
-                                    name: rel_name,
-                                    relationship_type: rel_type.to_string(),
-                                    from_column: from_col,
-                                    to_column: to_col,
-                                },
-                            });
-                        }
-                    }
-                });
-            }
+            });
         }
 
         on_save.run(new_column);

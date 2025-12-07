@@ -194,10 +194,8 @@ pub fn Sidebar(
                                                         if let Some(idx) = col_idx {
                                                             graph
                                                                 .update(|g| {
-                                                                    if let Some(node) = g.node_weight_mut(node_idx) {
-                                                                        if idx < node.columns.len() {
-                                                                            node.columns.remove(idx);
-                                                                        }
+                                                                    if let Some(node) = g.node_weight_mut(node_idx) && idx < node.columns.len() {
+                                                                        node.columns.remove(idx);
                                                                     }
                                                                 });
                                                             // Send sync op

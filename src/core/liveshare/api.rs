@@ -1,10 +1,12 @@
 //! REST API handlers for LiveShare room management
 //!
 //! This module provides the HTTP API endpoints for managing rooms:
-//! - POST   /room/{uuid} - Create a new room
-//! - GET    /room/{uuid} - Get room information
-//! - PATCH  /room/{uuid} - Update room settings
-//! - DELETE /room/{uuid} - Delete a room
+//! - POST   /room/{uuid}      - Create a new room
+//! - GET    /room/{uuid}/info - Get room information
+//! - PATCH  /room/{uuid}      - Update room settings
+//! - DELETE /room/{uuid}      - Delete a room
+//!
+//! Note: GET /room/{uuid} (without /info) is reserved for WebSocket connections.
 //!
 //! Authentication is handled via headers or cookies (see auth module).
 
@@ -189,28 +191,28 @@ async fn update_room(
     // TODO: Add proper interior mutability to Room for config updates
 
     // Validate the update request
-    if let Some(ref name) = request.name {
-        if name.trim().is_empty() {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ApiError::bad_request("Room name cannot be empty")),
-            )
-                .into_response();
-        }
+    if let Some(ref name) = request.name
+        && name.trim().is_empty()
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError::bad_request("Room name cannot be empty")),
+        )
+            .into_response();
     }
 
-    if let Some(max_users) = request.max_users {
-        if max_users < room.user_count() {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ApiError::bad_request(format!(
-                    "Cannot set max_users to {} when {} users are connected",
-                    max_users,
-                    room.user_count()
-                ))),
-            )
-                .into_response();
-        }
+    if let Some(max_users) = request.max_users
+        && max_users < room.user_count()
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError::bad_request(format!(
+                "Cannot set max_users to {} when {} users are connected",
+                max_users,
+                room.user_count()
+            ))),
+        )
+            .into_response();
     }
 
     // For now, return success with current state
@@ -340,6 +342,244 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("GET")
+                    .uri(format!("/room/{}/info", room_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_create_room_with_custom_name() {
+        let app = create_test_app();
+        let room_id = Uuid::new_v4();
+
+        let create_request = CreateRoomRequest {
+            name: Some("My Custom Room".to_string()),
+            password: None,
+            max_users: Some(25),
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/room/{}", room_id))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(serde_json::to_string(&create_request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        // Parse response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let room_response: RoomResponse = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(room_response.name, "My Custom Room");
+        assert_eq!(room_response.max_users, 25);
+    }
+
+    #[tokio::test]
+    async fn test_create_room_with_default_name() {
+        let app = create_test_app();
+        let room_id = Uuid::new_v4();
+
+        let create_request = CreateRoomRequest {
+            name: None,
+            password: None,
+            max_users: None,
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/room/{}", room_id))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(serde_json::to_string(&create_request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let room_response: RoomResponse = serde_json::from_slice(&body).unwrap();
+
+        // Default name should be generated from room ID
+        assert!(room_response.name.starts_with("Room "));
+    }
+
+    #[tokio::test]
+    async fn test_create_duplicate_room() {
+        let state = LiveshareState::new();
+        let app = liveshare_router(state.clone());
+        let room_id = Uuid::new_v4();
+
+        let create_request = CreateRoomRequest {
+            name: Some("First Room".to_string()),
+            password: None,
+            max_users: None,
+        };
+
+        // Create first room
+        let response1 = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/room/{}", room_id))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(serde_json::to_string(&create_request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response1.status(), StatusCode::CREATED);
+
+        // Try to create duplicate room
+        let response2 = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/room/{}", room_id))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(serde_json::to_string(&create_request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response2.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn test_get_room_info() {
+        let state = LiveshareState::new();
+        let app = liveshare_router(state.clone());
+        let room_id = Uuid::new_v4();
+
+        // Create room first
+        let create_request = CreateRoomRequest {
+            name: Some("Info Test Room".to_string()),
+            password: None,
+            max_users: Some(15),
+        };
+
+        let _ = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/room/{}", room_id))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(serde_json::to_string(&create_request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Get room info
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/room/{}/info", room_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let room_response: RoomResponse = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(room_response.id, room_id);
+        assert_eq!(room_response.name, "Info Test Room");
+        assert_eq!(room_response.max_users, 15);
+    }
+
+    #[tokio::test]
+    async fn test_delete_room() {
+        let state = LiveshareState::new();
+        let app = liveshare_router(state.clone());
+        let room_id = Uuid::new_v4();
+
+        // Create room first
+        let create_request = CreateRoomRequest {
+            name: Some("Delete Test Room".to_string()),
+            password: None,
+            max_users: None,
+        };
+
+        let _ = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/room/{}", room_id))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(serde_json::to_string(&create_request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Delete room
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/room/{}", room_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        // Verify room is deleted
+        let get_response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/room/{}/info", room_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(get_response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_delete_nonexistent_room() {
+        let app = create_test_app();
+        let room_id = Uuid::new_v4();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
                     .uri(format!("/room/{}", room_id))
                     .body(Body::empty())
                     .unwrap(),
@@ -348,5 +588,204 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_update_room() {
+        let state = LiveshareState::new();
+        let app = liveshare_router(state.clone());
+        let room_id = Uuid::new_v4();
+
+        // Create room first
+        let create_request = CreateRoomRequest {
+            name: Some("Original Name".to_string()),
+            password: None,
+            max_users: Some(10),
+        };
+
+        let _ = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/room/{}", room_id))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(serde_json::to_string(&create_request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Update room
+        let update_request = UpdateRoomRequest {
+            name: Some("Updated Name".to_string()),
+            password: None,
+            max_users: Some(20),
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!("/room/{}", room_id))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(serde_json::to_string(&update_request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_update_nonexistent_room() {
+        let app = create_test_app();
+        let room_id = Uuid::new_v4();
+
+        let update_request = UpdateRoomRequest {
+            name: Some("New Name".to_string()),
+            password: None,
+            max_users: None,
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!("/room/{}", room_id))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(serde_json::to_string(&update_request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_create_room_with_password() {
+        let app = create_test_app();
+        let room_id = Uuid::new_v4();
+
+        let create_request = CreateRoomRequest {
+            name: Some("Protected Room".to_string()),
+            password: Some("secret123".to_string()),
+            max_users: None,
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/room/{}", room_id))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(serde_json::to_string(&create_request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let room_response: RoomResponse = serde_json::from_slice(&body).unwrap();
+
+        assert!(room_response.is_protected);
+    }
+
+    #[tokio::test]
+    async fn test_create_room_with_user_headers() {
+        let app = create_test_app();
+        let room_id = Uuid::new_v4();
+        let user_id = Uuid::new_v4();
+
+        let create_request = CreateRoomRequest {
+            name: Some("User Header Room".to_string()),
+            password: None,
+            max_users: None,
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/room/{}", room_id))
+                    .header("Content-Type", "application/json")
+                    .header("X-User-ID", user_id.to_string())
+                    .header("X-Username", "TestUser")
+                    .body(Body::from(serde_json::to_string(&create_request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let room_response: RoomResponse = serde_json::from_slice(&body).unwrap();
+
+        // Owner should be the user from headers
+        assert_eq!(room_response.owner_id, user_id);
+    }
+
+    // ========================================================================
+    // LiveshareState Tests
+    // ========================================================================
+
+    #[test]
+    fn test_liveshare_state_new() {
+        let state = LiveshareState::new();
+        assert_eq!(state.room_manager.room_count(), 0);
+    }
+
+    #[test]
+    fn test_liveshare_state_with_host() {
+        let state = LiveshareState::with_host("custom.host:8080", true);
+        assert_eq!(state.room_manager.host(), "custom.host:8080");
+        assert!(state.room_manager.is_secure());
+    }
+
+    #[test]
+    fn test_liveshare_state_default() {
+        let state = LiveshareState::default();
+        assert_eq!(state.room_manager.host(), "localhost:3000");
+    }
+
+    #[test]
+    fn test_liveshare_state_clone() {
+        let state1 = LiveshareState::new();
+        let state2 = state1.clone();
+
+        // Both should share the same room manager (Arc)
+        assert!(std::ptr::eq(
+            state1.room_manager.as_ref(),
+            state2.room_manager.as_ref()
+        ));
+    }
+
+    // ========================================================================
+    // SuccessResponse Tests
+    // ========================================================================
+
+    #[test]
+    fn test_success_response_new() {
+        let response = SuccessResponse::new("Operation completed");
+
+        assert!(response.success);
+        assert_eq!(response.message, "Operation completed");
+    }
+
+    #[test]
+    fn test_success_response_with_string() {
+        let response = SuccessResponse::new(String::from("Dynamic message"));
+
+        assert!(response.success);
+        assert_eq!(response.message, "Dynamic message");
     }
 }

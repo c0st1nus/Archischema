@@ -275,6 +275,10 @@ fn extract_cookie(cookies: &str, name: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    // ========================================================================
+    // AuthenticatedUser Tests
+    // ========================================================================
+
     #[test]
     fn test_guest_user_creation() {
         let guest = AuthenticatedUser::guest();
@@ -292,6 +296,81 @@ mod tests {
     }
 
     #[test]
+    fn test_guest_username_contains_id_prefix() {
+        let id = Uuid::new_v4();
+        let guest = AuthenticatedUser::guest_with_id(id);
+
+        // Username should contain first 8 chars of UUID
+        let expected_suffix = &id.to_string()[..8];
+        assert!(guest.username.contains(expected_suffix));
+    }
+
+    #[test]
+    fn test_authenticated_user_creation() {
+        let user_id = Uuid::new_v4();
+        let user = AuthenticatedUser::authenticated(
+            user_id,
+            "John Doe".to_string(),
+            Some("john@example.com".to_string()),
+        );
+
+        assert_eq!(user.user_id, user_id);
+        assert_eq!(user.username, "John Doe");
+        assert_eq!(user.email, Some("john@example.com".to_string()));
+        assert!(!user.is_guest);
+    }
+
+    #[test]
+    fn test_authenticated_user_without_email() {
+        let user_id = Uuid::new_v4();
+        let user = AuthenticatedUser::authenticated(user_id, "Jane".to_string(), None);
+
+        assert!(!user.is_guest);
+        assert!(user.email.is_none());
+    }
+
+    #[test]
+    fn test_authenticated_user_clone() {
+        let user = AuthenticatedUser::guest();
+        let cloned = user.clone();
+
+        assert_eq!(user.user_id, cloned.user_id);
+        assert_eq!(user.username, cloned.username);
+        assert_eq!(user.is_guest, cloned.is_guest);
+    }
+
+    #[test]
+    fn test_authenticated_user_debug() {
+        let user = AuthenticatedUser::guest();
+        let debug_str = format!("{:?}", user);
+
+        assert!(debug_str.contains("AuthenticatedUser"));
+        assert!(debug_str.contains("user_id"));
+        assert!(debug_str.contains("is_guest"));
+    }
+
+    #[test]
+    fn test_authenticated_user_serialization() {
+        let user = AuthenticatedUser::authenticated(
+            Uuid::new_v4(),
+            "TestUser".to_string(),
+            Some("test@example.com".to_string()),
+        );
+
+        let json = serde_json::to_string(&user).unwrap();
+        let parsed: AuthenticatedUser = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(user.user_id, parsed.user_id);
+        assert_eq!(user.username, parsed.username);
+        assert_eq!(user.email, parsed.email);
+        assert_eq!(user.is_guest, parsed.is_guest);
+    }
+
+    // ========================================================================
+    // Cookie Extraction Tests
+    // ========================================================================
+
+    #[test]
     fn test_extract_cookie() {
         let cookies = "session=abc123; theme=dark; diagramix_session=xyz789";
 
@@ -307,6 +386,48 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_cookie_single() {
+        let cookies = "only_cookie=value123";
+        assert_eq!(
+            extract_cookie(cookies, "only_cookie"),
+            Some("value123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_cookie_empty_string() {
+        let cookies = "";
+        assert_eq!(extract_cookie(cookies, "any"), None);
+    }
+
+    #[test]
+    fn test_extract_cookie_with_spaces() {
+        let cookies = "  spaced = value ;  another=test  ";
+        // The current implementation trims spaces
+        assert_eq!(extract_cookie(cookies, "another"), Some("test".to_string()));
+    }
+
+    #[test]
+    fn test_extract_cookie_with_special_chars_in_value() {
+        let cookies = "token=abc123!@#$%^&*()";
+        assert_eq!(
+            extract_cookie(cookies, "token"),
+            Some("abc123!@#$%^&*()".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_cookie_partial_match() {
+        let cookies = "session_id=123; session=456";
+        // Should match exact cookie name, not partial
+        assert_eq!(extract_cookie(cookies, "session"), Some("456".to_string()));
+    }
+
+    // ========================================================================
+    // Authorization Tests
+    // ========================================================================
+
+    #[test]
     fn test_authorization_permissive() {
         let user = AuthenticatedUser::guest();
         let owner_id = Uuid::new_v4();
@@ -315,5 +436,136 @@ mod tests {
         assert!(can_modify_room(&user, owner_id));
         assert!(can_delete_room(&user, owner_id));
         assert!(can_join_room(&user));
+    }
+
+    #[test]
+    fn test_can_modify_room_as_owner() {
+        let user_id = Uuid::new_v4();
+        let user = AuthenticatedUser::guest_with_id(user_id);
+
+        // Even when user is the owner, permissive mode returns true
+        assert!(can_modify_room(&user, user_id));
+    }
+
+    #[test]
+    fn test_can_modify_room_as_non_owner() {
+        let user = AuthenticatedUser::guest();
+        let different_owner = Uuid::new_v4();
+
+        // Permissive mode - non-owner can still modify
+        assert!(can_modify_room(&user, different_owner));
+    }
+
+    #[test]
+    fn test_can_delete_room_as_owner() {
+        let user_id = Uuid::new_v4();
+        let user = AuthenticatedUser::guest_with_id(user_id);
+
+        assert!(can_delete_room(&user, user_id));
+    }
+
+    #[test]
+    fn test_can_delete_room_as_non_owner() {
+        let user = AuthenticatedUser::guest();
+        let different_owner = Uuid::new_v4();
+
+        // Permissive mode - non-owner can still delete
+        assert!(can_delete_room(&user, different_owner));
+    }
+
+    #[test]
+    fn test_can_join_room_guest() {
+        let guest = AuthenticatedUser::guest();
+        assert!(can_join_room(&guest));
+    }
+
+    #[test]
+    fn test_can_join_room_authenticated() {
+        let user = AuthenticatedUser::authenticated(
+            Uuid::new_v4(),
+            "AuthUser".to_string(),
+            Some("auth@example.com".to_string()),
+        );
+        assert!(can_join_room(&user));
+    }
+
+    // ========================================================================
+    // AuthError Tests
+    // ========================================================================
+
+    #[test]
+    fn test_auth_error_unauthorized() {
+        let error = AuthError::unauthorized("Please login");
+
+        assert_eq!(error.message, "Please login");
+        assert_eq!(error.status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn test_auth_error_forbidden() {
+        let error = AuthError::forbidden("Access denied");
+
+        assert_eq!(error.message, "Access denied");
+        assert_eq!(error.status, StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn test_auth_error_unauthorized_with_string() {
+        let error = AuthError::unauthorized(String::from("Dynamic message"));
+        assert_eq!(error.message, "Dynamic message");
+    }
+
+    #[test]
+    fn test_auth_error_forbidden_with_string() {
+        let error = AuthError::forbidden(String::from("No permission"));
+        assert_eq!(error.message, "No permission");
+    }
+
+    #[test]
+    fn test_auth_error_debug() {
+        let error = AuthError::unauthorized("Test error");
+        let debug_str = format!("{:?}", error);
+
+        assert!(debug_str.contains("AuthError"));
+        assert!(debug_str.contains("Test error"));
+    }
+
+    // ========================================================================
+    // Constants Tests
+    // ========================================================================
+
+    #[test]
+    fn test_auth_header_constants() {
+        assert_eq!(AUTH_HEADER_USER_ID, "X-User-ID");
+        assert_eq!(AUTH_HEADER_USERNAME, "X-Username");
+        assert_eq!(AUTH_COOKIE_SESSION, "diagramix_session");
+    }
+
+    // ========================================================================
+    // OptionalUser Tests
+    // ========================================================================
+
+    #[test]
+    fn test_optional_user_with_some() {
+        let user = AuthenticatedUser::guest();
+        let optional = OptionalUser(Some(user.clone()));
+
+        assert!(optional.0.is_some());
+        assert_eq!(optional.0.unwrap().user_id, user.user_id);
+    }
+
+    #[test]
+    fn test_optional_user_with_none() {
+        let optional = OptionalUser(None);
+        assert!(optional.0.is_none());
+    }
+
+    #[test]
+    fn test_optional_user_clone() {
+        let user = AuthenticatedUser::guest();
+        let optional = OptionalUser(Some(user));
+        let cloned = optional.clone();
+
+        assert!(cloned.0.is_some());
     }
 }

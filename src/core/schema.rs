@@ -84,12 +84,6 @@ impl fmt::Display for MySqlDataType {
 }
 
 impl MySqlDataType {
-    /// Преобразовать в строковое представление
-    #[inline]
-    pub fn to_string(&self) -> String {
-        format!("{}", self)
-    }
-
     /// Получить список всех доступных типов для выбора
     pub fn all_types() -> &'static [&'static str] {
         &[
@@ -271,7 +265,7 @@ impl Column {
         }
 
         // Не должно начинаться с цифры
-        if name.chars().next().map_or(false, |c| c.is_numeric()) {
+        if name.chars().next().is_some_and(|c| c.is_numeric()) {
             return Err("Column name cannot start with a number".to_string());
         }
 
@@ -622,12 +616,15 @@ impl RelationshipOps for SchemaGraph {
         }
 
         // Проверяем, не существует ли уже такая связь
-        if let Some(_) = self.find_relationship_by_columns(
-            from_table,
-            to_table,
-            &relationship.from_column,
-            &relationship.to_column,
-        ) {
+        if self
+            .find_relationship_by_columns(
+                from_table,
+                to_table,
+                &relationship.from_column,
+                &relationship.to_column,
+            )
+            .is_some()
+        {
             return Err("Relationship already exists".to_string());
         }
 

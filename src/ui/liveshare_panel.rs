@@ -42,7 +42,7 @@ pub fn LiveSharePanel() -> impl IntoView {
     };
 
     // Create room handler
-    let ctx_create = ctx.clone();
+    let ctx_create = ctx;
     let create_room = move |_| {
         let room_id_val = room_id_input.get();
         if room_id_val.is_empty() {
@@ -130,7 +130,7 @@ pub fn LiveSharePanel() -> impl IntoView {
     };
 
     // Join room handler
-    let ctx_join = ctx.clone();
+    let ctx_join = ctx;
     let join_room = move |_| {
         let room_id_val = room_id_input.get();
         if room_id_val.is_empty() {
@@ -151,7 +151,7 @@ pub fn LiveSharePanel() -> impl IntoView {
     };
 
     // Disconnect handler
-    let ctx_disconnect = ctx.clone();
+    let ctx_disconnect = ctx;
     let disconnect = move |_| {
         ctx_disconnect.disconnect();
         set_room_id_input.set(String::new());
@@ -235,7 +235,7 @@ pub fn LiveSharePanel() -> impl IntoView {
 
                 if state == ConnectionState::Connected {
                     // Connected view
-                    let ctx_users = ctx.clone();
+                    let ctx_users = ctx;
                     view! {
                         <div class="mt-2 w-80 bg-theme-surface border border-theme-primary rounded-xl shadow-theme-xl overflow-hidden theme-transition">
                             // Header
@@ -244,7 +244,7 @@ pub fn LiveSharePanel() -> impl IntoView {
                                     <h3 class="font-semibold">"Connected"</h3>
                                     <button
                                         class="text-white/80 hover:text-white text-sm"
-                                        on:click=disconnect.clone()
+                                        on:click={disconnect}
                                     >
                                         "Disconnect"
                                     </button>
@@ -272,7 +272,7 @@ pub fn LiveSharePanel() -> impl IntoView {
                                         </code>
                                         <button
                                             class="text-theme-accent hover:opacity-80"
-                                            on:click=copy_link.clone()
+                                            on:click={copy_link}
                                             title="Copy room link"
                                         >
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -419,8 +419,8 @@ pub fn LiveSharePanel() -> impl IntoView {
 
                                 // Submit button
                                 {
-                                    let create_room = create_room.clone();
-                                    let join_room = join_room.clone();
+                                    let create_room = create_room;
+                                    let join_room = join_room;
                                     view! {
                                         <button
                                             class="w-full px-4 py-2.5 btn-theme-primary rounded-lg font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"

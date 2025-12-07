@@ -82,7 +82,7 @@ pub fn SettingsModal(
     };
 
     // Create room handler
-    let ctx_create = ctx.clone();
+    let ctx_create = ctx;
     let create_room = move |_| {
         let room_id_val = room_id_input.get();
         if room_id_val.is_empty() {
@@ -166,7 +166,7 @@ pub fn SettingsModal(
     };
 
     // Join room handler
-    let ctx_join = ctx.clone();
+    let ctx_join = ctx;
     let join_room = move |_| {
         let room_id_val = room_id_input.get();
         if room_id_val.is_empty() {
@@ -187,7 +187,7 @@ pub fn SettingsModal(
     };
 
     // Disconnect handler
-    let ctx_disconnect = ctx.clone();
+    let ctx_disconnect = ctx;
     let disconnect = move |_| {
         ctx_disconnect.disconnect();
         set_room_id_input.set(String::new());
@@ -346,7 +346,7 @@ pub fn SettingsModal(
 
                                     if state == ConnectionState::Connected {
                                         // Connected view
-                                        let ctx_users = ctx.clone();
+                                        let ctx_users = ctx;
                                         view! {
                                             <div style="display: flex; flex-direction: column; gap: 16px;">
                                                 // Room info
@@ -356,7 +356,7 @@ pub fn SettingsModal(
                                                         <button
                                                             class="text-theme-error"
                                                             style="font-size: 12px; font-weight: 500;"
-                                                            on:click=disconnect.clone()
+                                                            on:click={disconnect}
                                                         >
                                                             "Disconnect"
                                                         </button>
@@ -393,7 +393,7 @@ pub fn SettingsModal(
                                                         <button
                                                             class="text-theme-success"
                                                             style="padding: 4px;"
-                                                            on:click=copy_link.clone()
+                                                            on:click={copy_link}
                                                             title="Copy room link"
                                                         >
                                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -543,8 +543,8 @@ pub fn SettingsModal(
 
                                                 // Submit button
                                                 {
-                                                    let create_room = create_room.clone();
-                                                    let join_room = join_room.clone();
+                                                    let create_room = create_room;
+                                                    let join_room = join_room;
                                                     view! {
                                                         <button
                                                             class="btn-theme-primary"

@@ -1,8 +1,8 @@
 use leptos::prelude::*;
-use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
+use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
 
 use crate::core::SchemaGraph;
-use crate::ui::{SchemaCanvas, provide_liveshare_context, provide_theme_context};
+use crate::ui::{provide_liveshare_context, provide_theme_context, SchemaCanvas};
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -39,7 +39,7 @@ pub fn App() -> impl IntoView {
     view! {
         // injects a stylesheet into the document <head>
         // id=leptos means cargo-leptos will hot-reload this stylesheet
-        <Stylesheet id="leptos" href="/pkg/diagramix.css"/>
+        <Stylesheet id="leptos" href="/pkg/archischema.css"/>
 
         // sets the document title
         <Title text="Diagramix - Database Schema Editor"/>

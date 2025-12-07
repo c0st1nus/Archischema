@@ -899,6 +899,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
 /// Вычисляет путь SVG для рёбра графа с оптимизированной логикой
 /// Возвращает: (start_x, start_y, end_x, end_y, label_x, label_y, path_data)
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn calculate_edge_path(
     from_x: f64,
     _from_y: f64,
