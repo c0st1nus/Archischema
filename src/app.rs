@@ -1,8 +1,8 @@
 use leptos::prelude::*;
-use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
+use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
 
 use crate::core::SchemaGraph;
-use crate::ui::{provide_liveshare_context, provide_theme_context, SchemaCanvas};
+use crate::ui::{SchemaCanvas, provide_liveshare_context, provide_theme_context};
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
