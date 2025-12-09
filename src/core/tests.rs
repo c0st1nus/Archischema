@@ -492,7 +492,7 @@ mod tests {
 
         let result = graph.create_table("", (0.0, 0.0));
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Table name cannot be empty");
+        assert_eq!(result.unwrap_err(), "Name cannot be empty");
     }
 
     #[test]
@@ -538,12 +538,11 @@ mod tests {
     #[test]
     fn test_rename_table_empty_name() {
         let mut graph = StableGraph::new();
+        let users = graph.create_table("users", (0.0, 0.0)).unwrap();
 
-        let node_idx = graph.create_table("users", (0.0, 0.0)).unwrap();
-        let result = graph.rename_table(node_idx, "");
-
+        let result = graph.rename_table(users, "");
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Table name cannot be empty");
+        assert_eq!(result.unwrap_err(), "Name cannot be empty");
     }
 
     #[test]
@@ -650,18 +649,18 @@ mod tests {
     fn test_generate_unique_table_name() {
         let mut graph = StableGraph::new();
 
-        let name1 = graph.generate_unique_table_name("table");
-        assert_eq!(name1, "table");
+        let name1 = graph.generate_unique_table_name("my_table");
+        assert_eq!(name1, "my_table");
 
-        graph.create_table("table", (0.0, 0.0)).unwrap();
+        graph.create_table("my_table", (0.0, 0.0)).unwrap();
 
-        let name2 = graph.generate_unique_table_name("table");
-        assert_eq!(name2, "table_2");
+        let name2 = graph.generate_unique_table_name("my_table");
+        assert_eq!(name2, "my_table_2");
 
-        graph.create_table("table_2", (0.0, 0.0)).unwrap();
+        graph.create_table("my_table_2", (0.0, 0.0)).unwrap();
 
-        let name3 = graph.generate_unique_table_name("table");
-        assert_eq!(name3, "table_3");
+        let name3 = graph.generate_unique_table_name("my_table");
+        assert_eq!(name3, "my_table_3");
     }
 
     #[test]

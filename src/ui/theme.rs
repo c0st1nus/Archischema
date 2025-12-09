@@ -78,7 +78,7 @@ impl ThemeContext {
         {
             if let Some(window) = web_sys::window() {
                 if let Ok(Some(storage)) = window.local_storage() {
-                    let _ = storage.set_item("diagramix-theme", mode.as_str());
+                    let _ = storage.set_item("archischema-theme", mode.as_str());
                 }
             }
         }
@@ -114,7 +114,7 @@ fn load_persisted_theme() -> ThemeMode {
     {
         if let Some(window) = web_sys::window() {
             if let Ok(Some(storage)) = window.local_storage() {
-                if let Ok(Some(value)) = storage.get_item("diagramix-theme") {
+                if let Ok(Some(value)) = storage.get_item("archischema-theme") {
                     return value.parse().unwrap_or_default();
                 }
             }

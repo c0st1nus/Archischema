@@ -1,18 +1,22 @@
 use crate::core::{Column, MySqlDataType, RelationshipOps, RelationshipType, SchemaGraph};
 use crate::ui::liveshare_client::{
-    ConnectionState, GraphOperation, RelationshipData, use_liveshare_context,
+    ColumnData, ConnectionState, GraphOperation, RelationshipData, use_liveshare_context,
 };
 use crate::ui::{Icon, icons};
 use leptos::prelude::*;
 use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
 
 #[component]
 pub fn ColumnEditor(
     /// Текущая колонка для редактирования (None для создания новой)
     column: Option<Column>,
-    /// Callback при сохранении колонки
+    /// Индекс колонки (None для создания новой)
+    #[prop(default = None)]
+    column_index: Option<usize>,
+    /// Callback при сохранении (вызывается после сохранения)
     #[prop(into)]
-    on_save: Callback<Column>,
+    on_save: Callback<()>,
     /// Callback при отмене
     #[prop(into)]
     on_cancel: Callback<()>,
@@ -31,12 +35,11 @@ pub fn ColumnEditor(
 ) -> impl IntoView {
     // Состояние формы
     let (name, set_name) = signal(column.as_ref().map(|c| c.name.clone()).unwrap_or_default());
-    let (data_type, set_data_type) = signal(
-        column
-            .as_ref()
-            .map(|c| c.data_type.clone())
-            .unwrap_or_else(|| "INT".to_string()),
-    );
+    let initial_data_type = column
+        .as_ref()
+        .map(|c| c.data_type.clone())
+        .unwrap_or_else(|| "INT".to_string());
+    let (data_type, set_data_type) = signal(initial_data_type.clone());
     let (is_primary_key, set_is_primary_key) =
         signal(column.as_ref().map(|c| c.is_primary_key).unwrap_or(false));
     let (is_nullable, set_is_nullable) =
@@ -50,11 +53,40 @@ pub fn ColumnEditor(
     );
     let (error, set_error) = signal::<Option<String>>(None);
 
-    // FK состояние
-    let (is_foreign_key, set_is_foreign_key) = signal(false);
-    let (fk_target_table, set_fk_target_table) = signal::<Option<NodeIndex>>(None);
-    let (fk_target_column, set_fk_target_column) = signal::<Option<String>>(None);
-    let (fk_relationship_type, set_fk_relationship_type) = signal(RelationshipType::OneToMany);
+    // Определяем начальное состояние FK из существующих связей
+    let (initial_fk, initial_fk_table, initial_fk_column, initial_fk_type) = {
+        if let (Some(g), Some(current_node), Some(col)) = (graph, current_table, column.as_ref()) {
+            let graph_val = g.get_untracked();
+            // Ищем связь, исходящую из текущей таблицы с этой колонкой
+            let mut found_fk = false;
+            let mut found_table: Option<NodeIndex> = None;
+            let mut found_column: Option<String> = None;
+            let mut found_type = RelationshipType::ManyToOne;
+
+            for edge_ref in graph_val.edges(current_node) {
+                let rel = edge_ref.weight();
+                if rel.from_column == col.name {
+                    found_fk = true;
+                    found_table = Some(edge_ref.target());
+                    found_column = Some(rel.to_column.clone());
+                    found_type = rel.relationship_type.clone();
+                    break;
+                }
+            }
+            (found_fk, found_table, found_column, found_type)
+        } else {
+            (false, None, None, RelationshipType::ManyToOne)
+        }
+    };
+
+    // FK состояние - инициализируем из существующих связей
+    let (is_foreign_key, set_is_foreign_key) = signal(initial_fk);
+    let (fk_target_table, set_fk_target_table) = signal::<Option<NodeIndex>>(initial_fk_table);
+    let (fk_target_column, set_fk_target_column) = signal::<Option<String>>(initial_fk_column);
+    let (fk_relationship_type, set_fk_relationship_type) = signal(initial_fk_type);
+
+    // Сохраняем начальное имя колонки для обновления связей при переименовании
+    let original_column_name = column.as_ref().map(|c| c.name.clone());
 
     let available_types = MySqlDataType::all_types();
 
@@ -73,7 +105,7 @@ pub fn ColumnEditor(
             return;
         }
 
-        let mut new_column = Column::new(name_value, data_type_value);
+        let mut new_column = Column::new(name_value.clone(), data_type_value);
 
         if is_primary_key.get() {
             new_column = new_column.primary_key();
@@ -90,68 +122,143 @@ pub fn ColumnEditor(
             new_column = new_column.with_default(default);
         }
 
-        // Создание FK связи, если нужно
-        if is_foreign_key.get()
-            && let (Some(g), Some(current_node), Some(target_node), Some(target_col)) = (
-                graph,
-                current_table,
-                fk_target_table.get(),
-                fk_target_column.get(),
-            )
-        {
-            let g_value = g.get();
-            // Проверка совместимости типов
-            if let Some(target_table) = g_value.node_weight(target_node)
-                && let Some(target_column_obj) =
-                    target_table.columns.iter().find(|c| c.name == target_col)
-                && !new_column.is_type_compatible_with(target_column_obj)
+        // Собираем все данные FK до update()
+        let is_fk = is_foreign_key.get();
+        let target_table = fk_target_table.get();
+        let target_col = fk_target_column.get();
+        let rel_type = fk_relationship_type.get();
+
+        // Обработка FK связей - все в одном update() для правильной реактивности
+        if let (Some(g), Some(current_node)) = (graph, current_table) {
+            // Проверка совместимости типов ДО update (только чтение)
+            if is_fk
+                && let (Some(target_node), Some(target_col_name)) =
+                    (target_table, target_col.as_ref())
             {
-                set_error.set(Some(format!(
-                    "Column type {} is not compatible with target column type {}",
-                    new_column.data_type, target_column_obj.data_type
-                )));
-                return;
+                let g_value = g.get_untracked();
+                if let Some(target_table_node) = g_value.node_weight(target_node)
+                    && let Some(target_column_obj) = target_table_node
+                        .columns
+                        .iter()
+                        .find(|c| c.name == *target_col_name)
+                    && !new_column.is_type_compatible_with(target_column_obj)
+                {
+                    set_error.set(Some(format!(
+                        "Column type {} is not compatible with target column type {}",
+                        new_column.data_type, target_column_obj.data_type
+                    )));
+                    return;
+                }
             }
 
-            // Создание связи
-            use crate::core::Relationship;
-            let rel_name = format!("fk_{}_{}", new_column.name, target_col);
-            let rel_type = fk_relationship_type.get();
-            let from_col = new_column.name.clone();
-            let to_col = target_col.clone();
+            // Подготавливаем данные для LiveShare sync
+            let liveshare_ctx = use_liveshare_context();
+            let is_connected =
+                liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected;
 
-            g.update(|graph| {
-                let relationship = Relationship::new(
-                    rel_name.clone(),
-                    rel_type.clone(),
-                    from_col.clone(),
-                    to_col.clone(),
-                );
+            // Клонируем данные для использования в closure
+            let name_value_clone = name_value.clone();
+            let original_name = original_column_name.clone();
+            let fk_target = target_table;
+            let fk_col = target_col.clone();
+            let fk_rel_type = rel_type.clone();
+            let fk_enabled = is_fk;
+            let col_idx = column_index;
+            let column_to_save = new_column.clone();
 
-                if let Ok(edge_idx) =
-                    graph.create_relationship(current_node, target_node, relationship)
+            // Все изменения графа в одном update() - и колонка, и FK связь
+            g.update(move |graph_mut| {
+                use crate::core::Relationship;
+
+                // 1. Сохраняем колонку в таблицу
+                if let Some(node) = graph_mut.node_weight_mut(current_node) {
+                    if let Some(idx) = col_idx {
+                        // Обновление существующей колонки
+                        if idx < node.columns.len() {
+                            node.columns[idx] = column_to_save.clone();
+                        }
+                    } else {
+                        // Добавление новой колонки
+                        node.columns.push(column_to_save.clone());
+                    }
+                }
+
+                // 2. Удаляем старую FK связь (если редактируем существующую колонку)
+                let col_name_for_old_fk = original_name.as_ref().unwrap_or(&name_value_clone);
+                let edges_to_remove: Vec<_> = graph_mut
+                    .edges(current_node)
+                    .filter(|e| e.weight().from_column == *col_name_for_old_fk)
+                    .map(|e| e.id())
+                    .collect();
+
+                for edge_id in edges_to_remove {
+                    graph_mut.remove_edge(edge_id);
+                }
+
+                // 3. Создаём новую FK связь, если нужно
+                if fk_enabled
+                    && let (Some(target_node), Some(target_col_name)) = (fk_target, fk_col)
                 {
-                    // Send LiveShare sync
-                    let liveshare_ctx = use_liveshare_context();
-                    if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected
+                    let rel_name = format!("fk_{}_{}", column_to_save.name, target_col_name);
+                    let from_col = column_to_save.name.clone();
+                    let to_col = target_col_name.clone();
+
+                    let relationship = Relationship::new(
+                        rel_name.clone(),
+                        fk_rel_type.clone(),
+                        from_col.clone(),
+                        to_col.clone(),
+                    );
+
+                    if let Ok(edge_idx) =
+                        graph_mut.create_relationship(current_node, target_node, relationship)
                     {
-                        liveshare_ctx.send_graph_op(GraphOperation::CreateRelationship {
-                            edge_id: edge_idx.index() as u32,
-                            from_node: current_node.index() as u32,
-                            to_node: target_node.index() as u32,
-                            relationship: RelationshipData {
-                                name: rel_name,
-                                relationship_type: rel_type.to_string(),
-                                from_column: from_col,
-                                to_column: to_col,
-                            },
-                        });
+                        // Send LiveShare sync for relationship
+                        if is_connected {
+                            liveshare_ctx.send_graph_op(GraphOperation::CreateRelationship {
+                                edge_id: edge_idx.index() as u32,
+                                from_node: current_node.index() as u32,
+                                to_node: target_node.index() as u32,
+                                relationship: RelationshipData {
+                                    name: rel_name,
+                                    relationship_type: fk_rel_type.to_string(),
+                                    from_column: from_col,
+                                    to_column: to_col,
+                                },
+                            });
+                        }
                     }
                 }
             });
+
+            // Send LiveShare sync for column
+            if is_connected {
+                let col_data = ColumnData {
+                    name: new_column.name.clone(),
+                    data_type: new_column.data_type.clone(),
+                    is_primary_key: new_column.is_primary_key,
+                    is_nullable: new_column.is_nullable,
+                    is_unique: new_column.is_unique,
+                    default_value: new_column.default_value.clone(),
+                    foreign_key: None,
+                };
+
+                if let Some(idx) = column_index {
+                    liveshare_ctx.send_graph_op(GraphOperation::UpdateColumn {
+                        node_id: current_node.index() as u32,
+                        column_index: idx,
+                        column: col_data,
+                    });
+                } else {
+                    liveshare_ctx.send_graph_op(GraphOperation::AddColumn {
+                        node_id: current_node.index() as u32,
+                        column: col_data,
+                    });
+                }
+            }
         }
 
-        on_save.run(new_column);
+        on_save.run(());
     };
 
     let form_content = view! {
@@ -215,6 +322,7 @@ pub fn ColumnEditor(
                     </label>
                     <select
                         class="w-full px-3 py-2 input-theme rounded-md"
+                        prop:value=move || data_type.get()
                         on:change=move |ev| {
                             set_data_type.set(event_target_value(&ev));
                         }
@@ -222,9 +330,8 @@ pub fn ColumnEditor(
                         {available_types
                             .iter()
                             .map(|&dt| {
-                                let selected = dt == data_type.get_untracked().as_str();
                                 view! {
-                                    <option value=dt selected=selected>
+                                    <option value=dt>
                                         {dt}
                                     </option>
                                 }
@@ -323,6 +430,11 @@ pub fn ColumnEditor(
                                                     </label>
                                                     <select
                                                         class="w-full px-2 py-1.5 text-sm input-theme rounded-md"
+                                                        prop:value=move || {
+                                                            fk_target_table.get()
+                                                                .map(|idx| idx.index().to_string())
+                                                                .unwrap_or_default()
+                                                        }
                                                         on:change=move |ev| {
                                                             let value = event_target_value(&ev);
                                                             if !value.is_empty() {
@@ -344,9 +456,8 @@ pub fn ColumnEditor(
                                                                 .filter(|&idx| Some(idx) != current_table)
                                                                 .map(|idx| {
                                                                     let table = graph_val.node_weight(idx).unwrap();
-                                                                    let selected = fk_target_table.get() == Some(idx);
                                                                     view! {
-                                                                        <option value=idx.index().to_string() selected=selected>
+                                                                        <option value=idx.index().to_string()>
                                                                             {table.name.clone()}
                                                                         </option>
                                                                     }
@@ -384,6 +495,9 @@ pub fn ColumnEditor(
                                                                     </label>
                                                                     <select
                                                                         class="w-full px-2 py-1.5 text-sm input-theme rounded-md"
+                                                                        prop:value=move || {
+                                                                            fk_target_column.get().unwrap_or_default()
+                                                                        }
                                                                         on:change=move |ev| {
                                                                             let value = event_target_value(&ev);
                                                                             if !value.is_empty() {
@@ -400,12 +514,8 @@ pub fn ColumnEditor(
                                                                                 let col_name = col.name.clone();
                                                                                 let col_name2 = col.name.clone();
                                                                                 let col_type = col.data_type.clone();
-                                                                                let selected = fk_target_column.get()
-                                                                                    .as_ref()
-                                                                                    .map(|s| s == &col_name)
-                                                                                    .unwrap_or(false);
                                                                                 view! {
-                                                                                    <option value=col_name selected=selected>
+                                                                                    <option value=col_name>
                                                                                         {col_name2}
                                                                                         " ("
                                                                                         {col_type}
@@ -438,27 +548,38 @@ pub fn ColumnEditor(
                                                     }
                                                 }}
 
-                                                // Выбор типа связи
+                                                // Выбор типа связи (без ManyToMany - делается через дополнительную таблицу)
                                                 <div>
                                                     <label class="block text-xs font-medium text-theme-secondary mb-1">
                                                         "Relationship Type"
                                                     </label>
                                                     <select
                                                         class="w-full px-2 py-1.5 text-sm input-theme rounded-md"
+                                                        prop:value=move || {
+                                                            match fk_relationship_type.get() {
+                                                                RelationshipType::OneToOne => "1:1",
+                                                                RelationshipType::ManyToOne => "N:1",
+                                                                RelationshipType::OneToMany => "1:N",
+                                                                RelationshipType::ManyToMany => "N:1", // Fallback, shouldn't happen in UI
+                                                            }
+                                                        }
                                                         on:change=move |ev| {
                                                             let value = event_target_value(&ev);
                                                             let rel_type = match value.as_str() {
                                                                 "1:1" => RelationshipType::OneToOne,
-                                                                "N:M" => RelationshipType::ManyToMany,
-                                                                _ => RelationshipType::OneToMany,
+                                                                "1:N" => RelationshipType::OneToMany,
+                                                                _ => RelationshipType::ManyToOne,
                                                             };
                                                             set_fk_relationship_type.set(rel_type);
                                                         }
                                                     >
-                                                        <option value="1:N" selected=true>"One to Many (1:N)"</option>
+                                                        <option value="N:1">"Many to One (N:1)"</option>
+                                                        <option value="1:N">"One to Many (1:N)"</option>
                                                         <option value="1:1">"One to One (1:1)"</option>
-                                                        <option value="N:M">"Many to Many (N:M)"</option>
                                                     </select>
+                                                    <p class="text-xs text-theme-muted mt-1">
+                                                        "For Many-to-Many relationships, create a junction table"
+                                                    </p>
                                                 </div>
                                             </div>
                                         }

@@ -4,6 +4,8 @@ use petgraph::visit::EdgeRef;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+use super::validation;
+
 /// Стандартные типы данных MySQL
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum MySqlDataType {
@@ -249,27 +251,7 @@ impl Column {
 
     /// Валидация имени колонки
     pub fn validate_name(name: &str) -> Result<(), String> {
-        if name.is_empty() {
-            return Err("Column name cannot be empty".to_string());
-        }
-
-        if name.len() > 64 {
-            return Err("Column name cannot exceed 64 characters".to_string());
-        }
-
-        // Проверка на допустимые символы (буквы, цифры, подчеркивание)
-        if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            return Err(
-                "Column name can only contain letters, numbers, and underscores".to_string(),
-            );
-        }
-
-        // Не должно начинаться с цифры
-        if name.chars().next().is_some_and(|c| c.is_numeric()) {
-            return Err("Column name cannot start with a number".to_string());
-        }
-
-        Ok(())
+        validation::validate_column_name(name)
     }
 
     /// Валидация типа данных
@@ -373,7 +355,9 @@ pub enum RelationshipType {
     OneToOne,
     /// Один ко многим
     OneToMany,
-    /// Многие ко многим
+    /// Многие к одному
+    ManyToOne,
+    /// Многие ко многим (через промежуточную таблицу)
     ManyToMany,
 }
 
@@ -382,6 +366,7 @@ impl std::fmt::Display for RelationshipType {
         match self {
             RelationshipType::OneToOne => write!(f, "1:1"),
             RelationshipType::OneToMany => write!(f, "1:N"),
+            RelationshipType::ManyToOne => write!(f, "N:1"),
             RelationshipType::ManyToMany => write!(f, "N:M"),
         }
     }
@@ -430,10 +415,8 @@ impl TableOps for SchemaGraph {
     ) -> Result<petgraph::graph::NodeIndex, String> {
         let name = name.into();
 
-        // Проверяем, что имя не пустое
-        if name.trim().is_empty() {
-            return Err("Table name cannot be empty".to_string());
-        }
+        // Валидируем имя таблицы
+        validation::validate_table_name(&name)?;
 
         // Проверяем уникальность имени
         if self.table_exists(&name) {
@@ -458,10 +441,8 @@ impl TableOps for SchemaGraph {
     ) -> Result<(), String> {
         let new_name = new_name.into();
 
-        // Проверяем, что имя не пустое
-        if new_name.trim().is_empty() {
-            return Err("Table name cannot be empty".to_string());
-        }
+        // Валидируем новое имя
+        validation::validate_table_name(&new_name)?;
 
         // Получаем текущее имя
         let current_name = self

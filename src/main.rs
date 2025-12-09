@@ -8,7 +8,6 @@ async fn main() {
     use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{LeptosRoutes, generate_route_list};
-    use tower_http::compression::{CompressionLayer, CompressionLevel};
     use tower_http::services::ServeDir;
 
     // Load .env file (if exists)
@@ -42,7 +41,7 @@ async fn main() {
     let liveshare_state = LiveshareState::with_host(addr.to_string(), false);
 
     // Create ServeDir for pkg with pre-compressed file support
-    // This serves .br (brotli) and .gz (gzip) files automatically
+    // This serves .br (brotli) and .gz (gzip) files automatically when available
     let pkg_service = ServeDir::new(format!("{}/pkg", leptos_options.site_root))
         .precompressed_br()
         .precompressed_gzip();
@@ -61,7 +60,7 @@ async fn main() {
     // Build the LiveShare API router
     let liveshare_api = liveshare_router(liveshare_state.clone());
 
-    // Build the main application router with compression
+    // Build the main application router
     let app = Router::new()
         // WebSocket endpoint for real-time sync: ws://{host}/room/{room_id}
         .route(
@@ -71,15 +70,29 @@ async fn main() {
         // REST API for room management
         .merge(liveshare_api)
         // Leptos routes (nested to avoid state conflicts)
-        .merge(leptos_router)
-        // Add compression with Brotli priority (best compression for web)
-        // Compresses responses > 1KB, skips already compressed formats
-        .layer(
+        .merge(leptos_router);
+
+    // In release mode, add on-the-fly compression for responses
+    // In debug mode, skip compression - use pre-compressed files if available,
+    // otherwise serve uncompressed (faster for localhost development)
+    #[cfg(debug_assertions)]
+    let app = {
+        log!("Debug mode: on-the-fly compression disabled");
+        log!("Pre-compressed .br/.gz files will be served if available");
+        app
+    };
+
+    #[cfg(not(debug_assertions))]
+    let app = {
+        use tower_http::compression::{CompressionLayer, CompressionLevel};
+        log!("Release mode: on-the-fly compression enabled");
+        app.layer(
             CompressionLayer::new()
                 .br(true) // Brotli - best compression ratio
                 .gzip(true) // Gzip - wide support fallback
                 .quality(CompressionLevel::Best),
-        );
+        )
+    };
 
     // Run our app with hyper
     log!("listening on http://{}", &addr);

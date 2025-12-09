@@ -42,7 +42,7 @@ pub fn App() -> impl IntoView {
         <Stylesheet id="leptos" href="/pkg/archischema.css"/>
 
         // sets the document title
-        <Title text="Diagramix - Database Schema Editor"/>
+        <Title text="Archischema - Database Schema Editor"/>
 
         // main application content
         <div class="w-full h-screen bg-theme-primary theme-transition">

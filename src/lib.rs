@@ -1,4 +1,4 @@
-//! Diagramix - Database Schema Diagram Editor
+//! Archischema - Database Schema Diagram Editor
 //!
 //! A modern web application for creating and visualizing database schema diagrams,
 //! built with Leptos and WebAssembly.

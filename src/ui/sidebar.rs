@@ -1,8 +1,6 @@
 use crate::core::{Column, SchemaGraph, TableOps};
 use crate::ui::column_editor::ColumnEditor;
-use crate::ui::liveshare_client::{
-    ColumnData, ConnectionState, GraphOperation, use_liveshare_context,
-};
+use crate::ui::liveshare_client::{ConnectionState, GraphOperation, use_liveshare_context};
 use crate::ui::table_editor::TableEditor;
 use crate::ui::{Icon, icons};
 use leptos::prelude::*;
@@ -143,46 +141,12 @@ pub fn Sidebar(
                                             <div class="flex-1 overflow-y-auto px-6 py-4 bg-theme-surface theme-transition">
                                                 <ColumnEditor
                                                     column=column
+                                                    column_index=col_idx
                                                     inline=true
                                                     graph=graph
                                                     current_table=node_idx
-                                                    on_save=move |new_column: Column| {
-                                                        let col_data = ColumnData {
-                                                            name: new_column.name.clone(),
-                                                            data_type: new_column.data_type.to_string(),
-                                                            is_primary_key: new_column.is_primary_key,
-                                                            is_nullable: new_column.is_nullable,
-                                                            is_unique: new_column.is_unique,
-                                                            default_value: new_column.default_value.clone(),
-                                                            foreign_key: None,
-                                                        };
-                                                        let is_update = col_idx.is_some();
-                                                        let col_index = col_idx.unwrap_or(0);
-                                                        graph
-                                                            .update(|g| {
-                                                                if let Some(node) = g.node_weight_mut(node_idx) {
-                                                                    if let Some(idx) = col_idx {
-                                                                        if idx < node.columns.len() {
-                                                                            node.columns[idx] = new_column;
-                                                                        }
-                                                                    } else {
-                                                                        node.columns.push(new_column);
-                                                                    }
-                                                                }
-                                                            });
-                                                        // Send sync op
-                                                        if is_update {
-                                                            send_graph_op(GraphOperation::UpdateColumn {
-                                                                node_id: node_idx.index() as u32,
-                                                                column_index: col_index,
-                                                                column: col_data,
-                                                            });
-                                                        } else {
-                                                            send_graph_op(GraphOperation::AddColumn {
-                                                                node_id: node_idx.index() as u32,
-                                                                column: col_data,
-                                                            });
-                                                        }
+                                                    on_save=move |_| {
+                                                        // ColumnEditor теперь сам сохраняет колонку и FK в одном update()
                                                         set_editing_mode.set(EditingMode::None);
                                                     }
 

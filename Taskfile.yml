@@ -1,0 +1,82 @@
+# https://taskfile.dev
+
+version: "3"
+
+silent: true
+
+vars:
+  PKG_DIR: "target/site/pkg"
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  dev:
+    desc: Run development server with hot reload
+    cmds:
+      - npm run build:css
+      - cargo leptos watch --bin-cargo-args="-q" -c
+
+  release:
+    desc: Build optimized release
+    cmds:
+      - npm run build:css
+      - cargo leptos build --release
+      - task: compress
+
+  compress:
+    desc: Compress static assets (brotli + gzip)
+    preconditions:
+      - sh: test -d {{.PKG_DIR}}
+        msg: "Package directory not found: {{.PKG_DIR}}. Run 'task build' first."
+    cmds:
+      - printf '\033[0;33m    Compressing static assets...\033[0m\n'
+      - |
+        if command -v brotli >/dev/null 2>&1; then
+          find {{.PKG_DIR}} -type f \( -name "*.wasm" -o -name "*.js" -o -name "*.css" \) | while read f; do
+            brotli -f -k -q 11 "$f"
+          done
+        else
+          printf '\033[0;31m  brotli not found. Install with: sudo pacman -S brotli\033[0m\n'
+        fi
+      - |
+        if command -v gzip >/dev/null 2>&1; then
+          find {{.PKG_DIR}} -type f \( -name "*.wasm" -o -name "*.js" -o -name "*.css" \) | while read f; do
+            gzip -f -k -9 "$f"
+          done
+        else
+          printf '\033[0;31m  gzip not found. Install with: sudo pacman -S gzip\033[0m\n'
+        fi
+      - printf '\033[0;32m    Compression complete!\033[0m\n'
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - cargo clean
+      - rm -rf {{.PKG_DIR}}/*.br {{.PKG_DIR}}/*.gz 2>/dev/null || true
+
+  test:
+    desc: Run tests
+    cmds:
+      - cargo test --features ssr
+
+  fmt:
+    desc: Format code
+    cmds:
+      - cargo fmt
+
+  clippy:
+    desc: Run clippy lints
+    cmds:
+      - cargo clippy --features ssr -- -D warnings
+
+  check:
+    desc: Run pre-commit checks (check, fmt, clippy, test)
+    cmds:
+      - cargo check --features ssr
+      - task: fmt
+      - task: clippy
+      - task: test
+      - printf '\033[0;32mAll checks passed!\033[0m\n'

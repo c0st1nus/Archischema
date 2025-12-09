@@ -847,7 +847,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                         <Icon name=icons::TABLE class="w-12 h-12 text-blue-600 dark:text-blue-400"/>
                                     </div>
                                     <h2 class="text-3xl font-bold text-theme-primary mb-3">
-                                        "Welcome to Diagramix"
+                                        "Welcome to Archischema"
                                     </h2>
                                     <p class="text-theme-tertiary mb-8 leading-relaxed">
                                         "Start designing your database schema by creating your first table, or load a demo to see how it works."
@@ -1166,8 +1166,9 @@ fn apply_remote_graph_op(graph: RwSignal<SchemaGraph>, op: GraphOperation) {
                     let rel_type = match relationship.relationship_type.as_str() {
                         "1:1" => RelationshipType::OneToOne,
                         "1:N" => RelationshipType::OneToMany,
+                        "N:1" => RelationshipType::ManyToOne,
                         "N:M" => RelationshipType::ManyToMany,
-                        _ => RelationshipType::OneToMany,
+                        _ => RelationshipType::ManyToOne, // Default to M:1 as most common FK type
                     };
 
                     let rel = Relationship::new(
@@ -1240,8 +1241,9 @@ fn apply_graph_state(graph: RwSignal<SchemaGraph>, state: GraphStateSnapshot) {
                     let rel_type = match rel_snap.data.relationship_type.as_str() {
                         "1:1" => RelationshipType::OneToOne,
                         "1:N" => RelationshipType::OneToMany,
+                        "N:1" => RelationshipType::ManyToOne,
                         "N:M" => RelationshipType::ManyToMany,
-                        _ => RelationshipType::OneToMany,
+                        _ => RelationshipType::ManyToOne, // Default to M:1 as most common FK type
                     };
 
                     let rel = Relationship::new(

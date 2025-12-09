@@ -42,7 +42,7 @@ pub fn TableNodeView(
                 on:mousedown=move |ev| on_mouse_down.run(ev)
             >
                 <span class="text-lg">{table_name}</span>
-                <Icon name=icons::MENU class="w-5 h-5"/>
+                <Icon name=icons::GRIP_HORIZONTAL class="w-5 h-5"/>
             </div>
 
             // Список колонок

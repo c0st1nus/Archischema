@@ -78,7 +78,7 @@ pub const AUTH_HEADER_USER_ID: &str = "X-User-ID";
 /// Header name for username
 pub const AUTH_HEADER_USERNAME: &str = "X-Username";
 /// Cookie name for session token (future use)
-pub const AUTH_COOKIE_SESSION: &str = "diagramix_session";
+pub const AUTH_COOKIE_SESSION: &str = "archischema_session";
 
 /// Axum extractor for authenticated users
 ///
@@ -372,14 +372,14 @@ mod tests {
 
     #[test]
     fn test_extract_cookie() {
-        let cookies = "session=abc123; theme=dark; diagramix_session=xyz789";
+        let cookies = "session=abc123; theme=dark; archischema_session=xyz789";
 
         assert_eq!(
             extract_cookie(cookies, "session"),
             Some("abc123".to_string())
         );
         assert_eq!(
-            extract_cookie(cookies, "diagramix_session"),
+            extract_cookie(cookies, "archischema_session"),
             Some("xyz789".to_string())
         );
         assert_eq!(extract_cookie(cookies, "nonexistent"), None);
@@ -538,7 +538,7 @@ mod tests {
     fn test_auth_header_constants() {
         assert_eq!(AUTH_HEADER_USER_ID, "X-User-ID");
         assert_eq!(AUTH_HEADER_USERNAME, "X-Username");
-        assert_eq!(AUTH_COOKIE_SESSION, "diagramix_session");
+        assert_eq!(AUTH_COOKIE_SESSION, "archischema_session");
     }
 
     // ========================================================================
