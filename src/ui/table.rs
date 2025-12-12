@@ -8,9 +8,15 @@ use leptos::web_sys;
 pub fn TableNodeView(
     node: TableNode,
     #[prop(into)] on_mouse_down: Callback<web_sys::MouseEvent>,
+    /// Click handler for selecting the table
+    #[prop(into)]
+    on_click: Callback<web_sys::MouseEvent>,
     /// Whether this table is currently being dragged locally (disables transition)
     #[prop(default = false)]
     is_being_dragged: bool,
+    /// Whether this table is selected (highlights all its relationships)
+    #[prop(default = false)]
+    is_selected: bool,
 ) -> impl IntoView {
     let (x, y) = node.position;
     let node_ref = NodeRef::<Div>::new();
@@ -21,7 +27,11 @@ pub fn TableNodeView(
 
     // No CSS transition for position - we use requestAnimationFrame interpolation for smooth remote updates
     // is_being_dragged disables any remaining transitions for both local and remote drags
-    let table_class = "absolute bg-theme-surface border-2 border-theme-primary shadow-theme-lg select-none hover:shadow-theme-xl theme-transition";
+    let table_class = if is_selected {
+        "absolute bg-theme-surface border-2 border-blue-500 shadow-theme-xl select-none theme-transition ring-2 ring-blue-400 ring-opacity-50"
+    } else {
+        "absolute bg-theme-surface border-2 border-theme-primary shadow-theme-lg select-none hover:shadow-theme-xl theme-transition"
+    };
     let _ = is_being_dragged; // Used in canvas.rs to track dragging state
 
     view! {
@@ -40,9 +50,10 @@ pub fn TableNodeView(
                 class="text-white px-4 py-3 font-bold cursor-move flex items-center justify-between"
                 style="background: linear-gradient(to right, var(--accent-primary), var(--accent-secondary)); border-radius: 6px 6px 0 0;"
                 on:mousedown=move |ev| on_mouse_down.run(ev)
+                on:click=move |ev| on_click.run(ev)
             >
                 <span class="text-lg">{table_name}</span>
-                <Icon name=icons::GRIP_HORIZONTAL class="w-5 h-5"/>
+                <Icon name=icons::GRIP_HORIZONTAL class="w-5 h-5 text-gray-400"/>
             </div>
 
             // Список колонок

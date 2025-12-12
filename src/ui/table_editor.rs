@@ -16,8 +16,8 @@ pub fn TableEditor(
     // Get LiveShare context for sync
     let liveshare_ctx = use_liveshare_context();
 
-    // Получаем текущее имя таблицы
-    let initial_name = graph.with(|g| {
+    // Получаем текущее имя таблицы (untracked - это начальное значение)
+    let initial_name = graph.with_untracked(|g| {
         g.node_weight(node_idx)
             .map(|n| n.name.clone())
             .unwrap_or_default()

@@ -1,4 +1,5 @@
-use crate::core::{SchemaGraph, TableOps, create_demo_graph};
+use crate::core::{SchemaGraph, TableOps, auto_layout, create_demo_graph};
+use crate::ui::ai_chat::{AiChatButton, AiChatPanel};
 #[cfg(not(feature = "ssr"))]
 use crate::ui::liveshare_client::{
     ColumnData, GraphStateSnapshot, RelationshipData, RelationshipSnapshot, TableSnapshot,
@@ -7,13 +8,15 @@ use crate::ui::liveshare_client::{ConnectionState, GraphOperation, use_liveshare
 use crate::ui::remote_cursors::{CursorTracker, RemoteCursors};
 use crate::ui::settings_modal::{SettingsButton, SettingsModal};
 use crate::ui::sidebar::Sidebar;
+use crate::ui::source_editor::{EditorMode, SourceEditor};
 use crate::ui::table::TableNodeView;
 use crate::ui::{Icon, icons};
 use leptos::prelude::*;
 use leptos::{html, web_sys};
-use petgraph::graph::NodeIndex;
+use petgraph::graph::{EdgeIndex, NodeIndex};
 #[cfg(not(feature = "ssr"))]
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 #[component]
 pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
@@ -41,6 +44,16 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
 
     // Ссылка на элемент канваса для добавления обработчиков событий
     let canvas_ref = NodeRef::<html::Div>::new();
+
+    // Editor mode (Visual or Source)
+    let editor_mode = RwSignal::new(EditorMode::Visual);
+
+    // State for highlighted edges (when clicking on edge or table)
+    let highlighted_edges: RwSignal<HashSet<EdgeIndex>> = RwSignal::new(HashSet::new());
+    // State for selected table (to highlight all its edges)
+    let selected_table: RwSignal<Option<NodeIndex>> = RwSignal::new(None);
+    // Track if mouse moved during drag (to prevent selection on drag)
+    let was_dragged: RwSignal<bool> = RwSignal::new(false);
 
     // Мемоизация индексов узлов для предотвращения лишних пересчетов
     let node_indices = Memo::new(move |_| graph.with(|g| g.node_indices().collect::<Vec<_>>()));
@@ -370,6 +383,9 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 let new_x = (ev.client_x() as f64 - offset_x - current_pan_x) / current_zoom;
                 let new_y = (ev.client_y() as f64 - offset_y - current_pan_y) / current_zoom;
 
+                // Mark that we've moved (dragged)
+                was_dragged.set(true);
+
                 // Используем batch для минимизации реактивных пересчётов
                 batch(move || {
                     graph.update(|g| {
@@ -397,7 +413,8 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
             // Обработчик отпускания кнопки - отправляем sync при завершении перетаскивания
             let up_closure = Closure::new(move |_: web_sys::MouseEvent| {
                 // Get final position and send sync op
-                let final_pos = graph.with(|g| g.node_weight(node_idx).map(|n| n.position));
+                let final_pos =
+                    graph.with_untracked(|g| g.node_weight(node_idx).map(|n| n.position));
                 if let Some(position) = final_pos {
                     if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected
                     {
@@ -589,18 +606,40 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
     view! {
         <div class="relative w-full h-screen bg-theme-canvas overflow-hidden flex theme-transition">
             // Сайдбар
-            <Sidebar graph=graph on_table_focus=handle_table_focus/>
+            <Sidebar graph=graph on_table_focus=handle_table_focus editor_mode=editor_mode/>
 
-            // Основной канвас (со смещением из-за сайдбара)
+            // Source Editor (показывается в режиме Source)
+            <Show when=move || editor_mode.get() == EditorMode::Source>
+                <div class="flex-1 ml-96">
+                    <SourceEditor graph=graph readonly=false />
+                </div>
+            </Show>
+
+            // Основной канвас (со смещением из-за сайдбара) - показывается в режиме Visual
             <div
                 node_ref=canvas_ref
-                class="flex-1 ml-96 relative bg-theme-canvas theme-transition"
+                class=move || {
+                    if editor_mode.get() == EditorMode::Visual {
+                        "flex-1 ml-96 relative bg-theme-canvas theme-transition"
+                    } else {
+                        "hidden"
+                    }
+                }
                 on:mousedown=move |ev: web_sys::MouseEvent| {
                     // Средняя кнопка мыши (button = 1)
                     if ev.button() == 1 {
                         ev.prevent_default();
                         ev.stop_propagation();
                         set_panning.set(Some((ev.client_x() as f64, ev.client_y() as f64)));
+                    }
+                }
+                on:click=move |ev: web_sys::MouseEvent| {
+                    // Clear selection when clicking on empty canvas (not on table or edge)
+                    // The event target should be the canvas itself or the grid
+                    if ev.button() == 0 {
+                        // Only clear if we didn't click on a table or edge (they stop propagation)
+                        highlighted_edges.set(HashSet::new());
+                        selected_table.set(None);
                     }
                 }
                 on:contextmenu=move |ev: web_sys::MouseEvent| {
@@ -611,75 +650,8 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 // Сетка на фоне
                 <div class="absolute inset-0 bg-grid-pattern opacity-20"></div>
 
-                // Контейнер с трансформацией для зума и панорамирования
-                <div
-                    style:transform=move || format!(
-                        "translate({}px, {}px) scale({})",
-                        pan_x.get(),
-                        pan_y.get(),
-                        zoom.get()
-                    )
-                    style:transform-origin="0 0"
-                    style:transition="none"
-                    class="absolute top-0 left-0"
-                >
-                    // Рендерим все узлы (таблицы) - используем мемоизированные индексы
-                {move || {
-                    let current_dragging = _dragging_node.get();
-                    // Get which tables are being remotely dragged (for disabling CSS transitions)
-                    let current_remote_dragging = remote_dragging_nodes.get();
-
-                    node_indices.get()
-                        .into_iter()
-                        .filter_map(|idx| {
-                            // Используем with вместо get для избежания клонирования всего графа
-                            graph.with(|g| {
-                                g.node_weight(idx).map(|node| {
-                                    let node_clone = node.clone();
-                                    let node_idx = idx;
-                                    // Check if this specific node is being dragged locally or remotely
-                                    let is_local_dragging = current_dragging.map(|(drag_idx, _, _)| drag_idx == idx).unwrap_or(false);
-                                    let is_remote_dragging = current_remote_dragging.contains(&(idx.index() as u32));
-                                    let is_dragging = is_local_dragging || is_remote_dragging;
-
-                                    view! {
-                                        <TableNodeView
-                                            node=node_clone
-                                            is_being_dragged=is_dragging
-                                            on_mouse_down=move |ev: web_sys::MouseEvent| {
-                                                if ev.button() != 0 {
-                                                    return;
-                                                }
-                                                ev.prevent_default();
-                                                ev.stop_propagation();
-
-                                                graph.with_untracked(|g| {
-                                                    if let Some(n) = g.node_weight(node_idx) {
-                                                        let (x, y) = n.position;
-                                                        let current_zoom = zoom.get_untracked();
-                                                        let current_pan_x = pan_x.get_untracked();
-                                                        let current_pan_y = pan_y.get_untracked();
-
-                                                        // Учитываем трансформацию канваса при расчете offset
-                                                        let transformed_x = x * current_zoom + current_pan_x;
-                                                        let transformed_y = y * current_zoom + current_pan_y;
-                                                        let offset_x = ev.client_x() as f64 - transformed_x;
-                                                        let offset_y = ev.client_y() as f64 - transformed_y;
-                                                        set_dragging_node.set(Some((node_idx, offset_x, offset_y)));
-                                                    }
-                                                });
-                                            }
-                                            />
-                                        }
-                                    })
-                                })
-                            })
-                            .collect_view()
-                        }}
-                </div>
-
-                // SVG слой для отрисовки связей
-                <svg class="absolute top-0 left-0 w-full h-full pointer-events-none">
+                // SVG слой для отрисовки связей (ПОД таблицами)
+                <svg class="absolute top-0 left-0 w-full h-full" style="z-index: 1;">
                     <defs>
                         <marker
                             id="arrowhead"
@@ -703,6 +675,9 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                     >
                         // Рендерим связи - используем мемоизированные индексы
                         {move || {
+                        let current_highlighted = highlighted_edges.get();
+                        let current_selected_table = selected_table.get();
+
                         edge_indices.get()
                             .into_iter()
                             .filter_map(|edge_idx| {
@@ -755,14 +730,40 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
 
                                     let rel_type = edge.relationship_type.to_string();
 
+                                    // Check if this edge should be highlighted (skip rendering here if highlighted - will be in top layer)
+                                    let is_highlighted = current_highlighted.contains(&edge_idx)
+                                        || current_selected_table.map(|t| t == from_idx || t == to_idx).unwrap_or(false);
+
+                                    // Clone path_data for the invisible click target
+                                    let path_data_clone = path_data.clone();
+
                                     Some(view! {
                                         <g>
+                                            // Invisible wider path for easier clicking
+                                            <path
+                                                d=path_data_clone
+                                                stroke="transparent"
+                                                stroke-width="15"
+                                                fill="none"
+                                                style="cursor: pointer;"
+                                                on:click=move |ev: web_sys::MouseEvent| {
+                                                    ev.stop_propagation();
+                                                    // Toggle this edge highlight
+                                                    let mut new_set = HashSet::new();
+                                                    new_set.insert(edge_idx);
+                                                    highlighted_edges.set(new_set);
+                                                    selected_table.set(None);
+                                                }
+                                            />
+                                            // Visible path (dimmed if highlighted, since highlighted version is on top layer)
                                             <path
                                                 d=path_data
                                                 class="stroke-current text-gray-500 dark:text-gray-400"
                                                 stroke-width="2"
                                                 fill="none"
                                                 marker-end="url(#arrowhead)"
+                                                style="pointer-events: none;"
+                                                style:opacity=if is_highlighted { "0.3" } else { "1" }
                                             />
                                             <text
                                                 x=text_x
@@ -770,6 +771,8 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                                 class="fill-current text-gray-500 dark:text-gray-400 select-none"
                                                 font-size="12"
                                                 text-anchor="start"
+                                                style="pointer-events: none;"
+                                                style:opacity=if is_highlighted { "0.3" } else { "1" }
                                             >
                                                 {rel_type}
                                             </text>
@@ -782,10 +785,236 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                     </g>
                 </svg>
 
-                // Settings button (правый верхний угол)
+                // Контейнер с трансформацией для зума и панорамирования (таблицы НАД связями)
+                <div
+                    style:transform=move || format!(
+                        "translate({}px, {}px) scale({})",
+                        pan_x.get(),
+                        pan_y.get(),
+                        zoom.get()
+                    )
+                    style:transform-origin="0 0"
+                    style:transition="none"
+                    style:z-index="2"
+                    class="absolute top-0 left-0"
+                >
+                    // Рендерим все узлы (таблицы) - используем мемоизированные индексы
+                {move || {
+                    let current_dragging = _dragging_node.get();
+                    // Get which tables are being remotely dragged (for disabling CSS transitions)
+                    let current_remote_dragging = remote_dragging_nodes.get();
+                    let current_selected_table = selected_table.get();
+
+                    node_indices.get()
+                        .into_iter()
+                        .filter_map(|idx| {
+                            // Используем with вместо get для избежания клонирования всего графа
+                            graph.with(|g| {
+                                g.node_weight(idx).map(|node| {
+                                    let node_clone = node.clone();
+                                    let node_idx = idx;
+                                    // Check if this specific node is being dragged locally or remotely
+                                    let is_local_dragging = current_dragging.map(|(drag_idx, _, _)| drag_idx == idx).unwrap_or(false);
+                                    let is_remote_dragging = current_remote_dragging.contains(&(idx.index() as u32));
+                                    let is_dragging = is_local_dragging || is_remote_dragging;
+                                    let is_selected = current_selected_table == Some(idx);
+
+                                    view! {
+                                        <TableNodeView
+                                            node=node_clone
+                                            is_being_dragged=is_dragging
+                                            is_selected=is_selected
+                                            on_mouse_down=move |ev: web_sys::MouseEvent| {
+                                                if ev.button() != 0 {
+                                                    return;
+                                                }
+                                                ev.prevent_default();
+                                                ev.stop_propagation();
+
+                                                // Reset drag flag at start of potential drag
+                                                was_dragged.set(false);
+
+                                                // Only start dragging, don't select here
+                                                // Selection happens on click (mouseup without significant movement)
+                                                graph.with_untracked(|g| {
+                                                    if let Some(n) = g.node_weight(node_idx) {
+                                                        let (x, y) = n.position;
+                                                        let current_zoom = zoom.get_untracked();
+                                                        let current_pan_x = pan_x.get_untracked();
+                                                        let current_pan_y = pan_y.get_untracked();
+
+                                                        // Учитываем трансформацию канваса при расчете offset
+                                                        let transformed_x = x * current_zoom + current_pan_x;
+                                                        let transformed_y = y * current_zoom + current_pan_y;
+                                                        let offset_x = ev.client_x() as f64 - transformed_x;
+                                                        let offset_y = ev.client_y() as f64 - transformed_y;
+                                                        set_dragging_node.set(Some((node_idx, offset_x, offset_y)));
+                                                    }
+                                                });
+                                            }
+                                            on_click=move |ev: web_sys::MouseEvent| {
+                                                if ev.button() != 0 {
+                                                    return;
+                                                }
+                                                ev.stop_propagation();
+                                                // Only select if we didn't drag
+                                                if !was_dragged.get_untracked() {
+                                                    // Select this table and highlight all its edges
+                                                    selected_table.set(Some(node_idx));
+                                                    highlighted_edges.set(HashSet::new());
+                                                }
+                                            }
+                                            />
+                                        }
+                                    })
+                                })
+                            })
+                            .collect_view()
+                        }}
+                </div>
+
+                // SVG слой для ВЫДЕЛЕННЫХ связей (ПОВЕРХ всего)
+                <svg class="absolute top-0 left-0 w-full h-full pointer-events-none" style="z-index: 100;">
+                    <style>
+                        {"
+                        @keyframes dash-animation {
+                            to {
+                                stroke-dashoffset: -20;
+                            }
+                        }
+                        .animated-edge {
+                            animation: dash-animation 0.5s linear infinite;
+                        }
+                        "}
+                    </style>
+                    <defs>
+                        <marker
+                            id="arrowhead-white"
+                            markerWidth="12"
+                            markerHeight="12"
+                            refX="10"
+                            refY="4"
+                            orient="auto"
+                        >
+                            <polygon points="0 0, 12 4, 0 8" fill="white" />
+                        </marker>
+                    </defs>
+
+                    <g
+                        transform=move || format!(
+                            "translate({}, {}) scale({})",
+                            pan_x.get(),
+                            pan_y.get(),
+                            zoom.get()
+                        )
+                    >
+                        // Рендерим ТОЛЬКО выделенные связи
+                        {move || {
+                        let current_highlighted = highlighted_edges.get();
+                        let current_selected_table = selected_table.get();
+
+                        edge_indices.get()
+                            .into_iter()
+                            .filter_map(|edge_idx| {
+                                graph.with(|g| {
+                                    let (from_idx, to_idx) = g.edge_endpoints(edge_idx)?;
+
+                                    // Only render if highlighted
+                                    let is_highlighted = current_highlighted.contains(&edge_idx)
+                                        || current_selected_table.map(|t| t == from_idx || t == to_idx).unwrap_or(false);
+
+                                    if !is_highlighted {
+                                        return None;
+                                    }
+
+                                    let from_node = g.node_weight(from_idx)?;
+                                    let to_node = g.node_weight(to_idx)?;
+                                    let edge = g.edge_weight(edge_idx)?;
+
+                                    let (from_x, from_y) = from_node.position;
+                                    let (to_x, to_y) = to_node.position;
+
+                                    const NODE_WIDTH: f64 = 280.0;
+                                    const HEADER_HEIGHT: f64 = 48.0;
+                                    const ROW_HEIGHT: f64 = 36.0;
+                                    const PADDING_TOP: f64 = 8.0;
+                                    const GAP: f64 = 30.0;
+
+                                    let from_col_idx = from_node.columns.iter()
+                                        .position(|col| col.name == edge.from_column)
+                                        .unwrap_or(0);
+
+                                    let to_col_idx = to_node.columns.iter()
+                                        .position(|col| col.name == edge.to_column)
+                                        .unwrap_or(0);
+
+                                    let from_col_y = from_y + HEADER_HEIGHT + PADDING_TOP
+                                        + (from_col_idx as f64 * ROW_HEIGHT) + (ROW_HEIGHT / 2.0);
+                                    let to_col_y = to_y + HEADER_HEIGHT + PADDING_TOP
+                                        + (to_col_idx as f64 * ROW_HEIGHT) + (ROW_HEIGHT / 2.0);
+
+                                    let from_right = from_x + NODE_WIDTH;
+                                    let from_left = from_x;
+                                    let to_right = to_x + NODE_WIDTH;
+                                    let to_left = to_x;
+
+                                    let (_start_x, _start_y, _end_x, _end_y, text_x, text_y, path_data) =
+                                        calculate_edge_path(
+                                            from_x, from_y, to_x, to_y,
+                                            from_col_y, to_col_y,
+                                            from_left, from_right, to_left, to_right,
+                                            NODE_WIDTH, GAP
+                                        );
+
+                                    let rel_type = edge.relationship_type.to_string();
+                                    let path_data_glow = path_data.clone();
+
+                                    Some(view! {
+                                        <g>
+                                            // Glow effect (blurred white background)
+                                            <path
+                                                d=path_data_glow
+                                                stroke="white"
+                                                stroke-width="8"
+                                                fill="none"
+                                                style="filter: blur(4px); opacity: 0.5;"
+                                            />
+                                            // Main white animated line
+                                            <path
+                                                d=path_data
+                                                stroke="white"
+                                                stroke-width="4"
+                                                fill="none"
+                                                stroke-dasharray="10 10"
+                                                class="animated-edge"
+                                                marker-end="url(#arrowhead-white)"
+                                            />
+                                            // Relationship type label
+                                            <text
+                                                x=text_x
+                                                y=text_y
+                                                fill="white"
+                                                font-size="13"
+                                                font-weight="bold"
+                                                text-anchor="start"
+                                                style="text-shadow: 0 0 4px rgba(0,0,0,0.8);"
+                                            >
+                                                {rel_type}
+                                            </text>
+                                        </g>
+                                    })
+                                })
+                            })
+                            .collect_view()
+                        }}
+                    </g>
+                </svg>
+
+                // Settings button (правый верхний угол) and AI Chat button
                 {
                     let settings_open = RwSignal::new(false);
                     let initial_room_id = RwSignal::new(String::new());
+                    let ai_chat_open = RwSignal::new(false);
 
                     // Auto-open settings and connect when there's a pending room from URL
                     #[cfg(not(feature = "ssr"))]
@@ -826,7 +1055,38 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                         <div class="absolute top-4 right-4 z-50">
                             <SettingsButton is_open=settings_open />
                         </div>
-                        <SettingsModal is_open=settings_open initial_room_id=initial_room_id />
+                        <SettingsModal is_open=settings_open initial_room_id=initial_room_id graph=graph />
+                        // Auto Layout button (above AI chat button in bottom-right)
+                        <button
+                            class="fixed bottom-36 right-4 z-40 flex items-center justify-center w-12 h-12 bg-theme-surface border border-theme-primary text-theme-secondary hover:text-theme-accent hover:border-theme-accent theme-transition transition-colors"
+                            style="border-radius: 12px; box-shadow: var(--shadow-lg);"
+                            on:click=move |_| {
+                                // Apply auto layout
+                                graph.update(|g| {
+                                    auto_layout(g);
+                                });
+                                // Sync all table positions to LiveShare
+                                if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected {
+                                    graph.with_untracked(|g| {
+                                        for node_idx in g.node_indices() {
+                                            if let Some(node) = g.node_weight(node_idx) {
+                                                liveshare_ctx.send_graph_op(GraphOperation::MoveTable {
+                                                    node_id: node_idx.index() as u32,
+                                                    position: node.position,
+                                                });
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                            title="Auto Layout - Arrange tables automatically based on relationships"
+                        >
+                            <Icon name=icons::SPARKLES class="w-6 h-6"/>
+                        </button>
+                        // AI Chat button (above settings button in bottom-right)
+                        <AiChatButton is_open=ai_chat_open />
+                        // AI Chat panel
+                        <AiChatPanel is_open=ai_chat_open _graph=graph />
                     }
                 }
 

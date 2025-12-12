@@ -6,13 +6,14 @@
 //! - Canvas settings (theme switcher)
 //! - Export settings
 
+use crate::core::{ExportFormat, ExportOptions, SchemaExporter, SchemaGraph, SqlDialect};
 use crate::ui::liveshare_client::{ConnectionState, use_liveshare_context};
 use crate::ui::theme::{ThemeMode, use_theme_context};
 use crate::ui::{Icon, icons};
 use leptos::prelude::*;
 
 #[cfg(not(feature = "ssr"))]
-use leptos::wasm_bindgen;
+use leptos::wasm_bindgen::{self, JsCast};
 #[cfg(not(feature = "ssr"))]
 use leptos::web_sys;
 
@@ -24,6 +25,9 @@ pub fn SettingsModal(
     /// Optional signal for initial room ID to pre-fill (e.g., from URL invite link)
     #[prop(optional)]
     initial_room_id: Option<RwSignal<String>>,
+    /// Schema graph for export functionality
+    #[prop(optional)]
+    graph: Option<RwSignal<SchemaGraph>>,
 ) -> impl IntoView {
     // Get the LiveShare context
     let ctx = use_liveshare_context();
@@ -55,6 +59,11 @@ pub fn SettingsModal(
 
     // Active settings tab
     let (active_tab, set_active_tab) = signal("liveshare");
+
+    // Export state
+    let (export_format, set_export_format) = signal("sql");
+    let (_export_result, set_export_result) = signal::<Option<String>>(None);
+    let (export_filename, set_export_filename) = signal(String::from("schema"));
 
     // Close modal handler
     let close_modal = move |_| {
@@ -696,13 +705,211 @@ pub fn SettingsModal(
                             </div>
                         </Show>
 
-                        // Export tab content (placeholder)
+                        // Export tab content
                         <Show when=move || active_tab.get() == "export">
-                            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 24px; text-align: center;">
-                                <svg class="text-theme-muted" style="width: 48px; height: 48px; margin-bottom: 12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                                </svg>
-                                <p class="text-theme-tertiary" style="font-size: 14px;">"Export options coming soon..."</p>
+                            <div style="display: flex; flex-direction: column; gap: 20px;">
+                                // Export format selector
+                                <div>
+                                    <h3 class="text-theme-primary" style="font-size: 16px; font-weight: 600; margin-bottom: 16px;">"Export Schema"</h3>
+
+                                    // Format selector
+                                    <div class="bg-theme-secondary theme-transition" style="padding: 16px; border-radius: 12px; margin-bottom: 16px;">
+                                        <label class="text-theme-secondary" style="display: block; font-size: 14px; font-weight: 500; margin-bottom: 12px;">
+                                            "Format"
+                                        </label>
+                                        <div style="display: flex; gap: 8px;">
+                                            // SQL
+                                            <button
+                                                class="flex-1 flex flex-col items-center transition-all theme-transition"
+                                                style=move || {
+                                                    let base = "padding: 12px 8px; border-radius: 12px; gap: 8px;";
+                                                    if export_format.get() == "sql" {
+                                                        format!("{} background-color: var(--accent-light); border: 2px solid var(--accent-primary);", base)
+                                                    } else {
+                                                        format!("{} background-color: var(--bg-surface); border: 2px solid var(--border-primary);", base)
+                                                    }
+                                                }
+                                                on:click=move |_| set_export_format.set("sql")
+                                            >
+                                                <Icon name=icons::DATABASE class="w-5 h-5"/>
+                                                <span style=move || if export_format.get() == "sql" { "font-size: 12px; font-weight: 500; color: var(--accent-primary);" } else { "font-size: 12px; font-weight: 500; color: var(--text-tertiary);" }>
+                                                    "SQL"
+                                                </span>
+                                            </button>
+
+                                            // JSON
+                                            <button
+                                                class="flex-1 flex flex-col items-center transition-all theme-transition"
+                                                style=move || {
+                                                    let base = "padding: 12px 8px; border-radius: 12px; gap: 8px;";
+                                                    if export_format.get() == "json" {
+                                                        format!("{} background-color: var(--accent-light); border: 2px solid var(--accent-primary);", base)
+                                                    } else {
+                                                        format!("{} background-color: var(--bg-surface); border: 2px solid var(--border-primary);", base)
+                                                    }
+                                                }
+                                                on:click=move |_| set_export_format.set("json")
+                                            >
+                                                <Icon name=icons::JSON class="w-5 h-5"/>
+                                                <span style=move || if export_format.get() == "json" { "font-size: 12px; font-weight: 500; color: var(--accent-primary);" } else { "font-size: 12px; font-weight: 500; color: var(--text-tertiary);" }>
+                                                    "JSON"
+                                                </span>
+                                            </button>
+
+                                            // CSV
+                                            <button
+                                                class="flex-1 flex flex-col items-center transition-all theme-transition"
+                                                style=move || {
+                                                    let base = "padding: 12px 8px; border-radius: 12px; gap: 8px;";
+                                                    if export_format.get() == "csv" {
+                                                        format!("{} background-color: var(--accent-light); border: 2px solid var(--accent-primary);", base)
+                                                    } else {
+                                                        format!("{} background-color: var(--bg-surface); border: 2px solid var(--border-primary);", base)
+                                                    }
+                                                }
+                                                on:click=move |_| set_export_format.set("csv")
+                                            >
+                                                <Icon name=icons::FILE class="w-5 h-5"/>
+                                                <span style=move || if export_format.get() == "csv" { "font-size: 12px; font-weight: 500; color: var(--accent-primary);" } else { "font-size: 12px; font-weight: 500; color: var(--text-tertiary);" }>
+                                                    "CSV"
+                                                </span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    // Filename input
+                                    <div class="bg-theme-secondary theme-transition" style="padding: 16px; border-radius: 12px; margin-bottom: 16px;">
+                                        <label class="text-theme-secondary" style="display: block; font-size: 14px; font-weight: 500; margin-bottom: 8px;">
+                                            "Filename"
+                                        </label>
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <input
+                                                type="text"
+                                                class="input-theme"
+                                                style="flex: 1; padding: 10px 12px; border-radius: 8px; font-size: 14px;"
+                                                placeholder="schema"
+                                                prop:value=move || export_filename.get()
+                                                on:input=move |ev| set_export_filename.set(event_target_value(&ev))
+                                            />
+                                            <span class="text-theme-muted" style="font-size: 14px;">
+                                                {move || format!(".{}", export_format.get())}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    // Export button
+                                    {move || {
+                                        if let Some(g) = graph {
+                                            view! {
+                                                <button
+                                                    class="btn-theme-primary"
+                                                    style="width: 100%; padding: 14px 16px; border-radius: 12px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;"
+                                                    on:click=move |_| {
+                                                        let format = export_format.get();
+                                                        let filename_input = export_filename.get();
+                                                        #[allow(unused_variables)]
+                                                        let filename = if filename_input.is_empty() { "schema".to_string() } else { filename_input };
+
+                                                        let result = g.with(|graph| {
+                                                            let options = ExportOptions {
+                                                                format: match format {
+                                                                    "json" => ExportFormat::Json,
+                                                                    "csv" => ExportFormat::Csv,
+                                                                    _ => ExportFormat::Sql,
+                                                                },
+                                                                sql_dialect: SqlDialect::MySQL,
+                                                                include_positions: true,
+                                                                include_drop_statements: false,
+                                                                pretty_print: true,
+                                                            };
+                                                            SchemaExporter::export(graph, &options)
+                                                        });
+
+                                                        match result {
+                                                            Ok(content) => {
+                                                                set_export_result.set(Some(content.clone()));
+
+                                                                // Trigger download
+                                                                #[cfg(not(feature = "ssr"))]
+                                                                {
+                                                                    let mime_type = match format {
+                                                                        "json" => "application/json",
+                                                                        "csv" => "text/csv",
+                                                                        _ => "text/plain",
+                                                                    };
+                                                                    let full_filename = format!("{}.{}", filename, format);
+
+                                                                    // Create blob and download
+                                                                    let blob_parts = js_sys::Array::new();
+                                                                    blob_parts.push(&wasm_bindgen::JsValue::from_str(&content));
+
+                                                                    let mut options = web_sys::BlobPropertyBag::new();
+                                                                    options.set_type(mime_type);
+
+                                                                    if let Ok(blob) = web_sys::Blob::new_with_str_sequence_and_options(&blob_parts, &options) {
+                                                                        if let Ok(url) = web_sys::Url::create_object_url_with_blob(&blob) {
+                                                                            if let Some(window) = web_sys::window() {
+                                                                                if let Some(document) = window.document() {
+                                                                                    if let Ok(a) = document.create_element("a") {
+                                                                                        let _ = a.set_attribute("href", &url);
+                                                                                        let _ = a.set_attribute("download", &full_filename);
+                                                                                        a.dyn_ref::<web_sys::HtmlElement>().map(|el| el.click());
+                                                                                        let _ = web_sys::Url::revoke_object_url(&url);
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                            Err(e) => {
+                                                                set_export_result.set(Some(format!("Error: {}", e)));
+                                                            }
+                                                        }
+                                                    }
+                                                >
+                                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                    </svg>
+                                                    "Download"
+                                                </button>
+                                            }.into_any()
+                                        } else {
+                                            view! {
+                                                <div class="bg-theme-secondary theme-transition" style="padding: 16px; border-radius: 12px; text-align: center;">
+                                                    <p class="text-theme-tertiary" style="font-size: 14px;">
+                                                        "No schema loaded"
+                                                    </p>
+                                                </div>
+                                            }.into_any()
+                                        }
+                                    }}
+                                </div>
+
+                                // Format description
+                                <div class="bg-theme-secondary theme-transition" style="padding: 16px; border-radius: 12px;">
+                                    <div class="flex items-start" style="gap: 12px;">
+                                        <svg class="w-5 h-5 text-theme-muted flex-shrink-0" style="margin-top: 2px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <div>
+                                            <p class="text-theme-secondary" style="font-size: 14px; font-weight: 500; margin-bottom: 4px;">
+                                                {move || match export_format.get() {
+                                                    "json" => "JSON Format",
+                                                    "csv" => "CSV Format",
+                                                    _ => "SQL Format",
+                                                }}
+                                            </p>
+                                            <p class="text-theme-tertiary" style="font-size: 13px; line-height: 1.5;">
+                                                {move || match export_format.get() {
+                                                    "json" => "Structured format with tables, columns, relationships and positions. Ideal for backup and programmatic access.",
+                                                    "csv" => "Tabular format with separate sections for tables, columns and relationships. Good for spreadsheet analysis.",
+                                                    _ => "DDL statements (CREATE TABLE) compatible with MySQL. Ready for database deployment.",
+                                                }}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </Show>
                     </div>

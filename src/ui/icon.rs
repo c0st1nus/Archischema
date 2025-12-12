@@ -56,4 +56,9 @@ pub mod icons {
     pub const DATABASE: &str = "database";
     pub const DATABASE_BACKUP: &str = "database-backup";
     pub const DATABASE_ZAP: &str = "database-zap";
+    pub const JSON: &str = "json";
+    pub const FILE: &str = "file";
+    pub const BOT: &str = "bot";
+    pub const SEND: &str = "send";
+    pub const SPARKLES: &str = "sparkles";
 }

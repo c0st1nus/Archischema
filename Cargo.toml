@@ -18,6 +18,7 @@ leptos_axum = { version = "0.8.0", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "sync"], optional = true }
 tower-http = { version = "0.6", features = ["cors", "compression-full", "fs"], optional = true }
 wasm-bindgen = { version = "0.2.106", optional = true }
+pulldown-cmark = "0.13"
 petgraph = { version = "0.8.3", features = ["serde-1"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -29,11 +30,14 @@ web-sys = { version = "0.3", features = [
     "Window", "Navigator", "Clipboard", "Request", "RequestInit", "Response", "Headers", "Location",
     "WebSocket", "BinaryType", "MessageEvent", "CloseEvent", "ErrorEvent", "Event",
     "CustomEvent", "CustomEventInit",
-    "Storage", "MediaQueryList", "MediaQueryListEvent"
+    "Storage", "MediaQueryList", "MediaQueryListEvent",
+    "Blob", "BlobPropertyBag", "Url", "HtmlElement", "HtmlAnchorElement", "Document"
 ], optional = true }
 js-sys = { version = "0.3", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 futures = { version = "0.3.31", optional = true }
+reqwest = { version = "0.12", features = ["json", "stream"], optional = true }
+tokio-stream = { version = "0.1", optional = true }
 bcrypt = { version = "0.17.1", optional = true }
 dashmap = { version = "6.1.0", optional = true }
 chrono = { version = "0.4.42", features = ["serde"], optional = true }
@@ -67,6 +71,8 @@ ssr = [
     "dep:tracing",
     "dep:tracing-subscriber",
     "dep:dotenvy",
+    "dep:reqwest",
+    "dep:tokio-stream",
     "leptos/ssr",
     "leptos_meta/ssr",
 ]

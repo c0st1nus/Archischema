@@ -1,0 +1,474 @@
+//! Export module for database schema
+//!
+//! Supports exporting schema to:
+//! - JSON (native format)
+//! - SQL (DDL statements)
+//! - CSV (tabular format)
+
+use super::{Column, RelationshipType, SchemaGraph, TableNode};
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+use serde::{Deserialize, Serialize};
+
+/// Exported schema representation for JSON
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ExportedSchema {
+    pub version: String,
+    pub tables: Vec<ExportedTable>,
+    pub relationships: Vec<ExportedRelationship>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ExportedTable {
+    pub name: String,
+    pub columns: Vec<Column>,
+    pub position: Position,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Position {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ExportedRelationship {
+    pub name: String,
+    pub relationship_type: String,
+    pub from_table: String,
+    pub from_column: String,
+    pub to_table: String,
+    pub to_column: String,
+}
+
+/// Export format options
+#[derive(Clone, Debug, PartialEq)]
+pub enum ExportFormat {
+    Json,
+    Sql,
+    Csv,
+}
+
+/// SQL dialect for export
+#[derive(Clone, Debug, PartialEq, Default)]
+pub enum SqlDialect {
+    #[default]
+    MySQL,
+    PostgreSQL,
+    SQLite,
+}
+
+/// Export options
+#[derive(Clone, Debug)]
+pub struct ExportOptions {
+    pub format: ExportFormat,
+    pub sql_dialect: SqlDialect,
+    pub include_positions: bool,
+    pub include_drop_statements: bool,
+    pub pretty_print: bool,
+}
+
+impl Default for ExportOptions {
+    fn default() -> Self {
+        Self {
+            format: ExportFormat::Json,
+            sql_dialect: SqlDialect::MySQL,
+            include_positions: true,
+            include_drop_statements: false,
+            pretty_print: true,
+        }
+    }
+}
+
+/// Schema exporter
+pub struct SchemaExporter;
+
+impl SchemaExporter {
+    /// Export schema to the specified format
+    pub fn export(graph: &SchemaGraph, options: &ExportOptions) -> Result<String, String> {
+        match options.format {
+            ExportFormat::Json => Self::export_json(graph, options),
+            ExportFormat::Sql => Self::export_sql(graph, options),
+            ExportFormat::Csv => Self::export_csv(graph, options),
+        }
+    }
+
+    /// Convert graph to exportable schema structure
+    pub fn to_exported_schema(graph: &SchemaGraph) -> ExportedSchema {
+        let mut tables = Vec::new();
+        let mut table_names: std::collections::HashMap<petgraph::graph::NodeIndex, String> =
+            std::collections::HashMap::new();
+
+        // Export tables
+        for node_idx in graph.node_indices() {
+            if let Some(table) = graph.node_weight(node_idx) {
+                table_names.insert(node_idx, table.name.clone());
+                tables.push(ExportedTable {
+                    name: table.name.clone(),
+                    columns: table.columns.clone(),
+                    position: Position {
+                        x: table.position.0,
+                        y: table.position.1,
+                    },
+                });
+            }
+        }
+
+        // Export relationships
+        let mut relationships = Vec::new();
+        for edge_ref in graph.edge_references() {
+            let rel = edge_ref.weight();
+            let from_table = table_names
+                .get(&edge_ref.source())
+                .cloned()
+                .unwrap_or_default();
+            let to_table = table_names
+                .get(&edge_ref.target())
+                .cloned()
+                .unwrap_or_default();
+
+            relationships.push(ExportedRelationship {
+                name: rel.name.clone(),
+                relationship_type: rel.relationship_type.to_string(),
+                from_table,
+                from_column: rel.from_column.clone(),
+                to_table,
+                to_column: rel.to_column.clone(),
+            });
+        }
+
+        ExportedSchema {
+            version: "1.0".to_string(),
+            tables,
+            relationships,
+        }
+    }
+
+    /// Export to JSON format
+    pub fn export_json(graph: &SchemaGraph, options: &ExportOptions) -> Result<String, String> {
+        let schema = Self::to_exported_schema(graph);
+
+        if options.pretty_print {
+            serde_json::to_string_pretty(&schema).map_err(|e| e.to_string())
+        } else {
+            serde_json::to_string(&schema).map_err(|e| e.to_string())
+        }
+    }
+
+    /// Export to SQL DDL format
+    pub fn export_sql(graph: &SchemaGraph, options: &ExportOptions) -> Result<String, String> {
+        let mut sql = String::new();
+        let schema = Self::to_exported_schema(graph);
+
+        // Header comment
+        sql.push_str("-- Database Schema\n");
+        sql.push_str(&format!(
+            "-- Generated by Archischema\n-- Dialect: {:?}\n\n",
+            options.sql_dialect
+        ));
+
+        // Drop statements if requested
+        if options.include_drop_statements {
+            sql.push_str("-- Drop existing tables (in reverse order for foreign keys)\n");
+            for table in schema.tables.iter().rev() {
+                sql.push_str(&format!("DROP TABLE IF EXISTS `{}`;\n", table.name));
+            }
+            sql.push('\n');
+        }
+
+        // Create tables
+        for table in &schema.tables {
+            sql.push_str(&Self::generate_create_table(table, &schema, options));
+            sql.push('\n');
+        }
+
+        // Add foreign key constraints as ALTER TABLE statements
+        // (better for circular dependencies)
+        let fk_statements = Self::generate_foreign_keys(&schema, options);
+        if !fk_statements.is_empty() {
+            sql.push_str("-- Foreign Key Constraints\n");
+            sql.push_str(&fk_statements);
+        }
+
+        Ok(sql)
+    }
+
+    /// Generate CREATE TABLE statement for a single table
+    fn generate_create_table(
+        table: &ExportedTable,
+        schema: &ExportedSchema,
+        options: &ExportOptions,
+    ) -> String {
+        let mut sql = String::new();
+
+        // Position comment if requested
+        if options.include_positions {
+            sql.push_str(&format!(
+                "-- Position: ({}, {})\n",
+                table.position.x, table.position.y
+            ));
+        }
+
+        sql.push_str(&format!("CREATE TABLE `{}` (\n", table.name));
+
+        let mut column_defs: Vec<String> = Vec::new();
+        let mut primary_keys: Vec<String> = Vec::new();
+        let mut unique_columns: Vec<String> = Vec::new();
+
+        for column in &table.columns {
+            let mut col_def = format!("    `{}` {}", column.name, column.data_type);
+
+            if !column.is_nullable && !column.is_primary_key {
+                col_def.push_str(" NOT NULL");
+            }
+
+            if column.is_primary_key {
+                col_def.push_str(" NOT NULL");
+                primary_keys.push(column.name.clone());
+            }
+
+            if column.is_unique && !column.is_primary_key {
+                unique_columns.push(column.name.clone());
+            }
+
+            if let Some(ref default) = column.default_value {
+                col_def.push_str(&format!(" DEFAULT {}", default));
+            }
+
+            column_defs.push(col_def);
+        }
+
+        // Add PRIMARY KEY constraint
+        if !primary_keys.is_empty() {
+            let pk_cols: Vec<String> = primary_keys.iter().map(|c| format!("`{}`", c)).collect();
+            column_defs.push(format!("    PRIMARY KEY ({})", pk_cols.join(", ")));
+        }
+
+        // Add UNIQUE constraints
+        for unique_col in unique_columns {
+            column_defs.push(format!("    UNIQUE (`{}`)", unique_col));
+        }
+
+        // Add inline FOREIGN KEY constraints for simple cases
+        for rel in &schema.relationships {
+            if rel.from_table == table.name {
+                let fk_name = format!("fk_{}_{}", table.name, rel.to_column);
+                column_defs.push(format!(
+                    "    CONSTRAINT `{}` FOREIGN KEY (`{}`) REFERENCES `{}`(`{}`)",
+                    fk_name, rel.from_column, rel.to_table, rel.to_column
+                ));
+            }
+        }
+
+        sql.push_str(&column_defs.join(",\n"));
+        sql.push_str("\n)");
+
+        // Add engine for MySQL
+        if options.sql_dialect == SqlDialect::MySQL {
+            sql.push_str(" ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+
+        sql.push_str(";\n");
+        sql
+    }
+
+    /// Generate ALTER TABLE statements for foreign keys
+    fn generate_foreign_keys(schema: &ExportedSchema, _options: &ExportOptions) -> String {
+        let mut sql = String::new();
+
+        for rel in &schema.relationships {
+            let fk_name = format!("fk_{}_{}_{}", rel.from_table, rel.from_column, rel.to_table);
+            sql.push_str(&format!(
+                "ALTER TABLE `{}` ADD CONSTRAINT `{}` FOREIGN KEY (`{}`) REFERENCES `{}`(`{}`);\n",
+                rel.from_table, fk_name, rel.from_column, rel.to_table, rel.to_column
+            ));
+        }
+
+        sql
+    }
+
+    /// Export to CSV format
+    /// Returns a string with multiple CSV sections separated by headers
+    pub fn export_csv(graph: &SchemaGraph, options: &ExportOptions) -> Result<String, String> {
+        let schema = Self::to_exported_schema(graph);
+        let mut csv = String::new();
+
+        // Tables section
+        csv.push_str("# TABLES\n");
+        if options.include_positions {
+            csv.push_str("table_name,position_x,position_y\n");
+            for table in &schema.tables {
+                csv.push_str(&format!(
+                    "{},{},{}\n",
+                    Self::escape_csv(&table.name),
+                    table.position.x,
+                    table.position.y
+                ));
+            }
+        } else {
+            csv.push_str("table_name\n");
+            for table in &schema.tables {
+                csv.push_str(&format!("{}\n", Self::escape_csv(&table.name)));
+            }
+        }
+
+        csv.push_str("\n# COLUMNS\n");
+        csv.push_str(
+            "table_name,column_name,data_type,is_primary_key,is_nullable,is_unique,default_value\n",
+        );
+        for table in &schema.tables {
+            for column in &table.columns {
+                csv.push_str(&format!(
+                    "{},{},{},{},{},{},{}\n",
+                    Self::escape_csv(&table.name),
+                    Self::escape_csv(&column.name),
+                    Self::escape_csv(&column.data_type),
+                    column.is_primary_key,
+                    column.is_nullable,
+                    column.is_unique,
+                    column
+                        .default_value
+                        .as_ref()
+                        .map(|v| Self::escape_csv(v))
+                        .unwrap_or_default()
+                ));
+            }
+        }
+
+        csv.push_str("\n# RELATIONSHIPS\n");
+        csv.push_str("name,type,from_table,from_column,to_table,to_column\n");
+        for rel in &schema.relationships {
+            csv.push_str(&format!(
+                "{},{},{},{},{},{}\n",
+                Self::escape_csv(&rel.name),
+                Self::escape_csv(&rel.relationship_type),
+                Self::escape_csv(&rel.from_table),
+                Self::escape_csv(&rel.from_column),
+                Self::escape_csv(&rel.to_table),
+                Self::escape_csv(&rel.to_column)
+            ));
+        }
+
+        Ok(csv)
+    }
+
+    /// Escape a value for CSV (handle commas, quotes, newlines)
+    fn escape_csv(value: &str) -> String {
+        if value.contains(',') || value.contains('"') || value.contains('\n') {
+            format!("\"{}\"", value.replace('"', "\"\""))
+        } else {
+            value.to_string()
+        }
+    }
+}
+
+/// Import schema from exported format
+pub struct SchemaImporter;
+
+impl SchemaImporter {
+    /// Import schema from JSON
+    pub fn import_json(json: &str) -> Result<ExportedSchema, String> {
+        serde_json::from_str(json).map_err(|e| format!("Failed to parse JSON: {}", e))
+    }
+
+    /// Convert exported schema to graph
+    pub fn to_graph(schema: &ExportedSchema) -> Result<SchemaGraph, String> {
+        use super::RelationshipOps;
+
+        let mut graph = SchemaGraph::new();
+        let mut table_indices: std::collections::HashMap<String, petgraph::graph::NodeIndex> =
+            std::collections::HashMap::new();
+
+        // Create tables
+        for table in &schema.tables {
+            let mut table_node =
+                TableNode::new(&table.name).with_position(table.position.x, table.position.y);
+            for column in &table.columns {
+                table_node.columns.push(column.clone());
+            }
+            let idx = graph.add_node(table_node);
+            table_indices.insert(table.name.clone(), idx);
+        }
+
+        // Create relationships
+        for rel in &schema.relationships {
+            let from_idx = table_indices
+                .get(&rel.from_table)
+                .ok_or_else(|| format!("Table '{}' not found", rel.from_table))?;
+            let to_idx = table_indices
+                .get(&rel.to_table)
+                .ok_or_else(|| format!("Table '{}' not found", rel.to_table))?;
+
+            let rel_type = match rel.relationship_type.as_str() {
+                "1:1" => RelationshipType::OneToOne,
+                "1:N" => RelationshipType::OneToMany,
+                "N:1" => RelationshipType::ManyToOne,
+                "N:M" => RelationshipType::ManyToMany,
+                _ => RelationshipType::OneToMany,
+            };
+
+            let relationship =
+                super::Relationship::new(&rel.name, rel_type, &rel.from_column, &rel.to_column);
+
+            graph
+                .create_relationship(*from_idx, *to_idx, relationship)
+                .map_err(|e| format!("Failed to create relationship: {}", e))?;
+        }
+
+        Ok(graph)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::create_demo_graph;
+
+    #[test]
+    fn test_export_json() {
+        let graph = create_demo_graph();
+        let options = ExportOptions::default();
+        let json = SchemaExporter::export_json(&graph, &options).unwrap();
+
+        assert!(json.contains("users"));
+        assert!(json.contains("posts"));
+        assert!(json.contains("comments"));
+    }
+
+    #[test]
+    fn test_export_sql() {
+        let graph = create_demo_graph();
+        let options = ExportOptions {
+            format: ExportFormat::Sql,
+            ..Default::default()
+        };
+        let sql = SchemaExporter::export_sql(&graph, &options).unwrap();
+
+        assert!(sql.contains("CREATE TABLE"));
+        assert!(sql.contains("PRIMARY KEY"));
+    }
+
+    #[test]
+    fn test_export_csv() {
+        let graph = create_demo_graph();
+        let options = ExportOptions {
+            format: ExportFormat::Csv,
+            ..Default::default()
+        };
+        let csv = SchemaExporter::export_csv(&graph, &options).unwrap();
+
+        assert!(csv.contains("# TABLES"));
+        assert!(csv.contains("# COLUMNS"));
+        assert!(csv.contains("# RELATIONSHIPS"));
+    }
+
+    #[test]
+    fn test_import_json_roundtrip() {
+        let graph = create_demo_graph();
+        let options = ExportOptions::default();
+        let json = SchemaExporter::export_json(&graph, &options).unwrap();
+
+        let imported = SchemaImporter::import_json(&json).unwrap();
+        assert_eq!(imported.tables.len(), 3);
+        assert_eq!(imported.relationships.len(), 3);
+    }
+}

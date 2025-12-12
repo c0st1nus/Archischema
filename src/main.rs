@@ -2,6 +2,7 @@
 #[tokio::main]
 async fn main() {
     use archischema::app::*;
+    use archischema::core::ai_api::{AiApiConfig, ai_api_router};
     use archischema::core::config::Config;
     use archischema::core::liveshare::{LiveshareState, liveshare_router, ws_handler};
     use axum::Router;
@@ -19,12 +20,16 @@ async fn main() {
     // Load application config from environment variables
     let config = Config::from_env();
 
+    // Load AI API config
+    let ai_config = AiApiConfig::from_env();
+
     // Log config status (without revealing secrets)
     tracing::info!(
-        "Config loaded: database={}, redis={}, secret_key={}",
+        "Config loaded: database={}, redis={}, secret_key={}, ai_token={}",
         config.has_database(),
         config.has_redis(),
-        config.has_secret_key()
+        config.has_secret_key(),
+        ai_config.has_token()
     );
 
     // Load configuration from Cargo.toml [package.metadata.leptos]
@@ -60,6 +65,9 @@ async fn main() {
     // Build the LiveShare API router
     let liveshare_api = liveshare_router(liveshare_state.clone());
 
+    // Build the AI API router
+    let ai_api = ai_api_router(ai_config);
+
     // Build the main application router
     let app = Router::new()
         // WebSocket endpoint for real-time sync: ws://{host}/room/{room_id}
@@ -69,6 +77,8 @@ async fn main() {
         )
         // REST API for room management
         .merge(liveshare_api)
+        // AI API for chat completions
+        .merge(ai_api)
         // Leptos routes (nested to avoid state conflicts)
         .merge(leptos_router);
 
@@ -98,6 +108,7 @@ async fn main() {
     log!("listening on http://{}", &addr);
     log!("LiveShare REST API: http://{}/room/{{uuid}}", &addr);
     log!("LiveShare WebSocket: ws://{}/room/{{uuid}}", &addr);
+    log!("AI Chat API: http://{}/api/ai/chat", &addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app.into_make_service())
