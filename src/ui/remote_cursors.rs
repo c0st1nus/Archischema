@@ -7,8 +7,10 @@ use crate::ui::liveshare_client::{ConnectionState, use_liveshare_context};
 use leptos::prelude::*;
 use uuid::Uuid;
 
-/// Sidebar width in pixels (ml-96 = 24rem = 384px)
-const SIDEBAR_WIDTH: f64 = 384.0;
+/// Sidebar width in pixels when expanded (ml-96 = 24rem = 384px)
+const SIDEBAR_WIDTH_EXPANDED: f64 = 384.0;
+/// Sidebar width in pixels when collapsed (ml-14 = 3.5rem = 56px)
+const SIDEBAR_WIDTH_COLLAPSED: f64 = 56.0;
 
 /// Remote cursors overlay component
 ///
@@ -19,6 +21,7 @@ pub fn RemoteCursors(
     #[prop(into)] zoom: Signal<f64>,
     #[prop(into)] pan_x: Signal<f64>,
     #[prop(into)] pan_y: Signal<f64>,
+    #[prop(into)] sidebar_collapsed: Signal<bool>,
 ) -> impl IntoView {
     let ctx = use_liveshare_context();
 
@@ -50,6 +53,7 @@ pub fn RemoteCursors(
                             zoom=zoom
                             pan_x=pan_x
                             pan_y=pan_y
+                            sidebar_collapsed=sidebar_collapsed
                         />
                     }
                 }
@@ -66,6 +70,7 @@ fn CursorView(
     #[prop(into)] zoom: Signal<f64>,
     #[prop(into)] pan_x: Signal<f64>,
     #[prop(into)] pan_y: Signal<f64>,
+    #[prop(into)] sidebar_collapsed: Signal<bool>,
 ) -> impl IntoView {
     let ctx = use_liveshare_context();
 
@@ -96,7 +101,8 @@ fn CursorView(
                             style:left=move || {
                                 let current_zoom = zoom.get();
                                 let current_pan_x = pan_x.get();
-                                let viewport_x = canvas_x * current_zoom + current_pan_x + SIDEBAR_WIDTH;
+                                let sidebar_width = if sidebar_collapsed.get() { SIDEBAR_WIDTH_COLLAPSED } else { SIDEBAR_WIDTH_EXPANDED };
+                                let viewport_x = canvas_x * current_zoom + current_pan_x + sidebar_width;
                                 format!("{}px", viewport_x)
                             }
                             style:top=move || {
@@ -152,9 +158,10 @@ pub fn CursorTracker(
     #[prop(into)] zoom: Signal<f64>,
     #[prop(into)] pan_x: Signal<f64>,
     #[prop(into)] pan_y: Signal<f64>,
+    #[prop(into)] sidebar_collapsed: Signal<bool>,
 ) -> impl IntoView {
     // Suppress unused warnings for SSR builds
-    let _ = (&zoom, &pan_x, &pan_y);
+    let _ = (&zoom, &pan_x, &pan_y, &sidebar_collapsed);
 
     #[cfg(not(feature = "ssr"))]
     {
@@ -200,7 +207,12 @@ pub fn CursorTracker(
                 // Convert viewport coordinates to canvas coordinates
                 // Reverse the transform: viewport = canvas * zoom + pan + sidebar_offset
                 // Therefore: canvas = (viewport - sidebar_offset - pan) / zoom
-                let canvas_x = (viewport_x - SIDEBAR_WIDTH - current_pan_x) / current_zoom;
+                let sidebar_width = if sidebar_collapsed.get_untracked() {
+                    SIDEBAR_WIDTH_COLLAPSED
+                } else {
+                    SIDEBAR_WIDTH_EXPANDED
+                };
+                let canvas_x = (viewport_x - sidebar_width - current_pan_x) / current_zoom;
                 let canvas_y = (viewport_y - current_pan_y) / current_zoom;
 
                 ctx_move.send_awareness(Some((canvas_x, canvas_y)), vec![]);

@@ -9,6 +9,7 @@ pub mod auto_layout;
 pub mod config;
 pub mod export;
 mod schema;
+pub mod sql_parser;
 #[cfg(test)]
 mod tests;
 pub mod validation;
@@ -30,6 +31,11 @@ pub use export::{
     SchemaExporter, SchemaImporter, SqlDialect,
 };
 pub use schema::*;
+pub use sql_parser::{
+    ApplySqlResult, CanvasNotification, ErrorSeverity, NotificationType, SourcePosition,
+    SourceSpan, SqlParser, SqlValidationError, SqlValidationResult, UnderlineRange,
+    ValidationStats, apply_sql_to_graph, check_schema_sql, validate_sql, validate_sql_with_graph,
+};
 pub use validation::{
     ValidationError, ValidationLevel, ValidationResult, validate_column_name, validate_identifier,
     validate_name, validate_table_name,

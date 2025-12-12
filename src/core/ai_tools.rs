@@ -16,7 +16,9 @@
 //! This module provides all of these through a set of "tools" that an AI agent can invoke.
 
 use super::{Column, Relationship, RelationshipOps, RelationshipType, SchemaGraph, TableOps};
+use crate::core::SqlDialect;
 use crate::core::liveshare::{ColumnData, GraphOperation, RelationshipData};
+use crate::core::sql_parser::{SqlValidationResult, validate_sql};
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -403,6 +405,34 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
             ],
             returns: "Success message with applied changes or error".into(),
         },
+        // Validation operations
+        ToolDefinition {
+            name: "validate_sql".into(),
+            description: "Validate SQL DDL statements for syntax and semantic errors. Use this to check SQL before applying it. Returns detailed error information with line/column positions.".into(),
+            parameters: vec![
+                ParameterDefinition {
+                    name: "sql".into(),
+                    param_type: "string".into(),
+                    description: "SQL DDL statements to validate".into(),
+                    required: true,
+                    default_value: None,
+                },
+                ParameterDefinition {
+                    name: "dialect".into(),
+                    param_type: "string".into(),
+                    description: "SQL dialect: 'mysql', 'postgresql', or 'sqlite'".into(),
+                    required: false,
+                    default_value: Some("mysql".into()),
+                },
+            ],
+            returns: "Validation result with is_valid flag, error_count, warning_count, and detailed diagnostics array".into(),
+        },
+        ToolDefinition {
+            name: "check_schema".into(),
+            description: "Validate the current schema for consistency and correctness. Use this before saving or exporting.".into(),
+            parameters: vec![],
+            returns: "Validation result with is_valid flag and any issues found".into(),
+        },
     ]
 }
 
@@ -426,6 +456,9 @@ pub struct ToolResponse {
     pub data: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Validation result for SQL operations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation: Option<serde_json::Value>,
     /// Graph operations to sync with LiveShare clients
     #[serde(skip)]
     pub graph_ops: Vec<GraphOperation>,
@@ -438,6 +471,7 @@ impl ToolResponse {
             message: message.into(),
             data: None,
             error: None,
+            validation: None,
             graph_ops: Vec::new(),
         }
     }
@@ -448,6 +482,7 @@ impl ToolResponse {
             message: message.into(),
             data: Some(data),
             error: None,
+            validation: None,
             graph_ops: Vec::new(),
         }
     }
@@ -458,7 +493,26 @@ impl ToolResponse {
             message: message.into(),
             data: None,
             error: None,
+            validation: None,
             graph_ops: ops,
+        }
+    }
+
+    pub fn success_with_validation(
+        message: impl Into<String>,
+        validation: SqlValidationResult,
+    ) -> Self {
+        Self {
+            success: validation.is_valid,
+            message: message.into(),
+            data: None,
+            error: if validation.is_valid {
+                None
+            } else {
+                Some(format!("{} errors found", validation.stats.error_count))
+            },
+            validation: Some(validation.format_for_llm()),
+            graph_ops: Vec::new(),
         }
     }
 
@@ -469,8 +523,15 @@ impl ToolResponse {
             message: msg.clone(),
             data: None,
             error: Some(msg),
+            validation: None,
             graph_ops: Vec::new(),
         }
+    }
+
+    /// Add validation result to an existing response
+    pub fn with_validation(mut self, validation: SqlValidationResult) -> Self {
+        self.validation = Some(validation.format_for_llm());
+        self
     }
 }
 
@@ -564,7 +625,7 @@ fn default_relationship_type() -> String {
 pub struct ToolExecutor;
 
 impl ToolExecutor {
-    /// Execute a tool request and return a response
+    /// Execute a tool operation by name
     pub fn execute(graph: &mut SchemaGraph, request: &ToolRequest) -> ToolResponse {
         match request.tool_name.as_str() {
             // Read operations
@@ -588,8 +649,12 @@ impl ToolExecutor {
             "create_relationship" => Self::create_relationship(graph, &request.parameters),
             "delete_relationship" => Self::delete_relationship(graph, &request.parameters),
 
-            // Bulk operations
+            // SQL operations
             "apply_sql" => Self::apply_sql(graph, &request.parameters),
+
+            // Validation operations
+            "validate_sql" => Self::validate_sql_tool(&request.parameters),
+            "check_schema" => Self::check_schema(graph),
 
             _ => ToolResponse::error(format!("Unknown tool: {}", request.tool_name)),
         }
@@ -1239,6 +1304,65 @@ impl ToolExecutor {
                 applied_statements, errors
             ))
         }
+    }
+
+    // ========================================================================
+    // Validation operations
+    // ========================================================================
+
+    /// Validate SQL DDL statements without applying them
+    fn validate_sql_tool(params: &serde_json::Value) -> ToolResponse {
+        let sql = match params.get("sql").and_then(|v| v.as_str()) {
+            Some(sql) => sql,
+            None => return ToolResponse::error("Missing required parameter: sql"),
+        };
+
+        let dialect = params
+            .get("dialect")
+            .and_then(|v| v.as_str())
+            .unwrap_or("mysql");
+
+        let sql_dialect = match dialect.to_lowercase().as_str() {
+            "mysql" => SqlDialect::MySQL,
+            "postgresql" | "postgres" => SqlDialect::PostgreSQL,
+            "sqlite" => SqlDialect::SQLite,
+            _ => SqlDialect::MySQL,
+        };
+
+        let result = validate_sql(sql, sql_dialect);
+
+        let message = if result.is_valid {
+            format!(
+                "SQL is valid. Found {} tables, {} relationships.",
+                result.stats.table_count, result.stats.relationship_count
+            )
+        } else {
+            format!(
+                "SQL validation failed: {} errors, {} warnings.",
+                result.stats.error_count, result.stats.warning_count
+            )
+        };
+
+        ToolResponse::success_with_validation(message, result)
+    }
+
+    /// Check the current schema for validity
+    fn check_schema(graph: &SchemaGraph) -> ToolResponse {
+        let result = crate::core::check_schema_sql(graph, SqlDialect::MySQL);
+
+        let message = if result.is_valid {
+            format!(
+                "Schema is valid. {} tables, {} relationships.",
+                result.stats.table_count, result.stats.relationship_count
+            )
+        } else {
+            format!(
+                "Schema has issues: {} errors, {} warnings.",
+                result.stats.error_count, result.stats.warning_count
+            )
+        };
+
+        ToolResponse::success_with_validation(message, result)
     }
 
     /// Strip quote characters from identifier (backtick, double quote, single quote)

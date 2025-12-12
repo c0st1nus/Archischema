@@ -48,6 +48,9 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
     // Editor mode (Visual or Source)
     let editor_mode = RwSignal::new(EditorMode::Visual);
 
+    // Sidebar collapsed state (shared with Sidebar for layout coordination)
+    let sidebar_collapsed = RwSignal::new(false);
+
     // State for highlighted edges (when clicking on edge or table)
     let highlighted_edges: RwSignal<HashSet<EdgeIndex>> = RwSignal::new(HashSet::new());
     // State for selected table (to highlight all its edges)
@@ -606,11 +609,17 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
     view! {
         <div class="relative w-full h-screen bg-theme-canvas overflow-hidden flex theme-transition">
             // Сайдбар
-            <Sidebar graph=graph on_table_focus=handle_table_focus editor_mode=editor_mode/>
+            <Sidebar graph=graph on_table_focus=handle_table_focus editor_mode=editor_mode is_collapsed=sidebar_collapsed/>
 
             // Source Editor (показывается в режиме Source)
             <Show when=move || editor_mode.get() == EditorMode::Source>
-                <div class="flex-1 ml-96">
+                <div class=move || {
+                    if sidebar_collapsed.get() {
+                        "flex-1 ml-14 transition-all duration-300"
+                    } else {
+                        "flex-1 ml-96 transition-all duration-300"
+                    }
+                }>
                     <SourceEditor graph=graph readonly=false />
                 </div>
             </Show>
@@ -620,7 +629,11 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 node_ref=canvas_ref
                 class=move || {
                     if editor_mode.get() == EditorMode::Visual {
-                        "flex-1 ml-96 relative bg-theme-canvas theme-transition"
+                        if sidebar_collapsed.get() {
+                            "flex-1 ml-14 relative bg-theme-canvas theme-transition transition-all duration-300"
+                        } else {
+                            "flex-1 ml-96 relative bg-theme-canvas theme-transition transition-all duration-300"
+                        }
                     } else {
                         "hidden"
                     }
@@ -1091,10 +1104,10 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                 }
 
                 // Remote cursors overlay (показывает курсоры других пользователей)
-                <RemoteCursors zoom=Signal::from(zoom) pan_x=Signal::from(pan_x) pan_y=Signal::from(pan_y) />
+                <RemoteCursors zoom=Signal::from(zoom) pan_x=Signal::from(pan_x) pan_y=Signal::from(pan_y) sidebar_collapsed=Signal::from(sidebar_collapsed) />
 
                 // Cursor tracker (отслеживает и отправляет позицию локального курсора)
-                <CursorTracker zoom=Signal::from(zoom) pan_x=Signal::from(pan_x) pan_y=Signal::from(pan_y) />
+                <CursorTracker zoom=Signal::from(zoom) pan_x=Signal::from(pan_x) pan_y=Signal::from(pan_y) sidebar_collapsed=Signal::from(sidebar_collapsed) />
 
                 // Empty State - показывается когда нет таблиц
                 {move || {

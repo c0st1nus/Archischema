@@ -400,7 +400,7 @@ pub fn SettingsModal(
                                                             }
                                                         />
                                                         <button
-                                                            class="text-theme-success"
+                                                            class="flex items-center justify-center text-theme-success"
                                                             style="padding: 4px;"
                                                             on:click={copy_link}
                                                             title="Copy room link"

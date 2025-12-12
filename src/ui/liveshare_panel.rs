@@ -271,7 +271,7 @@ pub fn LiveSharePanel() -> impl IntoView {
                                             }}
                                         </code>
                                         <button
-                                            class="text-theme-accent hover:opacity-80"
+                                            class="flex items-center justify-center text-theme-accent hover:opacity-80"
                                             on:click={copy_link}
                                             title="Copy room link"
                                         >
@@ -370,7 +370,7 @@ pub fn LiveSharePanel() -> impl IntoView {
                                         {move || if mode.get() == "create" {
                                             view! {
                                                 <button
-                                                    class="px-3 py-2 bg-theme-tertiary hover:bg-theme-secondary text-theme-secondary rounded-lg text-sm theme-transition"
+                                                    class="flex items-center justify-center px-3 py-2 bg-theme-tertiary hover:bg-theme-secondary text-theme-secondary rounded-lg text-sm theme-transition"
                                                     on:click=generate_room_id
                                                     title="Generate random ID"
                                                 >

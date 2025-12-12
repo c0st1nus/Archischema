@@ -25,11 +25,13 @@ pub fn Sidebar(
     #[prop(into)] on_table_focus: Callback<NodeIndex>,
     /// Editor mode signal (Visual/Source)
     editor_mode: RwSignal<EditorMode>,
+    /// Sidebar collapsed state (shared with parent for layout coordination)
+    is_collapsed: RwSignal<bool>,
 ) -> impl IntoView {
     // Get LiveShare context for sync
     let liveshare_ctx = use_liveshare_context();
 
-    let (is_collapsed, set_is_collapsed) = signal(false);
+    let set_is_collapsed = is_collapsed;
     let (search_query, set_search_query) = signal(String::new());
     let (expanded_tables, set_expanded_tables) = signal::<Vec<NodeIndex>>(Vec::new());
 
@@ -104,7 +106,7 @@ pub fn Sidebar(
                                     </div>
                                 </div>
                                 <button
-                                    class="text-theme-muted hover:text-theme-secondary hover:bg-theme-tertiary p-2 rounded-lg transition-colors"
+                                    class="flex items-center justify-center text-theme-muted hover:text-theme-secondary hover:bg-theme-tertiary p-2 rounded-lg transition-colors"
                                     on:click=move |_| set_is_collapsed.set(true)
                                     title="Collapse sidebar"
                                 >
@@ -333,7 +335,10 @@ pub fn Sidebar(
                                     <div class="flex-1 flex flex-col overflow-hidden bg-theme-surface theme-transition">
                                         // Поиск
                                         <div class="px-6 py-4 border-b border-theme-primary">
-                                            <div class="relative">
+                                            <div class="relative flex items-center">
+                                                <div class="absolute left-3 pointer-events-none flex items-center justify-center">
+                                                    <Icon name=icons::SEARCH class="w-5 h-5 text-theme-muted"/>
+                                                </div>
                                                 <input
                                                     type="text"
                                                     class="w-full pl-10 pr-4 py-2.5 input-theme rounded-xl text-sm"
@@ -343,10 +348,6 @@ pub fn Sidebar(
                                                         set_search_query.set(event_target_value(&ev));
                                                     }
                                                 />
-
-                                                <div class="absolute left-3 top-3 pointer-events-none">
-                                                    <Icon name=icons::SEARCH class="w-5 h-5 text-theme-muted"/>
-                                                </div>
                                             </div>
                                         </div>
 

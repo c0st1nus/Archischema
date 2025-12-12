@@ -7,6 +7,7 @@ pub mod liveshare_client;
 pub mod liveshare_panel;
 pub mod markdown;
 pub mod new_table_dialog;
+pub mod notifications;
 pub mod remote_cursors;
 pub mod settings_modal;
 pub mod sidebar;
@@ -24,9 +25,12 @@ pub use liveshare_client::{LiveShareContext, provide_liveshare_context, use_live
 pub use liveshare_panel::LiveSharePanel;
 pub use markdown::Markdown;
 pub use new_table_dialog::{CreateTableResult, NewTableData, NewTableDialog};
+pub use notifications::{NotificationItem, NotificationManager, NotificationsContainer};
 pub use remote_cursors::{CursorTracker, RemoteCursors};
 pub use settings_modal::{SettingsButton, SettingsModal};
 pub use sidebar::Sidebar;
-pub use source_editor::{EditorMode, EditorModeSwitcher, SourceEditor};
+pub use source_editor::{
+    EditorMode, EditorModeSwitcher, SourceEditor, check_before_save, validate_for_llm,
+};
 pub use table_editor::TableEditor;
 pub use theme::{ThemeContext, ThemeMode, provide_theme_context, use_theme_context};

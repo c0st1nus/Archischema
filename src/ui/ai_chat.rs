@@ -454,7 +454,7 @@ pub fn AiChatPanel(
                         </button>
                         // Settings button
                         <button
-                            class="p-2 text-theme-tertiary hover:text-theme-accent hover:bg-theme-secondary rounded-lg transition-colors"
+                            class="flex items-center justify-center p-2 text-theme-tertiary hover:text-theme-accent hover:bg-theme-secondary rounded-lg transition-colors"
                             on:click=open_settings
                             title="AI Settings"
                         >
@@ -462,7 +462,7 @@ pub fn AiChatPanel(
                         </button>
                         // Clear chat button
                         <button
-                            class="p-2 text-theme-tertiary hover:text-red-500 hover:bg-theme-secondary rounded-lg transition-colors"
+                            class="flex items-center justify-center p-2 text-theme-tertiary hover:text-red-500 hover:bg-theme-secondary rounded-lg transition-colors"
                             on:click=clear_chat
                             title="Clear chat"
                         >
@@ -470,7 +470,7 @@ pub fn AiChatPanel(
                         </button>
                         // Close button
                         <button
-                            class="p-2 text-theme-tertiary hover:text-theme-primary hover:bg-theme-secondary rounded-lg transition-colors"
+                            class="flex items-center justify-center p-2 text-theme-tertiary hover:text-theme-primary hover:bg-theme-secondary rounded-lg transition-colors"
                             on:click=move |_| is_open.set(false)
                             title="Close"
                         >
@@ -487,7 +487,7 @@ pub fn AiChatPanel(
                                 <div class="flex items-center justify-between px-6 py-4 border-b border-theme-primary">
                                     <h3 class="text-lg font-semibold text-theme-primary">"AI Settings"</h3>
                                     <button
-                                        class="p-2 text-theme-tertiary hover:text-theme-primary hover:bg-theme-secondary rounded-lg transition-colors"
+                                        class="flex items-center justify-center p-1 text-theme-tertiary hover:text-theme-primary rounded"
                                         on:click=move |_| set_show_settings.set(false)
                                     >
                                         <Icon name=icons::X class="w-5 h-5"/>
@@ -725,7 +725,9 @@ pub fn AiChatPanel(
                             disabled=move || is_loading.get() || input_value.get().trim().is_empty()
                             title="Send message"
                         >
-                            <Icon name=icons::SEND class="w-5 h-5"/>
+                            <span class="flex items-center justify-center">
+                                <Icon name=icons::SEND class="w-5 h-5"/>
+                            </span>
                         </button>
                     </div>
                     <p class="mt-2 text-xs text-theme-muted text-center">
@@ -764,6 +766,7 @@ pub fn AiChatButton(
 
 /// Call the AI API through our server proxy
 #[cfg(not(feature = "ssr"))]
+#[allow(dead_code)]
 async fn call_ai_api(
     _api_base: &str, // Ignored - we use server proxy
     api_key: Option<&str>,
@@ -854,7 +857,7 @@ async fn call_ai_api_streaming(
     on_chunk: impl Fn(String) + 'static,
     on_tool_call: impl Fn(ToolCall) + 'static,
 ) -> Result<(), String> {
-    use js_sys::{Object, Reflect, Uint8Array};
+    use js_sys::{Reflect, Uint8Array};
     use leptos::wasm_bindgen::JsValue;
     use web_sys::{Headers, ReadableStreamDefaultReader, Request, RequestInit, Response};
 
