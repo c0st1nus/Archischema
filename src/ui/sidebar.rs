@@ -1,15 +1,104 @@
 use crate::core::{Column, SchemaGraph, TableOps};
 use crate::ui::column_editor::ColumnEditor;
+use crate::ui::icon::{Icon, icons};
 use crate::ui::liveshare_client::{
     ColumnData, ConnectionState, GraphOperation, use_liveshare_context,
 };
 use crate::ui::new_table_dialog::{CreateTableResult, NewTableData, NewTableDialog};
 use crate::ui::source_editor::{EditorMode, EditorModeSwitcher};
 use crate::ui::table_editor::TableEditor;
-use crate::ui::{Icon, icons};
 use leptos::prelude::*;
 use leptos::web_sys;
+use leptos_router::components::A;
 use petgraph::graph::NodeIndex;
+
+/// Diagram name editor component - extracted to reduce nesting depth
+#[component]
+fn DiagramNameEditor(
+    name_signal: RwSignal<String>,
+    is_demo: bool,
+    #[prop(default = None)] on_name_change: Option<Callback<String>>,
+) -> impl IntoView {
+    let is_editing = RwSignal::new(false);
+    let edit_value = RwSignal::new(name_signal.get_untracked());
+
+    view! {
+        {move || {
+            if is_editing.get() {
+                view! {
+                    <input
+                        type="text"
+                        class="flex-1 min-w-0 px-2 py-1 text-sm font-medium bg-theme-surface border border-theme-primary rounded text-theme-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
+                        prop:value=move || edit_value.get()
+                        on:input=move |ev| edit_value.set(event_target_value(&ev))
+                        on:keydown=move |ev: web_sys::KeyboardEvent| {
+                            if ev.key() == "Enter" {
+                                let new_name = edit_value.get();
+                                if !new_name.trim().is_empty() {
+                                    name_signal.set(new_name.clone());
+                                    if let Some(cb) = on_name_change.as_ref() {
+                                        cb.run(new_name);
+                                    }
+                                }
+                                is_editing.set(false);
+                            } else if ev.key() == "Escape" {
+                                edit_value.set(name_signal.get());
+                                is_editing.set(false);
+                            }
+                        }
+                        on:blur=move |_| {
+                            let new_name = edit_value.get();
+                            if !new_name.trim().is_empty() && new_name != name_signal.get() {
+                                name_signal.set(new_name.clone());
+                                if let Some(cb) = on_name_change.as_ref() {
+                                    cb.run(new_name);
+                                }
+                            }
+                            is_editing.set(false);
+                        }
+                        autofocus
+                    />
+                }.into_any()
+            } else {
+                let current_name = name_signal.get();
+                view! {
+                    <div class="flex items-center gap-2 flex-1 min-w-0 group">
+                        <h1
+                            class="text-sm font-semibold text-theme-primary truncate cursor-pointer hover:text-accent-primary transition-colors"
+                            title=current_name.clone()
+                            on:click=move |_| {
+                                if !is_demo {
+                                    edit_value.set(name_signal.get());
+                                    is_editing.set(true);
+                                }
+                            }
+                        >
+                            {move || name_signal.get()}
+                        </h1>
+                        {if !is_demo {
+                            view! {
+                                <button
+                                    class="flex-shrink-0 p-1 text-theme-muted hover:text-theme-primary opacity-0 group-hover:opacity-100 transition-all"
+                                    on:click=move |_| {
+                                        edit_value.set(name_signal.get());
+                                        is_editing.set(true);
+                                    }
+                                    title="Rename diagram"
+                                >
+                                    <Icon name=icons::EDIT class="w-3.5 h-3.5" />
+                                </button>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <span class="flex-shrink-0 text-xs text-yellow-500 px-1.5 py-0.5 bg-yellow-500/10 rounded">"Demo"</span>
+                            }.into_any()
+                        }}
+                    </div>
+                }.into_any()
+            }
+        }}
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 enum EditingMode {
@@ -27,6 +116,15 @@ pub fn Sidebar(
     editor_mode: RwSignal<EditorMode>,
     /// Sidebar collapsed state (shared with parent for layout coordination)
     is_collapsed: RwSignal<bool>,
+    /// Diagram name (editable)
+    #[prop(default = None)]
+    diagram_name: Option<RwSignal<String>>,
+    /// Whether this is demo mode
+    #[prop(default = false)]
+    is_demo: bool,
+    /// Callback when diagram name changes
+    #[prop(default = None)]
+    on_name_change: Option<Callback<String>>,
 ) -> impl IntoView {
     // Get LiveShare context for sync
     let liveshare_ctx = use_liveshare_context();
@@ -80,11 +178,11 @@ pub fn Sidebar(
                 view! {
                     <div class="h-full flex flex-col items-center py-4 bg-theme-surface theme-transition">
                         <button
-                            class="text-theme-tertiary hover:text-theme-accent hover:bg-theme-secondary p-3 rounded-lg transition-colors"
+                            class="btn-icon"
                             on:click=move |_| set_is_collapsed.set(false)
                             title="Expand sidebar"
                         >
-                            <Icon name=icons::MENU class="w-6 h-6"/>
+                            <Icon name=icons::PANEL_LEFT_OPEN class="icon-lg"/>
                         </button>
                     </div>
                 }
@@ -93,24 +191,38 @@ pub fn Sidebar(
                 // Развернутый вид
                 view! {
                     <div class="h-full flex flex-col bg-theme-surface theme-transition">
-                        // Заголовок
-                        <div class="px-6 py-4 border-b border-theme-primary bg-theme-secondary theme-transition">
+                        // Navigation header with diagram name
+                        <div class="px-4 py-3 border-b border-theme-primary bg-theme-tertiary theme-transition">
                             <div class="flex items-center justify-between">
-                                <div class="flex items-center space-x-3">
-                                    <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: linear-gradient(to bottom right, var(--accent-primary), var(--accent-secondary));">
-                                        <Icon name=icons::TABLE class="w-6 h-6 text-white"/>
-                                    </div>
-                                    <div>
-                                        <h2 class="text-lg font-bold text-theme-primary">"Schema"</h2>
-                                        <p class="text-xs text-theme-muted">"Database Explorer"</p>
-                                    </div>
+                                <div class="flex items-center gap-2 flex-1 min-w-0">
+                                    <A
+                                        href="/dashboard"
+                                        attr:class="btn-icon"
+                                        attr:title="Back to Dashboard"
+                                    >
+                                        <Icon name=icons::ARROW_LEFT class="icon-standalone"/>
+                                    </A>
+
+                                    {if let Some(name_signal) = diagram_name {
+                                        view! {
+                                            <DiagramNameEditor
+                                                name_signal=name_signal
+                                                is_demo=is_demo
+                                                on_name_change=on_name_change
+                                            />
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <span class="text-sm font-semibold text-theme-primary">"Schema Editor"</span>
+                                        }.into_any()
+                                    }}
                                 </div>
                                 <button
-                                    class="flex items-center justify-center text-theme-muted hover:text-theme-secondary hover:bg-theme-tertiary p-2 rounded-lg transition-colors"
+                                    class="btn-icon"
                                     on:click=move |_| set_is_collapsed.set(true)
                                     title="Collapse sidebar"
                                 >
-                                    <Icon name=icons::CHEVRON_LEFT class="w-5 h-5"/>
+                                    <Icon name=icons::PANEL_LEFT_CLOSE class="icon-standalone"/>
                                 </button>
                             </div>
                         </div>
@@ -133,15 +245,15 @@ pub fn Sidebar(
                                     view! {
                                         <div class="flex-1 flex flex-col overflow-hidden">
                                             // Хлебные крошки
-                                            <div class="px-6 py-3 border-b border-theme-primary bg-theme-secondary theme-transition">
+                                            <div class="px-6 py-3 divider-bottom bg-theme-secondary theme-transition">
                                                 <button
-                                                    class="flex items-center text-sm text-theme-accent hover:opacity-80 font-medium"
+                                                    class="nav-back"
                                                     on:click=move |_| set_editing_mode.set(EditingMode::None)
                                                 >
-                                                    <Icon name=icons::CHEVRON_LEFT class="w-4 h-4 mr-1"/>
+                                                    <Icon name=icons::CHEVRON_LEFT class="icon-text"/>
                                                     "Back to tables"
                                                 </button>
-                                                <div class="mt-1 text-xs text-theme-muted">
+                                                <div class="mt-1 breadcrumb">
                                                     <span class="font-medium text-theme-secondary">{table_name}</span>
                                                     {if col_idx.is_some() {
                                                         " → Edit Column"
@@ -159,16 +271,16 @@ pub fn Sidebar(
                                                     inline=true
                                                     graph=graph
                                                     current_table=node_idx
-                                                    on_save=move |_| {
+                                                    on_save=move || {
                                                         // ColumnEditor теперь сам сохраняет колонку и FK в одном update()
                                                         set_editing_mode.set(EditingMode::None);
                                                     }
 
-                                                    on_cancel=move |_| {
+                                                    on_cancel=move || {
                                                         set_editing_mode.set(EditingMode::None);
                                                     }
 
-                                                    on_delete=move |_| {
+                                                    on_delete=move || {
                                                         if let Some(idx) = col_idx {
                                                             graph
                                                                 .update(|g| {
@@ -195,15 +307,15 @@ pub fn Sidebar(
                                     view! {
                                         <div class="flex-1 flex flex-col overflow-hidden">
                                             // Хлебные крошки
-                                            <div class="px-6 py-3 border-b border-theme-primary bg-theme-secondary theme-transition">
+                                            <div class="px-6 py-3 divider-bottom bg-theme-secondary theme-transition">
                                                 <button
-                                                    class="flex items-center text-sm text-theme-accent hover:opacity-80 font-medium"
+                                                    class="nav-back"
                                                     on:click=move |_| set_editing_mode.set(EditingMode::None)
                                                 >
-                                                    <Icon name=icons::CHEVRON_LEFT class="w-4 h-4 mr-1"/>
+                                                    <Icon name=icons::CHEVRON_LEFT class="icon-text"/>
                                                     "Back to tables"
                                                 </button>
-                                                <div class="mt-1 text-xs text-theme-muted">
+                                                <div class="mt-1 breadcrumb">
                                                     "Edit Table"
                                                 </div>
                                             </div>
@@ -213,15 +325,15 @@ pub fn Sidebar(
                                                 <TableEditor
                                                     graph=graph
                                                     node_idx=node_idx
-                                                    on_save=move |_| {
+                                                    on_save=move || {
                                                         set_editing_mode.set(EditingMode::None);
                                                     }
 
-                                                    on_cancel=move |_| {
+                                                    on_cancel=move || {
                                                         set_editing_mode.set(EditingMode::None);
                                                     }
 
-                                                    on_delete=move |_| {
+                                                    on_delete=move || {
                                                         graph.update(|g| {
                                                             let _ = g.delete_table(node_idx);
                                                         });
@@ -258,10 +370,10 @@ pub fn Sidebar(
                                             // Диалог создания таблицы
                                             <div class="flex-1 overflow-y-auto px-6 py-4 bg-theme-surface theme-transition">
                                                 <NewTableDialog
-                                                    table_exists=move |name: String| {
+                                                    table_exists=Callback::new(move |name: String| {
                                                         graph.with(|g| g.table_exists(&name))
-                                                    }
-                                                    on_create=move |data: NewTableData| {
+                                                    })
+                                                    on_create=Callback::new(move |data: NewTableData| {
                                                         // Создаём таблицу с указанным именем
                                                         let position = (300.0, 300.0);
                                                         let table_name = data.table_name.clone();
@@ -319,8 +431,8 @@ pub fn Sidebar(
                                                                 CreateTableResult::Error(err)
                                                             }
                                                         }
-                                                    }
-                                                    on_cancel=move |_| {
+                                                    })
+                                                    on_cancel=move || {
                                                         set_editing_mode.set(EditingMode::None);
                                                     }
                                                 />
@@ -337,11 +449,11 @@ pub fn Sidebar(
                                         <div class="px-6 py-4 border-b border-theme-primary">
                                             <div class="relative flex items-center">
                                                 <div class="absolute left-3 pointer-events-none flex items-center justify-center">
-                                                    <Icon name=icons::SEARCH class="w-5 h-5 text-theme-muted"/>
+                                                    <Icon name=icons::SEARCH class="icon-text text-theme-muted"/>
                                                 </div>
                                                 <input
                                                     type="text"
-                                                    class="w-full pl-10 pr-4 py-2.5 input-theme rounded-xl text-sm"
+                                                    class="input-base input-sm"
                                                     placeholder="Search tables and columns..."
                                                     prop:value=move || search_query.get()
                                                     on:input=move |ev| {
@@ -376,7 +488,7 @@ pub fn Sidebar(
                                         </div>
 
                                         // Кнопка создания таблицы
-                                        <div class="px-6 py-4 border-b border-theme-primary bg-theme-surface theme-transition">
+                                        <div class="px-6 py-3 divider-bottom bg-theme-tertiary theme-transition">
                                             <button
                                                 class="w-full px-4 py-3 btn-theme-primary rounded-lg text-sm font-semibold flex items-center justify-center shadow-sm transition-all"
                                                 on:click=move |_| {
@@ -384,7 +496,7 @@ pub fn Sidebar(
                                                     set_editing_mode.set(EditingMode::CreatingTable);
                                                 }
                                             >
-                                                <Icon name=icons::PLUS class="w-5 h-5 mr-2"/>
+                                                <Icon name=icons::PLUS class="icon-btn"/>
                                                 "New Table"
                                             </button>
                                         </div>
@@ -482,7 +594,7 @@ pub fn Sidebar(
                                                                                 set_editing_mode.set(EditingMode::EditingTable(node_idx));
                                                                             }
                                                                         >
-                                                                            <Icon name=icons::EDIT class="w-4 h-4"/>
+                                                                            <Icon name=icons::SEARCH class="icon-text"/>
                                                                         </button>
                                                                         <button
                                                                             class="p-1.5 text-theme-muted hover:text-theme-accent hover:bg-theme-tertiary rounded-lg transition-colors"
@@ -493,7 +605,7 @@ pub fn Sidebar(
                                                                                     .set(EditingMode::EditingColumn(node_idx, None));
                                                                             }
                                                                         >
-                                                                            <Icon name=icons::PLUS class="w-5 h-5"/>
+                                                                            <Icon name=icons::X class="icon-text"/>
                                                                         </button>
                                                                     </div>
                                                                 </div>
@@ -533,7 +645,7 @@ pub fn Sidebar(
                                                                                         view! {
                                                                                             <ColumnItem
                                                                                                 column=column.clone()
-                                                                                                on_click=move |_| {
+                                                                                                on_click=move || {
                                                                                                     set_editing_mode
                                                                                                         .set(EditingMode::EditingColumn(node_idx, Some(col_idx)));
                                                                                                 }
@@ -578,7 +690,7 @@ pub fn Sidebar(
                                                     if expanded.len() == g.node_count() {
                                                         view! {
                                                             <>
-                                                                <Icon name=icons::COLLAPSE class="w-4 h-4 mr-2"/>
+                                                                <Icon name=icons::PLUS class="icon-text"/>
                                                                 "Collapse All"
                                                             </>
                                                         }
@@ -600,15 +712,14 @@ pub fn Sidebar(
                             }
                         }}
                     </div>
-                }
-                    .into_any()
+                }.into_any()
             }
         }}
+
 
         </div>
     }
 }
-
 #[component]
 fn ColumnItem(column: Column, #[prop(into)] on_click: Callback<()>) -> impl IntoView {
     view! {

@@ -1,6 +1,6 @@
 use crate::core::{SchemaGraph, TableOps};
 use crate::ui::liveshare_client::{ConnectionState, GraphOperation, use_liveshare_context};
-use crate::ui::{Icon, icons};
+use crate::ui::{ErrorMessage, Icon, SaveCancelHints, icons};
 use leptos::prelude::*;
 use leptos::web_sys;
 use petgraph::graph::NodeIndex;
@@ -94,8 +94,8 @@ pub fn TableEditor(
         <div class="space-y-4">
             // Заголовок
             <div>
-                <h3 class="text-lg font-semibold text-theme-primary">"Edit Table"</h3>
-                <p class="text-sm text-theme-muted">
+                <h3 class="title-lg">"Edit Table"</h3>
+                <p class="subtitle">
                     "Rename your table or manage its properties"
                 </p>
             </div>
@@ -104,14 +104,14 @@ pub fn TableEditor(
             <div class="space-y-4">
                 // Поле имени таблицы
                 <div>
-                    <label class="block text-sm font-medium text-theme-secondary mb-2">
+                    <label class="label">
                         "Table Name"
                         <span class="text-red-500">"*"</span>
                     </label>
                     <input
                         node_ref=input_ref
                         type="text"
-                        class="w-full px-4 py-2.5 input-theme rounded-lg transition-all"
+                        class="input-base"
                         placeholder="Enter table name"
                         prop:value=move || table_name.get()
                         on:input=move |ev| {
@@ -122,22 +122,11 @@ pub fn TableEditor(
                         disabled=move || is_saving.get()
                     />
 
-                    {move || {
-                        error
-                            .get()
-                            .map(|err| {
-                                view! {
-                                    <div class="mt-2 flex items-center text-sm text-theme-error">
-                                        <Icon name=icons::ALERT_CIRCLE class="w-4 h-4 mr-1.5"/>
-                                        <span>{err}</span>
-                                    </div>
-                                }
-                            })
-                    }}
+                    <ErrorMessage error=error/>
                 </div>
 
                 // Информация о таблице
-                <div class="p-4 bg-theme-secondary rounded-lg space-y-2 theme-transition">
+                <div class="card-info space-y-2">
                     <div class="flex items-center justify-between text-sm">
                         <span class="text-theme-tertiary">"Columns:"</span>
                         <span class="font-medium text-theme-primary">
@@ -166,26 +155,26 @@ pub fn TableEditor(
             </div>
 
             // Кнопки действий
-            <div class="flex items-center justify-between pt-4 border-t border-theme-primary">
+            <div class="flex items-center justify-between divider-top pt-4">
                 <button
-                    class="px-4 py-2 text-sm font-medium text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center"
+                    class="btn-danger"
                     on:click=move |_| handle_delete()
                     disabled=move || is_saving.get()
                 >
-                    <Icon name=icons::TRASH class="w-4 h-4 mr-1.5"/>
+                    <Icon name=icons::TRASH class="icon-btn"/>
                     "Delete Table"
                 </button>
 
                 <div class="flex items-center space-x-2">
                     <button
-                        class="px-4 py-2 text-sm font-medium text-theme-secondary hover:bg-theme-tertiary rounded-lg transition-colors"
+                        class="btn-secondary"
                         on:click=move |_| handle_cancel()
                         disabled=move || is_saving.get()
                     >
                         "Cancel"
                     </button>
                     <button
-                        class="px-6 py-2 text-sm font-medium btn-theme-primary rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                        class="btn-primary px-6"
                         on:click=move |_| handle_save()
                         disabled=move || is_saving.get() || table_name.get().trim().is_empty()
                     >
@@ -193,7 +182,7 @@ pub fn TableEditor(
                             if is_saving.get() {
                                 view! {
                                     <>
-                                        <Icon name=icons::LOADER class="w-4 h-4 mr-1.5 animate-spin"/>
+                                        <Icon name=icons::LOADER class="icon-btn spinner"/>
                                         "Saving..."
                                     </>
                                 }
@@ -201,7 +190,7 @@ pub fn TableEditor(
                             } else {
                                 view! {
                                     <>
-                                        <Icon name=icons::CHECK class="w-4 h-4 mr-1.5"/>
+                                        <Icon name=icons::CHECK class="icon-btn"/>
                                         "Save Changes"
                                     </>
                                 }
@@ -214,21 +203,8 @@ pub fn TableEditor(
             </div>
 
             // Подсказка по горячим клавишам
-            <div class="pt-2 border-t border-theme-primary">
-                <div class="flex items-center justify-center space-x-4 text-xs text-theme-muted">
-                    <div class="flex items-center">
-                        <kbd class="px-2 py-1 bg-theme-tertiary rounded border border-theme-secondary font-mono text-theme-secondary">
-                            "Enter"
-                        </kbd>
-                        <span class="ml-1">"to save"</span>
-                    </div>
-                    <div class="flex items-center">
-                        <kbd class="px-2 py-1 bg-theme-tertiary rounded border border-theme-secondary font-mono text-theme-secondary">
-                            "Esc"
-                        </kbd>
-                        <span class="ml-1">"to cancel"</span>
-                    </div>
-                </div>
+            <div class="divider-top pt-2">
+                <SaveCancelHints/>
             </div>
         </div>
     }

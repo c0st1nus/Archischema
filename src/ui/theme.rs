@@ -65,6 +65,16 @@ pub struct ThemeContext {
 }
 
 impl ThemeContext {
+    /// Toggle between light and dark mode
+    pub fn toggle(&self) {
+        let new_mode = if self.is_dark.get() {
+            ThemeMode::Light
+        } else {
+            ThemeMode::Dark
+        };
+        self.set_mode(new_mode);
+    }
+
     /// Set the theme mode and persist to localStorage
     pub fn set_mode(&self, mode: ThemeMode) {
         self.mode.set(mode);

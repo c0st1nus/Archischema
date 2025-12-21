@@ -4,6 +4,7 @@
 //! success messages, and info on the canvas.
 
 use crate::core::{CanvasNotification, NotificationType};
+use crate::ui::icon::{Icon, icons};
 use leptos::prelude::*;
 use std::collections::VecDeque;
 
@@ -87,19 +88,10 @@ fn NotificationToastSimple(
         NotificationType::Info => ("bg-blue-500/10", "border-blue-500/30", "text-blue-400"),
     };
 
-    let icon_path = match notification.notification_type {
-        NotificationType::Success => "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
-        NotificationType::Error => "M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
-        NotificationType::Warning => {
-            "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-        }
-        NotificationType::Info => "M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
-    };
-
     let title = notification.title.clone();
     let message = notification.message.clone();
     let container_class = format!(
-        "flex items-start gap-3 p-4 rounded-lg border backdrop-blur-sm shadow-lg transition-all duration-300 {} {}",
+        "card-padded flex items-start gap-3 border backdrop-blur-sm shadow-lg transition-all duration-300 {} {}",
         bg_class, border_class
     );
 
@@ -110,9 +102,14 @@ fn NotificationToastSimple(
                 style=move || if is_exiting.get() { "opacity: 0; transform: translateX(1rem);" } else { "opacity: 1; transform: translateX(0);" }
             >
                 <div class=icon_class>
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d=icon_path />
-                    </svg>
+                    <Icon name={
+                        match notification.notification_type {
+                            NotificationType::Success => icons::CHECK,
+                            NotificationType::Error => icons::ERROR,
+                            NotificationType::Warning => icons::WARNING,
+                            NotificationType::Info => icons::INFORMATION_CIRCLE,
+                        }
+                    } class="icon-standalone" />
                 </div>
                 <div class="flex-1 min-w-0">
                     <h4 class="text-sm font-medium text-theme-primary">{title.clone()}</h4>
@@ -126,9 +123,7 @@ fn NotificationToastSimple(
                         });
                     }
                 >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    <Icon name=icons::X class="icon-text" />
                 </button>
             </div>
         </Show>

@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 leptos = { version = "0.8.0" }
 leptos_meta = { version = "0.8.0" }
+leptos_router = { version = "0.8.0" }
 axum = { version = "0.8.0", optional = true }
 axum-extra = { version = "0.10.0", features = ["typed-header", "cookie"], optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
@@ -37,6 +38,7 @@ web-sys = { version = "0.3", features = [
 js-sys = { version = "0.3", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 futures = { version = "0.3.31", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
 reqwest = { version = "0.12", features = ["json", "stream"], optional = true }
 tokio-stream = { version = "0.1", optional = true }
 bcrypt = { version = "0.17.1", optional = true }
@@ -47,6 +49,12 @@ tracing-subscriber = { version = "0.3", optional = true }
 dotenvy = { version = "0.15", optional = true }
 tower = "0.5.2"
 derive_more = { version = "2.1.0", features = ["full"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-ring", "postgres", "uuid", "chrono", "json"], optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
+jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"], optional = true }
+thiserror = { version = "2.0", optional = true }
+gloo-net = "0.6.0"
 
 [features]
 default = ["ssr"]
@@ -57,7 +65,9 @@ hydrate = [
     "dep:gloo-timers",
     "dep:web-sys",
     "dep:js-sys",
-    "dep:wasm-bindgen-futures"
+    "dep:wasm-bindgen-futures",
+    "dep:serde-wasm-bindgen",
+    "dep:futures"
 ]
 ssr = [
     "dep:axum",
@@ -74,8 +84,14 @@ ssr = [
     "dep:dotenvy",
     "dep:reqwest",
     "dep:tokio-stream",
+    "dep:sqlx",
+    "dep:sha2",
+    "dep:hex",
+    "dep:jsonwebtoken",
+    "dep:thiserror",
     "leptos/ssr",
     "leptos_meta/ssr",
+    "leptos_router/ssr",
 ]
 
 # Defines a size-optimized profile for the WASM bundle in release mode
@@ -133,3 +149,6 @@ lib-profile-release = "wasm-release"
 # Enable wasm-opt optimization
 # Options: "0", "1", "2", "3", "4", "s", "z" (s and z optimize for size)
 wasm-opt = "z"
+
+# The version of wasm-bindgen-cli to use
+wasm-bindgen-version = "0.2.106"

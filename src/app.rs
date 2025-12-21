@@ -1,8 +1,14 @@
 use leptos::prelude::*;
 use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
+use leptos_router::{
+    components::{Route, Router, Routes},
+    path,
+};
 
-use crate::core::SchemaGraph;
-use crate::ui::{SchemaCanvas, provide_liveshare_context, provide_theme_context};
+use crate::ui::{
+    DashboardPage, EditorPage, LandingPage, LoginPage, NotFoundPage, ProfilePage, RegisterPage,
+    provide_auth_context, provide_liveshare_context, provide_theme_context,
+};
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -30,11 +36,11 @@ pub fn App() -> impl IntoView {
     // Provide theme context for dark/light mode management
     let _theme_ctx = provide_theme_context();
 
+    // Provide auth context for authentication state management
+    let _auth_ctx = provide_auth_context();
+
     // Provide LiveShare context for real-time collaboration
     let _liveshare_ctx = provide_liveshare_context();
-
-    // Создаем пустой граф для визуализации (пользователь увидит Empty State)
-    let graph = RwSignal::new(SchemaGraph::new());
 
     view! {
         // injects a stylesheet into the document <head>
@@ -44,9 +50,28 @@ pub fn App() -> impl IntoView {
         // sets the document title
         <Title text="Archischema - Database Schema Editor"/>
 
-        // main application content
-        <div class="w-full h-screen bg-theme-primary theme-transition">
-            <SchemaCanvas graph=graph />
-        </div>
+        // Router for page navigation
+        // For SSR + hydration, we need to provide the initial URL
+        <Router>
+            <main class="w-full min-h-screen bg-theme-primary theme-transition">
+                <Routes fallback=|| view! { <NotFoundPage /> }>
+                    // Landing page (home)
+                    <Route path=path!("/") view=LandingPage />
+
+                    // Authentication pages
+                    <Route path=path!("/login") view=LoginPage />
+                    <Route path=path!("/register") view=RegisterPage />
+
+                    // Dashboard (requires auth)
+                    <Route path=path!("/dashboard") view=DashboardPage />
+
+                    // Profile page (requires auth)
+                    <Route path=path!("/profile") view=ProfilePage />
+
+                    // Editor pages
+                    <Route path=path!("/editor/:id") view=EditorPage />
+                </Routes>
+            </main>
+        </Router>
     }
 }

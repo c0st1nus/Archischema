@@ -2,7 +2,7 @@ use crate::core::{Column, MySqlDataType, RelationshipOps, RelationshipType, Sche
 use crate::ui::liveshare_client::{
     ColumnData, ConnectionState, GraphOperation, RelationshipData, use_liveshare_context,
 };
-use crate::ui::{Icon, icons};
+use crate::ui::{ErrorMessage, Icon, icons};
 use leptos::prelude::*;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
@@ -276,35 +276,25 @@ pub fn ColumnEditor(
                     .into_any()
             } else {
                 view! {
-                    <h3 class="text-lg font-semibold text-theme-primary mb-4">
+                    <h3 class="title-lg mb-4">
                         {if column.is_some() { "Edit Column" } else { "New Column" }}
                     </h3>
                 }
                     .into_any()
             }}
 
-            {move || {
-                error
-                    .get()
-                    .map(|err| {
-                        view! {
-                            <div class="bg-theme-error border border-theme-error text-theme-error px-4 py-3 rounded mb-4 theme-transition">
-                                {err}
-                            </div>
-                        }
-                    })
-            }}
+            <ErrorMessage error=error/>
 
             <div class="space-y-4">
                 // Имя колонки
                 <div>
-                    <label class="block text-sm font-medium text-theme-secondary mb-1">
+                    <label class="label-sm">
                         "Column Name"
                         <span class="text-red-500">"*"</span>
                     </label>
                     <input
                         type="text"
-                        class="w-full px-3 py-2 input-theme rounded-md"
+                        class="input-base input-sm"
                         placeholder="e.g., user_id"
                         prop:value=move || name.get()
                         on:input=move |ev| {
@@ -316,12 +306,12 @@ pub fn ColumnEditor(
 
                 // Тип данных
                 <div>
-                    <label class="block text-sm font-medium text-theme-secondary mb-1">
+                    <label class="label-sm">
                         "Data Type"
                         <span class="text-red-500">"*"</span>
                     </label>
                     <select
-                        class="w-full px-3 py-2 input-theme rounded-md"
+                        class="select-base"
                         prop:value=move || data_type.get()
                         on:change=move |ev| {
                             set_data_type.set(event_target_value(&ev));
@@ -387,12 +377,12 @@ pub fn ColumnEditor(
 
                 // Значение по умолчанию
                 <div>
-                    <label class="block text-sm font-medium text-theme-secondary mb-1">
+                    <label class="label-sm">
                         "Default Value"
                     </label>
                     <input
                         type="text"
-                        class="w-full px-3 py-2 input-theme rounded-md"
+                        class="input-base input-sm"
                         placeholder="Leave empty for no default"
                         prop:value=move || default_value.get()
                         on:input=move |ev| {
@@ -405,7 +395,7 @@ pub fn ColumnEditor(
                 {move || {
                     if graph.is_some() && current_table.is_some() {
                         view! {
-                            <div class="border-t border-theme-primary pt-4">
+                            <div class="divider-top pt-4">
                                 <label class="flex items-center mb-3">
                                     <input
                                         type="checkbox"
@@ -422,14 +412,14 @@ pub fn ColumnEditor(
                                     if is_foreign_key.get() {
                                         let g = graph.unwrap();
                                         view! {
-                                            <div class="ml-6 space-y-3 bg-theme-secondary p-3 rounded-md theme-transition">
+                                            <div class="ml-6 space-y-3 card-info">
                                                 // Выбор целевой таблицы
                                                 <div>
-                                                    <label class="block text-xs font-medium text-theme-secondary mb-1">
+                                                    <label class="label-sm">
                                                         "References Table"
                                                     </label>
                                                     <select
-                                                        class="w-full px-2 py-1.5 text-sm input-theme rounded-md"
+                                                        class="select-base"
                                                         prop:value=move || {
                                                             fk_target_table.get()
                                                                 .map(|idx| idx.index().to_string())
@@ -490,11 +480,11 @@ pub fn ColumnEditor(
 
                                                             view! {
                                                                 <div>
-                                                                    <label class="block text-xs font-medium text-theme-secondary mb-1">
+                                                                    <label class="label-sm">
                                                                         "References Column"
                                                                     </label>
                                                                     <select
-                                                                        class="w-full px-2 py-1.5 text-sm input-theme rounded-md"
+                                                                        class="select-base"
                                                                         prop:value=move || {
                                                                             fk_target_column.get().unwrap_or_default()
                                                                         }
@@ -550,11 +540,11 @@ pub fn ColumnEditor(
 
                                                 // Выбор типа связи (без ManyToMany - делается через дополнительную таблицу)
                                                 <div>
-                                                    <label class="block text-xs font-medium text-theme-secondary mb-1">
+                                                    <label class="label-sm">
                                                         "Relationship Type"
                                                     </label>
                                                     <select
-                                                        class="w-full px-2 py-1.5 text-sm input-theme rounded-md"
+                                                        class="select-base"
                                                         prop:value=move || {
                                                             match fk_relationship_type.get() {
                                                                 RelationshipType::OneToOne => "1:1",
@@ -603,10 +593,10 @@ pub fn ColumnEditor(
                     {if column.is_some() {
                         view! {
                             <button
-                                class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 flex items-center dark:bg-red-700 dark:hover:bg-red-600"
+                                class="btn-danger"
                                 on:click=move |_| on_delete.run(())
                             >
-                                <Icon name=icons::TRASH class="w-4 h-4 mr-2"/>
+                                <Icon name=icons::TRASH class="icon-btn"/>
                                 "Delete"
                             </button>
                         }
@@ -617,17 +607,17 @@ pub fn ColumnEditor(
                 </div>
                 <div class="flex space-x-3">
                     <button
-                        class="px-4 py-2 border border-theme-primary rounded-md text-theme-secondary hover:bg-theme-tertiary focus:outline-none focus:ring-2 focus:ring-theme-accent flex items-center theme-transition"
+                        class="btn-secondary"
                         on:click=move |_| on_cancel.run(())
                     >
-                        <Icon name=icons::X class="w-4 h-4 mr-2"/>
+                        <Icon name=icons::X class="icon-btn"/>
                         "Cancel"
                     </button>
                     <button
-                        class="px-4 py-2 btn-theme-primary rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center"
+                        class="btn-primary"
                         on:click=handle_save
                     >
-                        <Icon name=icons::CHECK class="w-4 h-4 mr-2"/>
+                        <Icon name=icons::CHECK class="icon-btn"/>
                         "Save"
                     </button>
                 </div>

@@ -442,9 +442,9 @@ pub fn AiChatPanel(
                             class=move || {
                                 let mode = config.get().mode;
                                 if mode == AiMode::Write {
-                                    "px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                    "btn-sm transition-colors bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
                                 } else {
-                                    "px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                                    "btn-sm transition-colors bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
                                 }
                             }
                             on:click=toggle_mode
@@ -454,27 +454,27 @@ pub fn AiChatPanel(
                         </button>
                         // Settings button
                         <button
-                            class="flex items-center justify-center p-2 text-theme-tertiary hover:text-theme-accent hover:bg-theme-secondary rounded-lg transition-colors"
+                            class="btn-icon"
                             on:click=open_settings
                             title="AI Settings"
                         >
-                            <Icon name=icons::SETTINGS class="w-5 h-5"/>
+                            <Icon name=icons::SETTINGS class="icon-standalone"/>
                         </button>
                         // Clear chat button
                         <button
-                            class="flex items-center justify-center p-2 text-theme-tertiary hover:text-red-500 hover:bg-theme-secondary rounded-lg transition-colors"
+                            class="btn-icon hover:text-red-500"
                             on:click=clear_chat
                             title="Clear chat"
                         >
-                            <Icon name=icons::TRASH class="w-5 h-5"/>
+                            <Icon name=icons::TRASH class="icon-standalone"/>
                         </button>
                         // Close button
                         <button
-                            class="flex items-center justify-center p-2 text-theme-tertiary hover:text-theme-primary hover:bg-theme-secondary rounded-lg transition-colors"
+                            class="btn-icon"
                             on:click=move |_| is_open.set(false)
                             title="Close"
                         >
-                            <Icon name=icons::X class="w-5 h-5"/>
+                            <Icon name=icons::X class="icon-standalone"/>
                         </button>
                     </div>
                 </div>
@@ -485,21 +485,21 @@ pub fn AiChatPanel(
                         view! {
                             <div class="absolute inset-0 bg-theme-surface z-10 flex flex-col">
                                 <div class="flex items-center justify-between px-6 py-4 border-b border-theme-primary">
-                                    <h3 class="text-lg font-semibold text-theme-primary">"AI Settings"</h3>
+                                    <h3 class="title-lg">"AI Settings"</h3>
                                     <button
-                                        class="flex items-center justify-center p-1 text-theme-tertiary hover:text-theme-primary rounded"
+                                        class="btn-icon"
                                         on:click=move |_| set_show_settings.set(false)
                                     >
-                                        <Icon name=icons::X class="w-5 h-5"/>
+                                        <Icon name=icons::X class="icon-standalone"/>
                                     </button>
                                 </div>
                                 <div class="flex-1 overflow-y-auto p-6 space-y-4">
                                     // API Key
                                     <div>
-                                        <label class="block text-sm font-medium text-theme-secondary mb-1.5">"API Key"</label>
+                                        <label class="label">"API Key"</label>
                                         <input
                                             type="password"
-                                            class="w-full px-3 py-2 bg-theme-tertiary border border-theme-primary rounded-lg text-theme-primary placeholder-theme-muted focus:ring-2 focus:ring-theme-accent focus:border-transparent"
+                                            class="input-base"
                                             placeholder="sk-or-v1-..."
                                             prop:value=move || settings_api_key.get()
                                             on:input=move |e| set_settings_api_key.set(event_target_value(&e))
@@ -508,10 +508,10 @@ pub fn AiChatPanel(
                                     </div>
                                     // Model
                                     <div>
-                                        <label class="block text-sm font-medium text-theme-secondary mb-1.5">"Model"</label>
+                                        <label class="label">"Model"</label>
                                         <input
                                             type="text"
-                                            class="w-full px-3 py-2 bg-theme-tertiary border border-theme-primary rounded-lg text-theme-primary placeholder-theme-muted focus:ring-2 focus:ring-theme-accent focus:border-transparent"
+                                            class="input-base"
                                             placeholder="google/gemini-2.5-flash-lite"
                                             prop:value=move || settings_model.get()
                                             on:input=move |e| set_settings_model.set(event_target_value(&e))
@@ -520,10 +520,10 @@ pub fn AiChatPanel(
                                     </div>
                                     // API Base URL
                                     <div>
-                                        <label class="block text-sm font-medium text-theme-secondary mb-1.5">"API Base URL"</label>
+                                        <label class="label">"API Base URL"</label>
                                         <input
                                             type="text"
-                                            class="w-full px-3 py-2 bg-theme-tertiary border border-theme-primary rounded-lg text-theme-primary placeholder-theme-muted focus:ring-2 focus:ring-theme-accent focus:border-transparent"
+                                            class="input-base"
                                             placeholder="https://openrouter.ai/api/v1/chat/completions"
                                             prop:value=move || settings_api_base.get()
                                             on:input=move |e| set_settings_api_base.set(event_target_value(&e))
@@ -531,15 +531,15 @@ pub fn AiChatPanel(
                                         <p class="mt-1 text-xs text-theme-muted">"OpenRouter-compatible API endpoint"</p>
                                     </div>
                                 </div>
-                                <div class="px-6 py-4 border-t border-theme-primary flex justify-end gap-3">
+                                <div class="divider-top px-6 py-4 flex justify-end gap-3">
                                     <button
-                                        class="px-4 py-2 text-theme-secondary hover:text-theme-primary rounded-lg transition-colors"
+                                        class="btn-secondary"
                                         on:click=move |_| set_show_settings.set(false)
                                     >
                                         "Cancel"
                                     </button>
                                     <button
-                                        class="px-4 py-2 btn-theme-primary rounded-lg font-medium"
+                                        class="btn-primary"
                                         on:click=save_settings
                                     >
                                         "Save"
@@ -560,27 +560,27 @@ pub fn AiChatPanel(
                             view! {
                                 <div class="h-full flex flex-col items-center justify-center text-center px-8">
                                     <div class="w-16 h-16 mb-4 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-full flex items-center justify-center">
-                                        <Icon name=icons::BOT class="w-8 h-8 text-blue-600 dark:text-blue-400"/>
+                                        <Icon name=icons::BOT class="icon-lg"/>
                                     </div>
-                                    <h3 class="text-lg font-medium text-theme-primary mb-2">"How can I help you?"</h3>
-                                    <p class="text-sm text-theme-tertiary max-w-md">
+                                    <h3 class="title-lg mb-2">"How can I help you?"</h3>
+                                    <p class="subtitle max-w-md">
                                         "I can help you design your database schema. Ask me to create tables, add columns, explain relationships, or suggest improvements."
                                     </p>
                                     <div class="mt-6 flex flex-wrap gap-2 justify-center">
                                         <button
-                                            class="px-3 py-1.5 text-sm bg-theme-tertiary text-theme-secondary rounded-lg hover:bg-theme-secondary transition-colors"
+                                            class="btn-sm btn-secondary"
                                             on:click=move |_| set_input_value.set("What tables are in the schema?".to_string())
                                         >
                                             "What tables exist?"
                                         </button>
                                         <button
-                                            class="px-3 py-1.5 text-sm bg-theme-tertiary text-theme-secondary rounded-lg hover:bg-theme-secondary transition-colors"
+                                            class="btn-sm btn-secondary"
                                             on:click=move |_| set_input_value.set("Create a users table with common fields".to_string())
                                         >
                                             "Create users table"
                                         </button>
                                         <button
-                                            class="px-3 py-1.5 text-sm bg-theme-tertiary text-theme-secondary rounded-lg hover:bg-theme-secondary transition-colors"
+                                            class="btn-sm btn-secondary"
                                             on:click=move |_| set_input_value.set("Show me the schema as SQL".to_string())
                                         >
                                             "Export as SQL"
@@ -624,7 +624,7 @@ pub fn AiChatPanel(
                                         {if has_tool_calls {
                                             view! {
                                                 <div class="text-xs text-theme-muted mb-2 flex items-center gap-1">
-                                                    <Icon name=icons::LIGHTNING class="w-3 h-3"/>
+                                                    <Icon name=icons::LIGHTNING class="icon-text"/>
                                                     "Using tools..."
                                                 </div>
                                             }.into_any()
@@ -683,8 +683,8 @@ pub fn AiChatPanel(
                         if let Some(err) = error_message.get() {
                             view! {
                                 <div class="flex justify-center">
-                                    <div class="px-4 py-2 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 text-sm flex items-center gap-2">
-                                        <Icon name=icons::ALERT_CIRCLE class="w-4 h-4"/>
+                                    <div class="error-message">
+                                        <Icon name=icons::ALERT_CIRCLE class="icon-text"/>
                                         <span>{err}</span>
                                     </div>
                                 </div>
@@ -700,7 +700,7 @@ pub fn AiChatPanel(
                     <div class="flex items-end gap-2">
                         <div class="flex-1 relative">
                             <textarea
-                                class="w-full px-4 py-3 bg-theme-tertiary border border-theme-primary rounded-xl text-theme-primary placeholder-theme-muted resize-none focus:ring-2 focus:ring-theme-accent focus:border-transparent transition-all"
+                                class="input-base resize-none rounded-xl"
                                 placeholder="Ask about your schema..."
                                 rows="1"
                                 prop:value=move || input_value.get()
@@ -726,7 +726,7 @@ pub fn AiChatPanel(
                             title="Send message"
                         >
                             <span class="flex items-center justify-center">
-                                <Icon name=icons::SEND class="w-5 h-5"/>
+                                <Icon name=icons::SEND class="icon-standalone"/>
                             </span>
                         </button>
                     </div>

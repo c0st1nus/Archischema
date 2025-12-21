@@ -1,23 +1,67 @@
 //! Authentication and authorization for LiveShare
 //!
 //! This module provides authentication middleware and helpers for the LiveShare API.
-//! Currently implements a permissive "stub" auth that allows all users.
+//! Supports both JWT-authenticated users and guest access:
 //!
-//! TODO: Implement proper authentication when user registration is added:
-//! - JWT token validation
-//! - Session management
-//! - User database integration
+//! - JWT tokens (Bearer Authorization header) -> authenticated user
+//! - Guest access (X-User-ID header or auto-generated) -> guest user
+//!
+//! Guests can join existing LiveShare rooms but cannot create diagrams.
 
 use axum::{
     Json,
     extract::FromRequestParts,
-    http::{StatusCode, request::Parts},
+    http::{StatusCode, header, request::Parts},
     response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::protocol::{ApiError, UserId};
+
+// Optional JWT validation support
+// When JWT service is available, it will be used to validate tokens
+#[cfg(feature = "ssr")]
+use std::sync::OnceLock;
+
+#[cfg(feature = "ssr")]
+use crate::core::auth::{JwtConfig, JwtService};
+
+/// Global JWT service for token validation (initialized once at startup)
+#[cfg(feature = "ssr")]
+static JWT_SERVICE: OnceLock<Option<JwtService>> = OnceLock::new();
+
+/// Initialize the JWT service for LiveShare authentication
+/// Should be called once at application startup
+#[cfg(feature = "ssr")]
+pub fn init_jwt_service(service: Option<JwtService>) {
+    let _ = JWT_SERVICE.set(service);
+}
+
+/// Get the JWT service if available
+#[cfg(feature = "ssr")]
+fn get_jwt_service() -> Option<&'static JwtService> {
+    JWT_SERVICE.get().and_then(|s| s.as_ref())
+}
+
+/// Initialize JWT service from environment (convenience function)
+#[cfg(feature = "ssr")]
+pub fn init_jwt_from_env() {
+    let service = match JwtConfig::from_env() {
+        Ok(config) => Some(JwtService::new(config)),
+        Err(_) => {
+            if cfg!(debug_assertions) {
+                // Use default secret in development
+                Some(JwtService::new(JwtConfig::new(
+                    "archischema_dev_secret_key_not_for_production_32chars",
+                )))
+            } else {
+                None
+            }
+        }
+    };
+    init_jwt_service(service);
+}
 
 // ============================================================================
 // Authentication Types
@@ -73,26 +117,23 @@ impl AuthenticatedUser {
 // Authentication Extractor
 // ============================================================================
 
-/// Header name for user ID authentication
+/// Header name for user ID (guest mode)
 pub const AUTH_HEADER_USER_ID: &str = "X-User-ID";
-/// Header name for username
+/// Header name for username (guest mode)
 pub const AUTH_HEADER_USERNAME: &str = "X-Username";
-/// Cookie name for session token (future use)
+/// Cookie name for session token
 pub const AUTH_COOKIE_SESSION: &str = "archischema_session";
+/// Authorization header for JWT tokens
+pub const AUTH_HEADER_AUTHORIZATION: &str = "Authorization";
 
 /// Axum extractor for authenticated users
 ///
-/// Currently implements permissive authentication:
-/// - If `X-User-ID` header is present, uses that user ID
-/// - If `X-Username` header is present, uses that username
-/// - Otherwise, creates a guest user
+/// Authentication flow:
+/// 1. Check for Bearer token in Authorization header -> JWT authenticated user
+/// 2. Fall back to guest mode with X-User-ID/X-Username headers
+/// 3. If nothing provided, create anonymous guest
 ///
-/// # Future Implementation
-/// When user registration is implemented, this will:
-/// 1. Check for session cookie or Authorization header
-/// 2. Validate JWT token
-/// 3. Look up user in database
-/// 4. Return authenticated user or reject request
+/// Guests can join LiveShare rooms but cannot create/save diagrams.
 impl<S> FromRequestParts<S> for AuthenticatedUser
 where
     S: Send + Sync,
@@ -100,7 +141,39 @@ where
     type Rejection = AuthError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        // Try to get user ID from header
+        // First, try JWT authentication from Authorization header
+        if let Some(auth_header) = parts.headers.get(header::AUTHORIZATION) {
+            if let Ok(auth_str) = auth_header.to_str() {
+                if auth_str.starts_with("Bearer ") {
+                    let token = auth_str.trim_start_matches("Bearer ");
+                    if !token.is_empty() {
+                        // Try to validate JWT token
+                        #[cfg(feature = "ssr")]
+                        if let Some(jwt_service) = get_jwt_service() {
+                            match jwt_service.validate_access_token(token) {
+                                Ok(claims) => {
+                                    if let Ok(user_id) = claims.user_id() {
+                                        return Ok(AuthenticatedUser::authenticated(
+                                            user_id,
+                                            claims.username,
+                                            Some(claims.email),
+                                        ));
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::debug!("JWT validation failed: {:?}", e);
+                                    // Don't reject - fall through to guest mode
+                                    // This allows guests to join rooms even with invalid/expired tokens
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fall back to guest mode
+        // Try to get user ID from header (for reconnection with same identity)
         let user_id = parts
             .headers
             .get(AUTH_HEADER_USER_ID)
@@ -114,25 +187,13 @@ where
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
 
-        // TODO: Check for session cookie
-        // let session_cookie = parts
-        //     .headers
-        //     .get(header::COOKIE)
-        //     .and_then(|v| v.to_str().ok())
-        //     .and_then(|cookies| extract_cookie(cookies, AUTH_COOKIE_SESSION));
-
-        // TODO: Validate session/JWT and look up user in database
-        // if let Some(session) = session_cookie {
-        //     return validate_session(session).await;
-        // }
-
-        // For now, create guest user based on headers or generate new one
+        // Create guest user based on headers or generate new one
         match (user_id, username) {
             (Some(id), Some(name)) => Ok(AuthenticatedUser {
                 user_id: id,
                 username: name,
                 email: None,
-                is_guest: true, // Still a guest until proper auth is implemented
+                is_guest: true,
             }),
             (Some(id), None) => Ok(AuthenticatedUser::guest_with_id(id)),
             (None, Some(name)) => Ok(AuthenticatedUser {

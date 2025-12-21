@@ -112,7 +112,6 @@
             sans-serif;
         margin: 0;
         padding: 0;
-        overflow: hidden;
         background-color: var(--bg-primary);
         color: var(--text-primary);
         transition:
@@ -126,6 +125,28 @@
 }
 
 @layer utilities {
+    /* Line clamp utilities for text truncation */
+    .line-clamp-1 {
+        display: -webkit-box;
+        -webkit-line-clamp: 1;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .line-clamp-2 {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .line-clamp-3 {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
     /* Canvas grid pattern with theme support */
     .bg-grid-pattern {
         background-image:
@@ -173,6 +194,10 @@
     }
 
     /* Theme-aware borders */
+    .border-theme {
+        border-color: var(--border-primary);
+    }
+
     .border-theme-primary {
         border-color: var(--border-primary);
     }
@@ -261,6 +286,74 @@
         border-color: var(--accent-primary);
     }
 
+    /* Tailwind-style accent classes for compatibility */
+    .bg-accent-primary {
+        background-color: var(--accent-primary);
+    }
+
+    .bg-accent-primary-hover {
+        background-color: var(--accent-secondary);
+    }
+
+    .hover\:bg-accent-primary-hover:hover {
+        background-color: var(--accent-secondary);
+    }
+
+    .text-accent-primary {
+        color: var(--accent-primary);
+    }
+
+    .hover\:text-accent-primary:hover {
+        color: var(--accent-primary);
+    }
+
+    .border-accent-primary {
+        border-color: var(--accent-primary);
+    }
+
+    .shadow-accent-primary\/25 {
+        --tw-shadow-color: rgba(37, 99, 235, 0.25);
+    }
+
+    .hover\:shadow-accent-primary\/25:hover {
+        --tw-shadow-color: rgba(37, 99, 235, 0.25);
+        box-shadow:
+            0 10px 15px -3px var(--tw-shadow-color),
+            0 4px 6px -2px var(--tw-shadow-color);
+    }
+
+    .bg-accent-primary\/5 {
+        background-color: rgba(37, 99, 235, 0.05);
+    }
+
+    .bg-accent-primary\/10 {
+        background-color: rgba(37, 99, 235, 0.1);
+    }
+
+    .bg-accent-primary\/20 {
+        background-color: rgba(37, 99, 235, 0.2);
+    }
+
+    .dark .bg-accent-primary\/5 {
+        background-color: rgba(59, 130, 246, 0.05);
+    }
+
+    .dark .bg-accent-primary\/10 {
+        background-color: rgba(59, 130, 246, 0.1);
+    }
+
+    .dark .bg-accent-primary\/20 {
+        background-color: rgba(59, 130, 246, 0.2);
+    }
+
+    .ring-accent-primary {
+        --tw-ring-color: var(--accent-primary);
+    }
+
+    .focus\:ring-accent-primary:focus {
+        --tw-ring-color: var(--accent-primary);
+    }
+
     /* Selection prevention */
     .select-none {
         user-select: none;
@@ -280,7 +373,270 @@
 }
 
 @layer components {
-    /* Scrollbar styles with theme support */
+    /* ========================================================================
+       Button Components
+       ======================================================================== */
+
+    /* Base button styles */
+    .btn-base {
+        @apply px-4 py-2 text-sm font-medium rounded-lg transition-colors;
+        @apply flex items-center justify-center;
+        @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    }
+
+    /* Primary button */
+    .btn-primary {
+        @apply btn-base btn-theme-primary;
+    }
+
+    /* Secondary button */
+    .btn-secondary {
+        @apply btn-base text-theme-secondary hover:bg-theme-tertiary;
+    }
+
+    /* Danger button */
+    .btn-danger {
+        @apply btn-base text-red-500 hover:text-red-600;
+        @apply hover:bg-red-50 dark:hover:bg-red-900/20;
+    }
+
+    /* Icon button (square) */
+    .btn-icon {
+        @apply flex items-center justify-center w-9 h-9 rounded-lg;
+        @apply text-theme-secondary hover:text-theme-primary;
+        @apply hover:bg-theme-secondary transition-colors;
+    }
+
+    /* Small button variant */
+    .btn-sm {
+        @apply px-3 py-1.5 text-xs;
+    }
+
+    /* Large button variant */
+    .btn-lg {
+        @apply px-6 py-3 text-base;
+    }
+
+    /* ========================================================================
+       Form Input Components
+       ======================================================================== */
+
+    /* Standard input field */
+    .input-base {
+        @apply w-full px-4 py-2.5 input-theme rounded-lg transition-all;
+    }
+
+    /* Small input variant */
+    .input-sm {
+        @apply px-3 py-2 text-sm;
+    }
+
+    /* Select dropdown */
+    .select-base {
+        @apply w-full px-3 py-2 input-theme rounded-md text-sm;
+    }
+
+    /* ========================================================================
+       Card Components
+       ======================================================================== */
+
+    /* Standard card */
+    .card {
+        @apply bg-theme-surface border border-theme-primary rounded-lg;
+        @apply shadow-theme-md theme-transition;
+    }
+
+    /* Card with padding */
+    .card-padded {
+        @apply card p-4;
+    }
+
+    /* Info card (with secondary background) */
+    .card-info {
+        @apply p-4 bg-theme-secondary rounded-lg theme-transition;
+    }
+
+    /* Card header */
+    .card-header {
+        @apply px-4 py-3 border-b border-theme-primary;
+        @apply bg-theme-tertiary theme-transition;
+    }
+
+    /* ========================================================================
+       Typography Components
+       ======================================================================== */
+
+    /* Modal/section title */
+    .title-lg {
+        @apply text-lg font-semibold text-theme-primary;
+    }
+
+    /* Section subtitle */
+    .subtitle {
+        @apply text-sm text-theme-muted;
+    }
+
+    /* Label for form fields */
+    .label {
+        @apply block text-sm font-medium text-theme-secondary mb-2;
+    }
+
+    /* Small label */
+    .label-sm {
+        @apply block text-xs font-medium text-theme-tertiary mb-1;
+    }
+
+    /* ========================================================================
+       Icon Components
+       ======================================================================== */
+
+    /* Icon next to text (default spacing) */
+    .icon-text {
+        @apply w-4 h-4 mr-1.5;
+    }
+
+    /* Icon in button (with margin) */
+    .icon-btn {
+        @apply w-4 h-4 mr-1.5;
+    }
+
+    /* Icon standalone (no margin) */
+    .icon-standalone {
+        @apply w-5 h-5;
+    }
+
+    /* Large icon */
+    .icon-lg {
+        @apply w-6 h-6;
+    }
+
+    /* ========================================================================
+       Status & Feedback Components
+       ======================================================================== */
+
+    /* Error message */
+    .error-message {
+        @apply flex items-center text-sm text-theme-error;
+    }
+
+    /* Success message */
+    .success-message {
+        @apply flex items-center text-sm text-theme-success;
+    }
+
+    /* Warning message */
+    .warning-message {
+        @apply flex items-center text-sm text-theme-warning;
+    }
+
+    /* ========================================================================
+       Keyboard Shortcut Components
+       ======================================================================== */
+
+    /* Keyboard key display */
+    .kbd {
+        @apply px-2 py-1 bg-theme-tertiary rounded;
+        @apply border border-theme-secondary;
+        @apply font-mono text-theme-secondary text-xs;
+    }
+
+    /* Keyboard shortcut hint container */
+    .kbd-hint {
+        @apply flex items-center justify-center space-x-4;
+        @apply text-xs text-theme-muted;
+    }
+
+    /* ========================================================================
+       Navigation Components
+       ======================================================================== */
+
+    /* Back button link */
+    .nav-back {
+        @apply flex items-center text-sm text-theme-accent;
+        @apply hover:opacity-80 font-medium transition-opacity;
+    }
+
+    /* Breadcrumb text */
+    .breadcrumb {
+        @apply text-xs text-theme-muted;
+    }
+
+    /* ========================================================================
+       List & Item Components
+       ======================================================================== */
+
+    /* Hoverable list item */
+    .list-item-hover {
+        @apply hover:bg-theme-secondary rounded transition-colors;
+    }
+
+    /* List item with border */
+    .list-item-bordered {
+        @apply border-b border-theme-primary last:border-b-0;
+    }
+
+    /* ========================================================================
+       Divider Components
+       ======================================================================== */
+
+    /* Top border divider */
+    .divider-top {
+        @apply border-t border-theme-primary;
+    }
+
+    /* Bottom border divider */
+    .divider-bottom {
+        @apply border-b border-theme-primary;
+    }
+
+    /* Full divider with padding */
+    .divider {
+        @apply border-t border-theme-primary pt-4 mt-4;
+    }
+
+    /* ========================================================================
+       Loading & Animation Components
+       ======================================================================== */
+
+    /* Spinner animation */
+    .spinner {
+        @apply animate-spin;
+    }
+
+    /* Fade in animation */
+    .fade-in {
+        animation: fadeIn 0.2s ease-in-out;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
+
+    /* Slide in from right */
+    .slide-in-right {
+        animation: slideInRight 0.3s ease-out;
+    }
+
+    @keyframes slideInRight {
+        from {
+            transform: translateX(1rem);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+
+    /* ========================================================================
+       Scrollbar Styles
+       ======================================================================== */
+
     ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
@@ -298,6 +654,10 @@
     ::-webkit-scrollbar-thumb:hover {
         background: var(--text-tertiary);
     }
+
+    /* ========================================================================
+       Icon Filter Styles
+       ======================================================================== */
 
     /* SVG icon styles */
     img[src^="/icons/"] {
@@ -477,7 +837,7 @@
         background-color: var(--border-primary);
     }
 
-    /* Theme-aware card styles */
+    /* Theme-aware card styles (deprecated - use .card instead) */
     .card-theme {
         background-color: var(--bg-surface);
         border: 1px solid var(--border-primary);

@@ -3,6 +3,8 @@
 //! A modern web application for creating and visualizing database schema diagrams,
 //! built with Leptos and WebAssembly.
 
+#![recursion_limit = "4096"]
+
 pub mod app;
 pub mod core;
 pub mod ui;

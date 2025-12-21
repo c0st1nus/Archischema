@@ -4,11 +4,21 @@
 pub mod ai_api;
 pub mod ai_config;
 pub mod ai_tools;
+#[cfg(feature = "ssr")]
+pub mod auth;
 pub mod auto_layout;
 #[cfg(feature = "ssr")]
 pub mod config;
+#[cfg(feature = "ssr")]
+pub mod db;
+#[cfg(feature = "ssr")]
+pub mod diagrams;
 pub mod export;
+#[cfg(feature = "ssr")]
+pub mod folders;
 mod schema;
+#[cfg(feature = "ssr")]
+pub mod sharing;
 pub mod sql_parser;
 #[cfg(test)]
 mod tests;

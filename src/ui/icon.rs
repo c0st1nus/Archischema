@@ -9,11 +9,12 @@ pub fn Icon(
     class: &'static str,
 ) -> impl IntoView {
     let icon_path = format!("/icons/{}.svg", name);
+    let full_class = format!("block {}", class);
 
     view! {
         <img
             src=icon_path
-            class=class
+            class=full_class
             alt=name
             draggable=false
         />
@@ -35,7 +36,7 @@ pub mod icons {
     pub const CHECK: &str = "check";
     pub const X: &str = "x";
     pub const LIGHTNING: &str = "lightning";
-    pub const MENU: &str = "menu";
+    pub const MENU: &str = "bars-3";
     pub const EXPAND: &str = "expand";
     pub const COLLAPSE: &str = "collapse";
     pub const ALERT_CIRCLE: &str = "alert-circle";
@@ -61,4 +62,30 @@ pub mod icons {
     pub const BOT: &str = "bot";
     pub const SEND: &str = "send";
     pub const SPARKLES: &str = "sparkles";
+    pub const SUN: &str = "sun";
+    pub const MOON: &str = "moon";
+    pub const FOLDER: &str = "folder";
+    pub const SORT_UP: &str = "sort-up";
+    pub const SORT_DOWN: &str = "sort-down";
+    pub const SORT: &str = "sort";
+    pub const ARROW_DOWN_TO_LINE: &str = "arrow-down-to-line";
+    pub const CAMERA: &str = "camera";
+    pub const CLOCK: &str = "clock";
+    pub const CODE: &str = "code";
+    pub const DOCUMENT_DUPLICATE: &str = "document-duplicate";
+    pub const DOCUMENT_TEXT: &str = "document-text";
+    pub const ELLIPSIS: &str = "ellipsis";
+    pub const ELLIPSIS_VERTICAL: &str = "ellipsis-vertical";
+    pub const ERROR: &str = "error";
+    pub const WARNING: &str = "warning";
+    pub const EXTERNAL_LINK: &str = "external-link";
+    pub const EYE: &str = "eye";
+    pub const EYE_CLOSED: &str = "eye-closed";
+    pub const GITHUB: &str = "github";
+    pub const INFORMATION_CIRCLE: &str = "information-circle";
+    pub const LOGOUT: &str = "logout";
+    pub const SQUARES_2X2: &str = "squares-2x2";
+    pub const ARROW_LEFT: &str = "arrow-left";
+    pub const PANEL_LEFT_CLOSE: &str = "panel-left-close";
+    pub const PANEL_LEFT_OPEN: &str = "panel-left-open";
 }

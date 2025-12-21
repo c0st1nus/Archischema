@@ -187,7 +187,7 @@ pub fn LiveSharePanel() -> impl IntoView {
         <div class="absolute top-4 right-4 z-50">
             // Toggle button
             <button
-                class="flex items-center gap-2 px-4 py-2 bg-theme-surface border border-theme-primary rounded-lg shadow-theme-lg hover:bg-theme-secondary theme-transition"
+                class="btn-secondary shadow-theme-lg"
                 on:click=move |_| set_is_open.update(|v| *v = !*v)
             >
                 {move || {
@@ -195,34 +195,32 @@ pub fn LiveSharePanel() -> impl IntoView {
                     match state {
                         ConnectionState::Connected => view! {
                             <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                            <span class="text-sm font-medium text-theme-secondary">"Connected"</span>
+                            <span class="label-sm">"Connected"</span>
                         }.into_any(),
                         ConnectionState::Connecting => view! {
                             <div class="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
-                            <span class="text-sm font-medium text-theme-secondary">"Connecting..."</span>
+                            <span class="label-sm">"Connecting..."</span>
                         }.into_any(),
                         ConnectionState::Reconnecting => view! {
                             <div class="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
-                            <span class="text-sm font-medium text-theme-secondary">"Reconnecting..."</span>
+                            <span class="label-sm">"Reconnecting..."</span>
                         }.into_any(),
                         ConnectionState::Error => view! {
                             <div class="w-2 h-2 bg-red-500 rounded-full"></div>
-                            <span class="text-sm font-medium text-theme-secondary">"Error"</span>
+                            <span class="label-sm">"Error"</span>
                         }.into_any(),
                         ConnectionState::Disconnected => view! {
                             <div class="w-2 h-2 bg-gray-400 rounded-full"></div>
-                            <span class="text-sm font-medium text-theme-secondary">"LiveShare"</span>
+                            <span class="label-sm">"LiveShare"</span>
                         }.into_any(),
                     }
                 }}
-                <svg
-                    class={move || if is_open.get() { "w-4 h-4 rotate-180 transition-transform duration-200 text-theme-tertiary" } else { "w-4 h-4 transition-transform duration-200 text-theme-tertiary" }}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+                <div
+                    class="icon-text text-theme-tertiary transition-transform duration-200"
+                    class=("rotate-180", move || is_open.get())
                 >
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                </svg>
+                    <Icon name=icons::CHEVRON_DOWN class="icon-text" />
+                </div>
             </button>
 
             // Dropdown panel
@@ -237,7 +235,7 @@ pub fn LiveSharePanel() -> impl IntoView {
                     // Connected view
                     let ctx_users = ctx;
                     view! {
-                        <div class="mt-2 w-80 bg-theme-surface border border-theme-primary rounded-xl shadow-theme-xl overflow-hidden theme-transition">
+                        <div class="mt-2 w-80 card shadow-theme-xl overflow-hidden">
                             // Header
                             <div class="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white">
                                 <div class="flex items-center justify-between">
@@ -255,7 +253,7 @@ pub fn LiveSharePanel() -> impl IntoView {
                             </div>
 
                             // Room info
-                            <div class="p-4 border-b border-theme-primary">
+                            <div class="p-4 divider-bottom">
                                 <div class="flex items-center justify-between text-sm">
                                     <span class="text-theme-muted">"Room ID"</span>
                                     <div class="flex items-center gap-2">
@@ -271,13 +269,11 @@ pub fn LiveSharePanel() -> impl IntoView {
                                             }}
                                         </code>
                                         <button
-                                            class="flex items-center justify-center text-theme-accent hover:opacity-80"
+                                            class="btn-icon text-theme-accent hover:opacity-80"
                                             on:click={copy_link}
                                             title="Copy room link"
                                         >
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                                            </svg>
+                                            <Icon name=icons::DOCUMENT_DUPLICATE class="icon-text" />
                                         </button>
                                     </div>
                                 </div>
@@ -285,7 +281,7 @@ pub fn LiveSharePanel() -> impl IntoView {
 
                             // Users list
                             <div class="p-4">
-                                <h4 class="text-sm font-medium text-theme-secondary mb-2">
+                                <h4 class="label-sm mb-2">
                                     {move || format!("Users ({})", ctx_users.get_all_users().len())}
                                 </h4>
                                 <div class="space-y-2 max-h-40 overflow-y-auto">
@@ -320,9 +316,9 @@ pub fn LiveSharePanel() -> impl IntoView {
                 } else {
                     // Disconnected view - join/create form
                     view! {
-                        <div class="mt-2 w-80 bg-theme-surface border border-theme-primary rounded-xl shadow-theme-xl overflow-hidden theme-transition">
+                        <div class="mt-2 w-80 card shadow-theme-xl overflow-hidden">
                             // Tab selector
-                            <div class="flex border-b border-theme-primary">
+                            <div class="flex divider-bottom">
                                 <button
                                     class={move || if mode.get() == "join" {
                                         "flex-1 px-4 py-3 text-sm font-medium text-theme-accent border-b-2 border-theme-accent bg-theme-accent-light theme-transition"
@@ -349,20 +345,21 @@ pub fn LiveSharePanel() -> impl IntoView {
                             <div class="p-4 space-y-4">
                                 // Error message
                                 {move || error.get().map(|err| view! {
-                                    <div class="p-3 bg-theme-error border border-theme-error rounded-lg text-sm text-theme-error theme-transition">
-                                        {err}
+                                    <div class="error-message">
+                                        <Icon name=icons::ALERT_CIRCLE class="icon-text"/>
+                                        <span>{err}</span>
                                     </div>
                                 })}
 
                                 // Room ID input
                                 <div>
-                                    <label class="block text-sm font-medium text-theme-secondary mb-1">
+                                    <label class="label">
                                         "Room ID"
                                     </label>
                                     <div class="flex gap-2">
                                         <input
                                             type="text"
-                                            class="flex-1 px-3 py-2 input-theme rounded-lg text-sm"
+                                            class="flex-1 input-base input-sm"
                                             placeholder="Enter room ID or UUID"
                                             prop:value=move || room_id_input.get()
                                             on:input=move |ev| set_room_id_input.set(event_target_value(&ev))
@@ -370,11 +367,11 @@ pub fn LiveSharePanel() -> impl IntoView {
                                         {move || if mode.get() == "create" {
                                             view! {
                                                 <button
-                                                    class="flex items-center justify-center px-3 py-2 bg-theme-tertiary hover:bg-theme-secondary text-theme-secondary rounded-lg text-sm theme-transition"
+                                                    class="btn-icon btn-sm"
                                                     on:click=generate_room_id
                                                     title="Generate random ID"
                                                 >
-                                                    <Icon name=icons::DICES class="w-5 h-5"/>
+                                                    <Icon name=icons::DICES class="icon-standalone"/>
                                                 </button>
                                             }.into_any()
                                         } else {
@@ -387,12 +384,12 @@ pub fn LiveSharePanel() -> impl IntoView {
                                 {move || if mode.get() == "create" {
                                     view! {
                                         <div>
-                                            <label class="block text-sm font-medium text-theme-secondary mb-1">
+                                            <label class="label">
                                                 "Room Name " <span class="text-theme-muted">"(optional)"</span>
                                             </label>
                                             <input
                                                 type="text"
-                                                class="w-full px-3 py-2 input-theme rounded-lg text-sm"
+                                                class="input-base input-sm"
                                                 placeholder="My awesome project"
                                                 prop:value=move || room_name.get()
                                                 on:input=move |ev| set_room_name.set(event_target_value(&ev))
@@ -405,12 +402,12 @@ pub fn LiveSharePanel() -> impl IntoView {
 
                                 // Password input
                                 <div>
-                                    <label class="block text-sm font-medium text-theme-secondary mb-1">
+                                    <label class="label">
                                         "Password " <span class="text-theme-muted">"(optional)"</span>
                                     </label>
                                     <input
                                         type="password"
-                                        class="w-full px-3 py-2 input-theme rounded-lg text-sm"
+                                        class="input-base input-sm"
                                         placeholder={move || if mode.get() == "create" { "Set a password" } else { "Enter room password" }}
                                         prop:value=move || password.get()
                                         on:input=move |ev| set_password.set(event_target_value(&ev))
@@ -423,7 +420,7 @@ pub fn LiveSharePanel() -> impl IntoView {
                                     let join_room = join_room;
                                     view! {
                                         <button
-                                            class="w-full px-4 py-2.5 btn-theme-primary rounded-lg font-medium text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            class="w-full btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
                                             disabled=move || connection_state.get() == ConnectionState::Connecting
                                             on:click=move |ev| {
                                                 if mode.get() == "create" {

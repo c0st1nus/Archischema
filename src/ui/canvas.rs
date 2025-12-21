@@ -1,5 +1,6 @@
 use crate::core::{SchemaGraph, TableOps, auto_layout, create_demo_graph};
 use crate::ui::ai_chat::{AiChatButton, AiChatPanel};
+use crate::ui::auth::UserMenu;
 #[cfg(not(feature = "ssr"))]
 use crate::ui::liveshare_client::{
     ColumnData, GraphStateSnapshot, RelationshipData, RelationshipSnapshot, TableSnapshot,
@@ -19,7 +20,21 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 #[component]
-pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
+pub fn SchemaCanvas(
+    graph: RwSignal<SchemaGraph>,
+    /// Diagram name (editable)
+    #[prop(optional)]
+    diagram_name: Option<RwSignal<String>>,
+    /// Diagram ID (for API calls)
+    #[prop(optional)]
+    diagram_id: Option<String>,
+    /// Whether this is demo mode
+    #[prop(default = false)]
+    is_demo: bool,
+    /// Callback when diagram name changes
+    #[prop(optional, into)]
+    on_name_change: Option<Callback<String>>,
+) -> impl IntoView {
     // Get LiveShare context for sync
     let liveshare_ctx = use_liveshare_context();
 
@@ -447,9 +462,9 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
     }
 
     // Обработчик фокуса на таблице из сайдбара
-    let handle_table_focus = move |_node_idx: NodeIndex| {
+    let handle_table_focus = Callback::new(move |_node_idx: NodeIndex| {
         // TODO: Центрировать таблицу на канвасе
-    };
+    });
 
     // Обработчики для зума и панорамирования
     #[cfg(not(feature = "ssr"))]
@@ -609,7 +624,15 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
     view! {
         <div class="relative w-full h-screen bg-theme-canvas overflow-hidden flex theme-transition">
             // Сайдбар
-            <Sidebar graph=graph on_table_focus=handle_table_focus editor_mode=editor_mode is_collapsed=sidebar_collapsed/>
+            <Sidebar
+                graph=graph
+                on_table_focus=handle_table_focus
+                editor_mode=editor_mode
+                is_collapsed=sidebar_collapsed
+                diagram_name=diagram_name
+                is_demo=is_demo
+                on_name_change=on_name_change
+            />
 
             // Source Editor (показывается в режиме Source)
             <Show when=move || editor_mode.get() == EditorMode::Source>
@@ -837,7 +860,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                             node=node_clone
                                             is_being_dragged=is_dragging
                                             is_selected=is_selected
-                                            on_mouse_down=move |ev: web_sys::MouseEvent| {
+                                            on_mouse_down=Callback::new(move |ev: web_sys::MouseEvent| {
                                                 if ev.button() != 0 {
                                                     return;
                                                 }
@@ -864,8 +887,8 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                                         set_dragging_node.set(Some((node_idx, offset_x, offset_y)));
                                                     }
                                                 });
-                                            }
-                                            on_click=move |ev: web_sys::MouseEvent| {
+                                            })
+                                            on_click=Callback::new(move |ev: web_sys::MouseEvent| {
                                                 if ev.button() != 0 {
                                                     return;
                                                 }
@@ -876,7 +899,7 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                                                     selected_table.set(Some(node_idx));
                                                     highlighted_edges.set(HashSet::new());
                                                 }
-                                            }
+                                            })
                                             />
                                         }
                                     })
@@ -1065,10 +1088,19 @@ pub fn SchemaCanvas(graph: RwSignal<SchemaGraph>) -> impl IntoView {
                     }
 
                     view! {
-                        <div class="absolute top-4 right-4 z-50">
+                        <div class="absolute top-4 right-4 z-50 flex items-center gap-3">
+                            <UserMenu />
                             <SettingsButton is_open=settings_open />
                         </div>
-                        <SettingsModal is_open=settings_open initial_room_id=initial_room_id graph=graph />
+                        <SettingsModal
+                            is_open=settings_open
+                            initial_room_id=initial_room_id
+                            graph=graph
+                            diagram_name=diagram_name.map(|s| s.get_untracked())
+                            diagram_id=diagram_id
+                            is_demo=is_demo
+                            on_name_change=on_name_change
+                        />
                         // Auto Layout button (above AI chat button in bottom-right)
                         <button
                             class="fixed bottom-36 right-4 z-40 flex items-center justify-center w-12 h-12 bg-theme-surface border border-theme-primary text-theme-secondary hover:text-theme-accent hover:border-theme-accent theme-transition transition-colors"

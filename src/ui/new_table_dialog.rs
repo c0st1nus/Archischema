@@ -1,4 +1,4 @@
-use crate::ui::{Icon, icons};
+use crate::ui::{CreateCancelHints, ErrorMessage, Icon, icons};
 use leptos::prelude::*;
 use leptos::web_sys;
 
@@ -178,8 +178,8 @@ pub fn NewTableDialog(
         <div class="h-full flex flex-col space-y-4">
             // Заголовок
             <div>
-                <h3 class="text-lg font-semibold text-theme-primary">"New Table"</h3>
-                <p class="text-sm text-theme-muted">
+                <h3 class="title-lg">"New Table"</h3>
+                <p class="subtitle">
                     "Create a new table with a primary key"
                 </p>
             </div>
@@ -188,14 +188,14 @@ pub fn NewTableDialog(
             <div class="space-y-4">
                 // Поле имени таблицы
                 <div>
-                    <label class="block text-sm font-medium text-theme-secondary mb-2">
+                    <label class="label">
                         "Table Name"
                         <span class="text-red-500">"*"</span>
                     </label>
                     <input
                         node_ref=table_input_ref
                         type="text"
-                        class="w-full px-4 py-2.5 input-theme rounded-lg transition-all"
+                        class="input-base"
                         placeholder="e.g., users, orders, products"
                         prop:value=move || table_name.get()
                         on:input=move |ev| {
@@ -208,21 +208,21 @@ pub fn NewTableDialog(
                 </div>
 
                 // Секция первичного ключа
-                <div class="p-4 bg-theme-secondary rounded-lg space-y-3 theme-transition">
+                <div class="card-info space-y-3">
                     <div class="flex items-center text-sm font-medium text-theme-primary">
-                        <Icon name=icons::KEY class="w-4 h-4 mr-2 text-yellow-500"/>
+                        <Icon name=icons::KEY class="icon-text text-yellow-500"/>
                         "Primary Key"
                     </div>
 
                     // Имя первичного ключа
                     <div>
-                        <label class="block text-xs font-medium text-theme-tertiary mb-1">
+                        <label class="label-sm">
                             "Column Name"
                             <span class="text-red-500">"*"</span>
                         </label>
                         <input
                             type="text"
-                            class="w-full px-3 py-2 input-theme rounded-md text-sm"
+                            class="input-base input-sm"
                             placeholder="e.g., id, user_id"
                             prop:value=move || pk_name.get()
                             on:input=move |ev| {
@@ -236,11 +236,11 @@ pub fn NewTableDialog(
 
                     // Тип данных первичного ключа
                     <div>
-                        <label class="block text-xs font-medium text-theme-tertiary mb-1">
+                        <label class="label-sm">
                             "Data Type"
                         </label>
                         <select
-                            class="w-full px-3 py-2 input-theme rounded-md text-sm"
+                            class="select-base"
                             prop:value=move || pk_type.get()
                             on:change=move |ev| {
                                 set_pk_type.set(event_target_value(&ev));
@@ -268,31 +268,20 @@ pub fn NewTableDialog(
                 </div>
 
                 // Ошибка
-                {move || {
-                    error
-                        .get()
-                        .map(|err| {
-                            view! {
-                                <div class="flex items-center text-sm text-theme-error">
-                                    <Icon name=icons::ALERT_CIRCLE class="w-4 h-4 mr-1.5"/>
-                                    <span>{err}</span>
-                                </div>
-                            }
-                        })
-                }}
+                <ErrorMessage error=error/>
             </div>
 
             // Кнопки действий - центрированы
-            <div class="flex items-center justify-center space-x-3 pt-4 border-t border-theme-primary">
+            <div class="flex items-center justify-center space-x-3 divider-top pt-4">
                 <button
-                    class="px-5 py-2.5 text-sm font-medium text-theme-secondary hover:bg-theme-tertiary rounded-lg transition-colors"
+                    class="btn-secondary px-5 py-2.5"
                     on:click=move |_| handle_cancel()
                     disabled=move || is_creating.get()
                 >
                     "Cancel"
                 </button>
                 <button
-                    class="px-6 py-2.5 text-sm font-medium btn-theme-primary rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                    class="btn-primary px-6 py-2.5"
                     on:click=move |_| handle_create()
                     disabled=move || {
                         is_creating.get()
@@ -304,7 +293,7 @@ pub fn NewTableDialog(
                         if is_creating.get() {
                             view! {
                                 <>
-                                    <Icon name=icons::LOADER class="w-4 h-4 mr-1.5 animate-spin"/>
+                                    <Icon name=icons::LOADER class="icon-btn spinner"/>
                                     "Creating..."
                                 </>
                             }
@@ -312,7 +301,7 @@ pub fn NewTableDialog(
                         } else {
                             view! {
                                 <>
-                                    <Icon name=icons::PLUS class="w-4 h-4 mr-1.5"/>
+                                    <Icon name=icons::PLUS class="icon-btn"/>
                                     "Create Table"
                                 </>
                             }
@@ -324,20 +313,7 @@ pub fn NewTableDialog(
 
             // Подсказка по горячим клавишам - внизу с margin
             <div class="mt-auto pt-4 pb-2">
-                <div class="flex items-center justify-center space-x-4 text-xs text-theme-muted">
-                    <div class="flex items-center">
-                        <kbd class="px-2 py-1 bg-theme-tertiary rounded border border-theme-secondary font-mono text-theme-secondary">
-                            "Enter"
-                        </kbd>
-                        <span class="ml-1">"to create"</span>
-                    </div>
-                    <div class="flex items-center">
-                        <kbd class="px-2 py-1 bg-theme-tertiary rounded border border-theme-secondary font-mono text-theme-secondary">
-                            "Esc"
-                        </kbd>
-                        <span class="ml-1">"to cancel"</span>
-                    </div>
-                </div>
+                <CreateCancelHints/>
             </div>
         </div>
     }
