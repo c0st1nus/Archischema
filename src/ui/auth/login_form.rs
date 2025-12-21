@@ -79,7 +79,7 @@ pub fn LoginForm(
 
         let email_val = email.get();
         let password_val = password.get();
-        let on_success = on_success.clone();
+        let on_success = on_success;
 
         spawn_local(async move {
             match login(&email_val, &password_val).await {

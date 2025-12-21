@@ -674,7 +674,7 @@ pub fn DashboardPage() -> impl IntoView {
                                 </div>
                             }.into_any())
                         } else {
-                            let handle_drop_clone = handle_drop.clone();
+                            let handle_drop_clone = handle_drop;
                             let _current_folder_for_drop = current_folder.get();
 
                             Some(view! {
@@ -701,7 +701,7 @@ pub fn DashboardPage() -> impl IntoView {
                                         let parent_id_click = parent_id.clone();
                                         let parent_id_enter = parent_id.clone();
                                         let parent_id_drop = parent_id.clone();
-                                        let handle_drop_parent = handle_drop_clone.clone();
+                                        let handle_drop_parent = handle_drop_clone;
                                         let is_target = Memo::new(move |_| drop_target.get() == Some(target_folder.clone()));
                                         Some(view! {
                                             <ParentFolderCard
@@ -738,7 +738,7 @@ pub fn DashboardPage() -> impl IntoView {
                                         let folder_name_delete = folder.name.clone();
                                         let folder_id_rename = folder_id.clone();
                                         let folder_name_rename = folder.name.clone();
-                                        let handle_drop_folder = handle_drop_clone.clone();
+                                        let handle_drop_folder = handle_drop_clone;
                                         let is_target = Memo::new(move |_| drop_target.get() == Some(Some(folder_id_target.clone())));
                                         view! {
                                             <FolderCard

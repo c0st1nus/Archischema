@@ -361,7 +361,7 @@ async fn list_diagrams_handler(
     // Require authentication
     let user_id = extract_user_id(&state.jwt_service, &headers)?;
 
-    let limit = query.limit.min(100).max(1);
+    let limit = query.limit.clamp(1, 100);
     let offset = query.offset.max(0);
 
     tracing::debug!(
@@ -406,7 +406,7 @@ async fn list_shared_diagrams_handler(
     // Require authentication
     let user_id = extract_user_id(&state.jwt_service, &headers)?;
 
-    let limit = query.limit.min(100).max(1);
+    let limit = query.limit.clamp(1, 100);
     let offset = query.offset.max(0);
 
     tracing::debug!(
@@ -498,7 +498,7 @@ async fn update_diagram_handler(
 
     // Build update DTO
     let update_dto = UpdateDiagram {
-        folder_id: request.folder_id.clone(),
+        folder_id: request.folder_id,
         name: request.name.map(|n| n.trim().to_string()),
         description: request.description,
         schema_data: request.schema_data,

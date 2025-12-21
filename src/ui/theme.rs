@@ -266,7 +266,7 @@ mod tests {
     #[test]
     fn test_theme_mode_clone() {
         let mode = ThemeMode::Dark;
-        let cloned = mode.clone();
+        let cloned = mode;
         assert_eq!(mode, cloned);
     }
 

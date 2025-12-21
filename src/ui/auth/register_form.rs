@@ -182,7 +182,7 @@ pub fn RegisterForm(
         let email_val = email.get();
         let username_val = username.get();
         let password_val = password.get();
-        let on_success = on_success.clone();
+        let on_success = on_success;
 
         spawn_local(async move {
             match register(&email_val, &username_val, &password_val).await {

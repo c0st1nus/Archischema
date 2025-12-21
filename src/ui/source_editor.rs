@@ -577,7 +577,7 @@ fn ErrorUnderlinesWithScroll(
                 let left = padding_left + (range.start_column - 1) as f64 * char_width - sl;
 
                 // Skip if outside visible area
-                if top < -30.0 || top > 2000.0 {
+                if !(-30.0..=2000.0).contains(&top) {
                     return None;
                 }
 

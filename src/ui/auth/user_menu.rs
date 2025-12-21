@@ -197,16 +197,13 @@ pub fn UserAvatar(
     #[prop(default = 32)]
     size: u32,
 ) -> impl IntoView {
-    let initials = {
-        let first = user
-            .username
-            .chars()
-            .next()
-            .unwrap_or('?')
-            .to_uppercase()
-            .to_string();
-        first
-    };
+    let initials = user
+        .username
+        .chars()
+        .next()
+        .unwrap_or('?')
+        .to_uppercase()
+        .to_string();
 
     let size_style = format!(
         "width: {}px; height: {}px; min-width: {}px; min-height: {}px;",

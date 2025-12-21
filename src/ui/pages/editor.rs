@@ -133,10 +133,10 @@ pub fn EditorPage() -> impl IntoView {
                 match fetch_diagram(&id).await {
                     Ok(diagram) => {
                         diagram_name.set(diagram.name);
-                        if let Some(schema) = diagram.schema_data {
-                            if let Ok(parsed) = serde_json::from_value(schema) {
-                                graph.set(parsed);
-                            }
+                        if let Some(schema) = diagram.schema_data
+                            && let Ok(parsed) = serde_json::from_value(schema)
+                        {
+                            graph.set(parsed);
                         }
                     }
                     Err(e) => {
@@ -169,31 +169,32 @@ pub fn EditorPage() -> impl IntoView {
         let current_graph = serde_json::to_string(&graph.get()).unwrap_or_default();
 
         // Skip first render and unchanged graphs
-        if let Some(prev) = prev_graph {
-            if prev != current_graph && !prev.is_empty() {
-                // Graph changed, trigger autosave
-                save_status.set(SaveStatus::Saving);
+        if let Some(prev) = prev_graph
+            && prev != current_graph
+            && !prev.is_empty()
+        {
+            // Graph changed, trigger autosave
+            save_status.set(SaveStatus::Saving);
 
-                let id_clone = id.clone();
-                let graph_clone = current_graph.clone();
+            let id_clone = id.clone();
+            let graph_clone = current_graph.clone();
 
-                spawn_local(async move {
-                    // Debounce - wait 2 seconds
-                    #[cfg(not(feature = "ssr"))]
-                    {
-                        gloo_timers::future::TimeoutFuture::new(2000).await;
+            spawn_local(async move {
+                // Debounce - wait 2 seconds
+                #[cfg(not(feature = "ssr"))]
+                {
+                    gloo_timers::future::TimeoutFuture::new(2000).await;
+                }
+
+                match autosave_diagram(&id_clone, &graph_clone).await {
+                    Ok(_) => {
+                        save_status.set(SaveStatus::Saved);
                     }
-
-                    match autosave_diagram(&id_clone, &graph_clone).await {
-                        Ok(_) => {
-                            save_status.set(SaveStatus::Saved);
-                        }
-                        Err(_) => {
-                            save_status.set(SaveStatus::Error);
-                        }
+                    Err(_) => {
+                        save_status.set(SaveStatus::Error);
                     }
-                });
-            }
+                }
+            });
         }
 
         current_graph

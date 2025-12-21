@@ -364,25 +364,25 @@ impl FolderRepository {
         }
 
         // If changing parent, verify no circular reference
-        if let Some(new_parent_id) = updates.parent_id {
-            if let Some(new_pid) = new_parent_id {
-                // Check if new parent exists
-                let parent_exists = sqlx::query_scalar::<_, bool>(
-                    "SELECT EXISTS(SELECT 1 FROM folders WHERE id = $1 AND owner_id = $2)",
-                )
-                .bind(new_pid)
-                .bind(owner_id)
-                .fetch_one(&self.pool)
-                .await?;
+        if let Some(new_parent_id) = updates.parent_id
+            && let Some(new_pid) = new_parent_id
+        {
+            // Check if new parent exists
+            let parent_exists = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM folders WHERE id = $1 AND owner_id = $2)",
+            )
+            .bind(new_pid)
+            .bind(owner_id)
+            .fetch_one(&self.pool)
+            .await?;
 
-                if !parent_exists {
-                    return Err(FolderRepositoryError::ParentNotFound);
-                }
+            if !parent_exists {
+                return Err(FolderRepositoryError::ParentNotFound);
+            }
 
-                // Check for circular reference
-                if self.would_create_cycle(id, new_pid).await? {
-                    return Err(FolderRepositoryError::CircularReference);
-                }
+            // Check for circular reference
+            if self.would_create_cycle(id, new_pid).await? {
+                return Err(FolderRepositoryError::CircularReference);
             }
         }
 

@@ -162,8 +162,10 @@ mod tests {
 
     #[test]
     fn test_config_builder_preserves_database_url() {
-        let mut config = DbConfig::default();
-        config.database_url = "postgres://localhost/test".to_string();
+        let config = DbConfig {
+            database_url: "postgres://localhost/test".to_string(),
+            ..Default::default()
+        };
 
         let config = config.max_connections(15).min_connections(3);
 

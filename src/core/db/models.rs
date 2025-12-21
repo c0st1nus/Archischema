@@ -185,18 +185,13 @@ pub struct DiagramSummary {
 // ============================================================================
 
 /// Permission levels for shared diagrams
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, Default)]
 #[sqlx(type_name = "VARCHAR", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum SharePermission {
+    #[default]
     View,
     Edit,
-}
-
-impl Default for SharePermission {
-    fn default() -> Self {
-        Self::View
-    }
 }
 
 impl std::fmt::Display for SharePermission {

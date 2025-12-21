@@ -107,7 +107,7 @@ pub fn Button(
                     <Icon name=icon_name class="icon-btn"/>
                 }.into_any()
             } else {
-                view! { <></> }.into_any()
+                ().into_any()
             }}
             {children()}
         </button>

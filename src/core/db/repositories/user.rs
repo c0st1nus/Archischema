@@ -195,21 +195,19 @@ impl UserRepository {
         }
 
         // Check email uniqueness if being updated
-        if let Some(ref email) = updates.email {
-            if let Some(existing) = self.find_by_email(email).await? {
-                if existing.id != id {
-                    return Err(UserRepositoryError::EmailAlreadyExists);
-                }
-            }
+        if let Some(ref email) = updates.email
+            && let Some(existing) = self.find_by_email(email).await?
+            && existing.id != id
+        {
+            return Err(UserRepositoryError::EmailAlreadyExists);
         }
 
         // Check username uniqueness if being updated
-        if let Some(ref username) = updates.username {
-            if let Some(existing) = self.find_by_username(username).await? {
-                if existing.id != id {
-                    return Err(UserRepositoryError::UsernameAlreadyExists);
-                }
-            }
+        if let Some(ref username) = updates.username
+            && let Some(existing) = self.find_by_username(username).await?
+            && existing.id != id
+        {
+            return Err(UserRepositoryError::UsernameAlreadyExists);
         }
 
         // Hash new password if provided

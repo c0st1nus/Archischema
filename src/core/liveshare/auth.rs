@@ -142,30 +142,29 @@ where
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         // First, try JWT authentication from Authorization header
-        if let Some(auth_header) = parts.headers.get(header::AUTHORIZATION) {
-            if let Ok(auth_str) = auth_header.to_str() {
-                if auth_str.starts_with("Bearer ") {
-                    let token = auth_str.trim_start_matches("Bearer ");
-                    if !token.is_empty() {
-                        // Try to validate JWT token
-                        #[cfg(feature = "ssr")]
-                        if let Some(jwt_service) = get_jwt_service() {
-                            match jwt_service.validate_access_token(token) {
-                                Ok(claims) => {
-                                    if let Ok(user_id) = claims.user_id() {
-                                        return Ok(AuthenticatedUser::authenticated(
-                                            user_id,
-                                            claims.username,
-                                            Some(claims.email),
-                                        ));
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::debug!("JWT validation failed: {:?}", e);
-                                    // Don't reject - fall through to guest mode
-                                    // This allows guests to join rooms even with invalid/expired tokens
-                                }
+        if let Some(auth_header) = parts.headers.get(header::AUTHORIZATION)
+            && let Ok(auth_str) = auth_header.to_str()
+            && auth_str.starts_with("Bearer ")
+        {
+            let token = auth_str.trim_start_matches("Bearer ");
+            if !token.is_empty() {
+                // Try to validate JWT token
+                #[cfg(feature = "ssr")]
+                if let Some(jwt_service) = get_jwt_service() {
+                    match jwt_service.validate_access_token(token) {
+                        Ok(claims) => {
+                            if let Ok(user_id) = claims.user_id() {
+                                return Ok(AuthenticatedUser::authenticated(
+                                    user_id,
+                                    claims.username,
+                                    Some(claims.email),
+                                ));
                             }
+                        }
+                        Err(e) => {
+                            tracing::debug!("JWT validation failed: {:?}", e);
+                            // Don't reject - fall through to guest mode
+                            // This allows guests to join rooms even with invalid/expired tokens
                         }
                     }
                 }

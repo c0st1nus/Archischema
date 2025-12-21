@@ -65,7 +65,7 @@ fn LiveShareDisconnectedView(
     };
 
     // Create room handler
-    let ctx_create = ctx.clone();
+    let ctx_create = ctx;
     let create_room = move |_| {
         let room_id_val = room_id_input.get();
         if room_id_val.is_empty() {
@@ -267,8 +267,6 @@ fn LiveShareDisconnectedView(
 
             // Submit button
             {
-                let create_room = create_room;
-                let join_room = join_room;
                 view! {
                     <button
                         class="btn-theme-primary"
@@ -749,7 +747,7 @@ fn DiagramTab(
     let room_id = ctx.room_id;
     let room_info = ctx.room_info;
 
-    let ctx_disconnect = ctx.clone();
+    let ctx_disconnect = ctx;
     let disconnect = Callback::new(move |_: ()| {
         ctx_disconnect.disconnect();
         room_id_input.set(String::new());
@@ -1014,7 +1012,7 @@ fn DiagramTab(
                         // Disconnected view
                         view! {
                             <LiveShareDisconnectedView
-                                ctx=ctx.clone()
+                                ctx=ctx
                                 room_id_input=room_id_input
                                 room_name=room_name
                                 password=password
@@ -1345,7 +1343,7 @@ pub fn SettingsModal(
                                         diagram_id=diagram_id_clone.clone()
                                         is_demo=is_demo
                                         on_name_change=on_name_change
-                                        ctx=ctx.clone()
+                                        ctx=ctx
                                         room_id_input=room_id_input
                                         room_name=room_name
                                         password=password

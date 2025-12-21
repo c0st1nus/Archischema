@@ -30,20 +30,15 @@ pub struct TokenPair {
 }
 
 /// Authentication state
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum AuthState {
     /// Initial state, checking localStorage
+    #[default]
     Loading,
     /// User is not authenticated
     Unauthenticated,
     /// User is authenticated
     Authenticated(User),
-}
-
-impl Default for AuthState {
-    fn default() -> Self {
-        Self::Loading
-    }
 }
 
 /// Auth error types

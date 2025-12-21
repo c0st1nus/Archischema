@@ -431,10 +431,10 @@ impl SqlParser {
         }
 
         // Try to provide a helpful suggestion
-        if message.contains("Expected") {
-            if let Some(suggestion) = self.generate_syntax_suggestion(&message) {
-                validation_error = validation_error.with_suggestion(suggestion);
-            }
+        if message.contains("Expected")
+            && let Some(suggestion) = self.generate_syntax_suggestion(&message)
+        {
+            validation_error = validation_error.with_suggestion(suggestion);
         }
 
         validation_error
@@ -834,15 +834,13 @@ impl SchemaValidator {
                     );
                 }
             }
-            DataType::Decimal(precision) => {
-                if let sqlparser::ast::ExactNumberInfo::PrecisionAndScale(p, s) = precision {
-                    // s is i64, p is u64, need to compare safely
-                    if *s > 0 && (*s as u64) > *p {
-                        result.add_error(SqlValidationError::error(
-                            format!("DECIMAL scale ({}) cannot exceed precision ({})", s, p),
-                            "E006_INVALID_DECIMAL",
-                        ));
-                    }
+            DataType::Decimal(sqlparser::ast::ExactNumberInfo::PrecisionAndScale(p, s)) => {
+                // s is i64, p is u64, need to compare safely
+                if *s > 0 && (*s as u64) > *p {
+                    result.add_error(SqlValidationError::error(
+                        format!("DECIMAL scale ({}) cannot exceed precision ({})", s, p),
+                        "E006_INVALID_DECIMAL",
+                    ));
                 }
             }
             _ => {}
@@ -1007,7 +1005,7 @@ impl SchemaValidator {
     fn find_foreign_key_position(&self, from_table: &str, _to_table: &str) -> Option<SourceSpan> {
         // Try to find in context of ALTER TABLE or CREATE TABLE
         let patterns = [
-            format!("FOREIGN KEY"), // Generic fallback
+            "FOREIGN KEY", // Generic fallback
         ];
 
         // First try to find ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ... REFERENCES to_table
@@ -1414,33 +1412,31 @@ fn parse_position_from_sql(sql: &str, table_name: &str) -> Option<(f64, f64)> {
         let line_lower = line.to_lowercase();
         if line_lower.contains("create table") {
             // Extract table name from this line
-            let stripped_line =
-                strip_quotes(&line_lower.replace("create table", "").trim().to_string());
+            let stripped_line = strip_quotes(line_lower.replace("create table", "").trim());
             let line_table_name = stripped_line
                 .split(|c: char| c.is_whitespace() || c == '(')
                 .next()
-                .map(|s| strip_quotes(s))
+                .map(strip_quotes)
                 .unwrap_or_default();
 
             if line_table_name == table_name_lower {
                 // Look for position comment in previous line
                 if line_idx > 0 {
                     let prev_line = lines[line_idx - 1];
-                    if prev_line.starts_with("-- Position:") {
+                    if prev_line.starts_with("-- Position:")
+                        && let Some(start) = prev_line.find('(')
+                        && let Some(end) = prev_line.find(')')
+                    {
                         // Parse "(x, y)" from the comment
-                        if let Some(start) = prev_line.find('(') {
-                            if let Some(end) = prev_line.find(')') {
-                                let coords = &prev_line[start + 1..end];
-                                let parts: Vec<&str> = coords.split(',').collect();
-                                if parts.len() == 2 {
-                                    if let (Ok(x), Ok(y)) = (
-                                        parts[0].trim().parse::<f64>(),
-                                        parts[1].trim().parse::<f64>(),
-                                    ) {
-                                        return Some((x, y));
-                                    }
-                                }
-                            }
+                        let coords = &prev_line[start + 1..end];
+                        let parts: Vec<&str> = coords.split(',').collect();
+                        if parts.len() == 2
+                            && let (Ok(x), Ok(y)) = (
+                                parts[0].trim().parse::<f64>(),
+                                parts[1].trim().parse::<f64>(),
+                            )
+                        {
+                            return Some((x, y));
                         }
                     }
                 }
@@ -1495,7 +1491,9 @@ pub fn apply_sql_to_graph(
 
     // Collect foreign key constraints to process after all tables are created
     // Using a HashSet to track unique foreign keys (from_table, from_col, to_table, to_col)
-    let mut foreign_keys: Vec<(String, String, Vec<String>, String, Vec<String>)> = Vec::new();
+    // Type alias for (constraint_name, from_table, from_columns, to_table, to_columns)
+    type ForeignKeyInfo = (String, String, Vec<String>, String, Vec<String>);
+    let mut foreign_keys: Vec<ForeignKeyInfo> = Vec::new();
     let mut seen_fks: HashSet<(String, String, String, String)> = HashSet::new();
 
     // Process each statement
@@ -1655,19 +1653,35 @@ pub fn apply_sql_to_graph(
 
                 // Handle ADD CONSTRAINT for foreign keys from ALTER TABLE
                 for operation in &alter_table.operations {
-                    if let AlterTableOperation::AddConstraint { constraint, .. } = operation {
-                        if let sqlparser::ast::TableConstraint::ForeignKey(fk) = constraint {
-                            let from_columns: Vec<String> =
-                                fk.columns.iter().map(|c| strip_quotes(&c.value)).collect();
-                            let to_table = strip_quotes(&fk.foreign_table.to_string());
-                            let to_columns: Vec<String> = fk
-                                .referred_columns
-                                .iter()
-                                .map(|c| strip_quotes(&c.value))
-                                .collect();
+                    if let AlterTableOperation::AddConstraint { constraint, .. } = operation
+                        && let sqlparser::ast::TableConstraint::ForeignKey(fk) = constraint
+                    {
+                        let from_columns: Vec<String> =
+                            fk.columns.iter().map(|c| strip_quotes(&c.value)).collect();
+                        let to_table = strip_quotes(&fk.foreign_table.to_string());
+                        let to_columns: Vec<String> = fk
+                            .referred_columns
+                            .iter()
+                            .map(|c| strip_quotes(&c.value))
+                            .collect();
 
-                            // Check for duplicates before adding
-                            let mut is_duplicate = false;
+                        // Check for duplicates before adding
+                        let mut is_duplicate = false;
+                        for (from_col, to_col) in from_columns.iter().zip(to_columns.iter()) {
+                            let fk_key = (
+                                table_name_lower.clone(),
+                                from_col.to_lowercase(),
+                                to_table.to_lowercase(),
+                                to_col.to_lowercase(),
+                            );
+                            if seen_fks.contains(&fk_key) {
+                                is_duplicate = true;
+                                break;
+                            }
+                        }
+
+                        if !is_duplicate {
+                            // Mark as seen
                             for (from_col, to_col) in from_columns.iter().zip(to_columns.iter()) {
                                 let fk_key = (
                                     table_name_lower.clone(),
@@ -1675,33 +1689,16 @@ pub fn apply_sql_to_graph(
                                     to_table.to_lowercase(),
                                     to_col.to_lowercase(),
                                 );
-                                if seen_fks.contains(&fk_key) {
-                                    is_duplicate = true;
-                                    break;
-                                }
+                                seen_fks.insert(fk_key);
                             }
 
-                            if !is_duplicate {
-                                // Mark as seen
-                                for (from_col, to_col) in from_columns.iter().zip(to_columns.iter())
-                                {
-                                    let fk_key = (
-                                        table_name_lower.clone(),
-                                        from_col.to_lowercase(),
-                                        to_table.to_lowercase(),
-                                        to_col.to_lowercase(),
-                                    );
-                                    seen_fks.insert(fk_key);
-                                }
-
-                                foreign_keys.push((
-                                    table_name.clone(),
-                                    table_name_lower.clone(),
-                                    from_columns,
-                                    to_table,
-                                    to_columns,
-                                ));
-                            }
+                            foreign_keys.push((
+                                table_name.clone(),
+                                table_name_lower.clone(),
+                                from_columns,
+                                to_table,
+                                to_columns,
+                            ));
                         }
                     }
                 }

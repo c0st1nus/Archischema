@@ -217,10 +217,7 @@ impl Default for NotificationManager {
 
 impl Clone for NotificationManager {
     fn clone(&self) -> Self {
-        Self {
-            notifications: self.notifications,
-            next_id: self.next_id,
-        }
+        *self
     }
 }
 
