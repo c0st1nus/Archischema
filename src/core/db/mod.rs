@@ -12,8 +12,9 @@ pub use models::*;
 pub use pool::{DbConfig, DbError, create_pool, create_pool_with_migrations};
 pub use repositories::{
     DiagramAccess, DiagramRepository, DiagramRepositoryError, FolderNode, FolderRepository,
-    FolderRepositoryError, FolderWithDepth, SessionRepository, SessionRepositoryError,
-    ShareRepository, ShareRepositoryError, SharedDiagramInfo, UserRepository, UserRepositoryError,
+    FolderRepositoryError, FolderWithDepth, LiveShareRepository, LiveShareRepositoryError,
+    SessionRepository, SessionRepositoryError, ShareRepository, ShareRepositoryError,
+    SharedDiagramInfo, UserRepository, UserRepositoryError,
 };
 
 // Re-export sqlx types that might be needed

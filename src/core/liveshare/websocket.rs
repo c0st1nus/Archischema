@@ -230,6 +230,21 @@ impl ConnectionSession {
                 self.handle_graph_op(op).await
             }
 
+            ClientMessage::CursorMove { position } => {
+                self.require_auth()?;
+                self.handle_cursor_move(position).await
+            }
+
+            ClientMessage::IdleStatus { is_active } => {
+                self.require_auth()?;
+                self.handle_idle_status(is_active).await
+            }
+
+            ClientMessage::UserViewport { center, zoom } => {
+                self.require_auth()?;
+                self.handle_user_viewport(center, zoom).await
+            }
+
             ClientMessage::RequestGraphState => {
                 self.require_auth()?;
                 self.handle_request_graph_state().await
@@ -280,6 +295,43 @@ impl ConnectionSession {
             // Broadcast request to all other users - they should respond with GraphState
             room.broadcast(ServerMessage::RequestGraphState {
                 requester_id: user_id,
+            });
+        }
+        Ok(())
+    }
+
+    /// Handle cursor move - broadcast to all other users (volatile)
+    async fn handle_cursor_move(&self, position: (f64, f64)) -> Result<(), String> {
+        if let Some(ref room) = self.room
+            && let Some(user_id) = self.user_id
+        {
+            // Broadcast cursor position to all other clients
+            room.broadcast(ServerMessage::CursorMove { user_id, position });
+        }
+        Ok(())
+    }
+
+    /// Handle idle status update - broadcast to all other users
+    async fn handle_idle_status(&self, is_active: bool) -> Result<(), String> {
+        if let Some(ref room) = self.room
+            && let Some(user_id) = self.user_id
+        {
+            // Broadcast idle status to all other clients
+            room.broadcast(ServerMessage::IdleStatus { user_id, is_active });
+        }
+        Ok(())
+    }
+
+    /// Handle user viewport update - broadcast to all other users
+    async fn handle_user_viewport(&self, center: (f64, f64), zoom: f64) -> Result<(), String> {
+        if let Some(ref room) = self.room
+            && let Some(user_id) = self.user_id
+        {
+            // Broadcast viewport to all other clients
+            room.broadcast(ServerMessage::UserViewport {
+                user_id,
+                center,
+                zoom,
             });
         }
         Ok(())
@@ -1015,5 +1067,95 @@ mod tests {
         let msg = rx.try_recv();
         assert!(msg.is_ok());
         assert!(matches!(msg.unwrap(), ServerMessage::SyncStep1 { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_handle_cursor_move_requires_auth() {
+        let (tx, _rx) = mpsc::channel(10);
+        let room_id = Uuid::new_v4();
+        let session = ConnectionSession::new(room_id, tx);
+
+        // Session should not be authenticated by default
+        assert!(!session.is_authenticated());
+        assert!(session.require_auth().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_idle_status_requires_auth() {
+        let (tx, _rx) = mpsc::channel(10);
+        let room_id = Uuid::new_v4();
+        let session = ConnectionSession::new(room_id, tx);
+
+        // Session should not be authenticated by default
+        assert!(!session.is_authenticated());
+        assert!(session.require_auth().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_user_viewport_requires_auth() {
+        let (tx, _rx) = mpsc::channel(10);
+        let room_id = Uuid::new_v4();
+        let session = ConnectionSession::new(room_id, tx);
+
+        // Session should not be authenticated by default
+        assert!(!session.is_authenticated());
+        assert!(session.require_auth().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_cursor_move_broadcasts() {
+        let room_id = Uuid::new_v4();
+        let owner_id = Uuid::new_v4();
+        let room = Arc::new(Room::with_defaults(room_id, owner_id));
+        let (tx, mut rx) = mpsc::channel(10);
+
+        let user_id = Uuid::new_v4();
+        let mut session = ConnectionSession::new(room_id, tx);
+        session.user_id = Some(user_id);
+        session.username = Some("test_user".to_string());
+        session.authenticated = true;
+        session.room = Some(Arc::clone(&room));
+
+        let result = session.handle_cursor_move((150.0, 250.0)).await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_handle_idle_status_broadcasts() {
+        let room_id = Uuid::new_v4();
+        let owner_id = Uuid::new_v4();
+        let room = Arc::new(Room::with_defaults(room_id, owner_id));
+        let (tx, mut rx) = mpsc::channel(10);
+
+        let user_id = Uuid::new_v4();
+        let mut session = ConnectionSession::new(room_id, tx);
+        session.user_id = Some(user_id);
+        session.username = Some("test_user".to_string());
+        session.authenticated = true;
+        session.room = Some(Arc::clone(&room));
+
+        let result = session.handle_idle_status(false).await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_handle_user_viewport_broadcasts() {
+        let room_id = Uuid::new_v4();
+        let owner_id = Uuid::new_v4();
+        let room = Arc::new(Room::with_defaults(room_id, owner_id));
+        let (tx, mut rx) = mpsc::channel(10);
+
+        let user_id = Uuid::new_v4();
+        let mut session = ConnectionSession::new(room_id, tx);
+        session.user_id = Some(user_id);
+        session.username = Some("test_user".to_string());
+        session.authenticated = true;
+        session.room = Some(Arc::clone(&room));
+
+        let result = session.handle_user_viewport((800.0, 600.0), 2.0).await;
+
+        assert!(result.is_ok());
     }
 }

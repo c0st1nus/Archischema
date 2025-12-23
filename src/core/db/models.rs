@@ -268,6 +268,138 @@ pub struct CreateSession {
 }
 
 // ============================================================================
+// LiveShare Models
+// ============================================================================
+
+/// LiveShare session entity for collaborative editing
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct LiveShareSession {
+    pub id: Uuid,
+    pub diagram_id: Uuid,
+    pub owner_id: Uuid,
+    pub name: String,
+    #[serde(skip_serializing)]
+    pub password_hash: Option<String>,
+    pub max_users: i32,
+    pub is_active: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yjs_state: Option<Vec<u8>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub ended_at: Option<DateTime<Utc>>,
+}
+
+/// LiveShare session data for creation
+#[derive(Debug, Clone)]
+pub struct CreateLiveShareSession {
+    pub diagram_id: Uuid,
+    pub owner_id: Uuid,
+    pub name: String,
+    pub password_hash: Option<String>,
+    pub max_users: i32,
+}
+
+impl Default for CreateLiveShareSession {
+    fn default() -> Self {
+        Self {
+            diagram_id: Uuid::nil(),
+            owner_id: Uuid::nil(),
+            name: String::from("Collaborative Session"),
+            password_hash: None,
+            max_users: 10,
+        }
+    }
+}
+
+/// LiveShare session data for updates
+#[derive(Debug, Clone, Default)]
+pub struct UpdateLiveShareSession {
+    pub name: Option<String>,
+    pub password_hash: Option<Option<String>>, // Some(None) = clear password, Some(Some(hash)) = set password
+    pub max_users: Option<i32>,
+    pub is_active: Option<bool>,
+    pub yjs_state: Option<Vec<u8>>,
+    pub ended_at: Option<Option<DateTime<Utc>>>,
+}
+
+/// LiveShare session response (excludes sensitive data)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveShareSessionResponse {
+    pub id: Uuid,
+    pub diagram_id: Uuid,
+    pub owner_id: Uuid,
+    pub name: String,
+    pub is_protected: bool,
+    pub max_users: i32,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub ended_at: Option<DateTime<Utc>>,
+}
+
+impl From<LiveShareSession> for LiveShareSessionResponse {
+    fn from(session: LiveShareSession) -> Self {
+        Self {
+            id: session.id,
+            diagram_id: session.diagram_id,
+            owner_id: session.owner_id,
+            name: session.name,
+            is_protected: session.password_hash.is_some(),
+            max_users: session.max_users,
+            is_active: session.is_active,
+            created_at: session.created_at,
+            updated_at: session.updated_at,
+            ended_at: session.ended_at,
+        }
+    }
+}
+
+/// LiveShare participant entity
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct LiveShareParticipant {
+    pub id: Uuid,
+    pub session_id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub username: String,
+    pub joined_at: DateTime<Utc>,
+    pub left_at: Option<DateTime<Utc>>,
+}
+
+/// LiveShare participant data for creation
+#[derive(Debug, Clone)]
+pub struct CreateLiveShareParticipant {
+    pub session_id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub username: String,
+}
+
+/// LiveShare participant response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveShareParticipantResponse {
+    pub id: Uuid,
+    pub session_id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub username: String,
+    pub joined_at: DateTime<Utc>,
+    pub left_at: Option<DateTime<Utc>>,
+    pub is_active: bool,
+}
+
+impl From<LiveShareParticipant> for LiveShareParticipantResponse {
+    fn from(participant: LiveShareParticipant) -> Self {
+        Self {
+            id: participant.id,
+            session_id: participant.session_id,
+            user_id: participant.user_id,
+            username: participant.username,
+            joined_at: participant.joined_at,
+            left_at: participant.left_at,
+            is_active: participant.left_at.is_none(),
+        }
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
