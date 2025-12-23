@@ -10,6 +10,8 @@
 mod api;
 #[cfg(feature = "ssr")]
 mod auth;
+#[cfg(feature = "ssr")]
+mod broadcast_manager;
 mod protocol;
 #[cfg(feature = "ssr")]
 mod room;
@@ -20,6 +22,8 @@ mod websocket;
 pub use api::*;
 #[cfg(feature = "ssr")]
 pub use auth::*;
+#[cfg(feature = "ssr")]
+pub use broadcast_manager::*;
 pub use protocol::*;
 #[cfg(feature = "ssr")]
 pub use room::*;

@@ -17,6 +17,75 @@ pub type UserId = Uuid;
 pub type RoomId = Uuid;
 
 // ============================================================================
+// Message Type Classification
+// ============================================================================
+
+/// WebSocket message type for prioritization and routing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WsMessageType {
+    /// Full schema initialization when user connects
+    /// Priority: CRITICAL - Must be delivered reliably
+    Init,
+
+    /// Incremental schema changes (tables, columns, relationships)
+    /// Priority: CRITICAL - Must be delivered reliably and in order
+    Update,
+
+    /// Cursor position updates
+    /// Priority: VOLATILE - Can be dropped if network is congested
+    CursorMove,
+
+    /// User activity status (active/idle)
+    /// Priority: LOW - Can be throttled heavily
+    IdleStatus,
+
+    /// User viewport bounds for follow mode
+    /// Priority: LOW - Can be throttled
+    UserViewport,
+}
+
+/// Message priority level for QoS
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MessagePriority {
+    /// Volatile messages that can be dropped (cursor updates)
+    Volatile,
+
+    /// Low priority, can be throttled
+    Low,
+
+    /// Normal priority messages
+    Normal,
+
+    /// Critical messages that must be delivered (schema changes)
+    Critical,
+}
+
+impl WsMessageType {
+    /// Get the priority level for this message type
+    pub fn priority(&self) -> MessagePriority {
+        match self {
+            Self::Init | Self::Update => MessagePriority::Critical,
+            Self::CursorMove => MessagePriority::Volatile,
+            Self::IdleStatus | Self::UserViewport => MessagePriority::Low,
+        }
+    }
+
+    /// Whether this message type can be dropped under load
+    pub fn is_droppable(&self) -> bool {
+        matches!(
+            self.priority(),
+            MessagePriority::Volatile | MessagePriority::Low
+        )
+    }
+
+    /// Whether this message type requires strict ordering
+    pub fn requires_ordering(&self) -> bool {
+        matches!(self, Self::Init | Self::Update)
+    }
+}
+
+// ============================================================================
 // REST API DTOs
 // ============================================================================
 
@@ -180,6 +249,26 @@ pub enum ClientMessage {
     /// Graph operation for schema synchronization
     GraphOp { op: GraphOperation },
 
+    /// Cursor position update (volatile, can be dropped)
+    CursorMove {
+        /// Cursor position on canvas (x, y)
+        position: (f64, f64),
+    },
+
+    /// User idle/active status update
+    IdleStatus {
+        /// Whether user is currently active
+        is_active: bool,
+    },
+
+    /// User viewport bounds (for follow mode)
+    UserViewport {
+        /// Viewport center position (x, y)
+        center: (f64, f64),
+        /// Viewport zoom level
+        zoom: f64,
+    },
+
     /// Request full graph state (for initial sync)
     RequestGraphState,
 
@@ -223,6 +312,22 @@ pub enum ServerMessage {
 
     /// Broadcast graph operation from another user
     GraphOp { user_id: UserId, op: GraphOperation },
+
+    /// Broadcast cursor position from another user (volatile)
+    CursorMove {
+        user_id: UserId,
+        position: (f64, f64),
+    },
+
+    /// Broadcast idle status from another user
+    IdleStatus { user_id: UserId, is_active: bool },
+
+    /// Broadcast viewport bounds from another user
+    UserViewport {
+        user_id: UserId,
+        center: (f64, f64),
+        zoom: f64,
+    },
 
     /// Full graph state (response to RequestGraphState)
     /// If target_user_id is Some, only that user should process this message
@@ -331,6 +436,9 @@ pub struct TableSnapshot {
     pub name: String,
     pub position: (f64, f64),
     pub columns: Vec<ColumnData>,
+    /// Version counter for tracking changes, incremented on each modification
+    #[serde(default)]
+    pub version: u64,
 }
 
 /// Relationship snapshot for graph state
@@ -340,6 +448,9 @@ pub struct RelationshipSnapshot {
     pub from_node: u32,
     pub to_node: u32,
     pub data: RelationshipData,
+    /// Version counter for tracking changes, incremented on each modification
+    #[serde(default)]
+    pub version: u64,
 }
 
 // ============================================================================
@@ -407,6 +518,64 @@ impl ServerMessage {
             error: Some(error.into()),
             room_info: None,
         }
+    }
+
+    /// Get the message type for prioritization
+    pub fn message_type(&self) -> WsMessageType {
+        match self {
+            Self::GraphState { .. } | Self::AuthResult { .. } | Self::RequestGraphState { .. } => {
+                WsMessageType::Init
+            }
+            Self::GraphOp { .. }
+            | Self::SyncStep1 { .. }
+            | Self::SyncStep2 { .. }
+            | Self::Update { .. }
+            | Self::UserJoined { .. }
+            | Self::UserLeft { .. } => WsMessageType::Update,
+            Self::CursorMove { .. } => WsMessageType::CursorMove,
+            Self::IdleStatus { .. } => WsMessageType::IdleStatus,
+            Self::UserViewport { .. } => WsMessageType::UserViewport,
+            Self::Awareness { .. } | Self::Error { .. } | Self::Pong => WsMessageType::Update,
+        }
+    }
+
+    /// Get the priority level of this message
+    pub fn priority(&self) -> MessagePriority {
+        self.message_type().priority()
+    }
+
+    /// Whether this message can be dropped under load
+    pub fn is_droppable(&self) -> bool {
+        self.message_type().is_droppable()
+    }
+}
+
+impl ClientMessage {
+    /// Get the message type for prioritization
+    pub fn message_type(&self) -> WsMessageType {
+        match self {
+            Self::RequestGraphState | Self::GraphStateResponse { .. } | Self::Auth { .. } => {
+                WsMessageType::Init
+            }
+            Self::GraphOp { .. }
+            | Self::SyncStep1 { .. }
+            | Self::SyncStep2 { .. }
+            | Self::Update { .. } => WsMessageType::Update,
+            Self::CursorMove { .. } => WsMessageType::CursorMove,
+            Self::IdleStatus { .. } => WsMessageType::IdleStatus,
+            Self::UserViewport { .. } => WsMessageType::UserViewport,
+            Self::Awareness { .. } | Self::Ping => WsMessageType::Update,
+        }
+    }
+
+    /// Get the priority level of this message
+    pub fn priority(&self) -> MessagePriority {
+        self.message_type().priority()
+    }
+
+    /// Whether this message can be dropped under load
+    pub fn is_droppable(&self) -> bool {
+        self.message_type().is_droppable()
     }
 }
 
@@ -681,6 +850,7 @@ mod tests {
                 name: "users".to_string(),
                 position: (0.0, 0.0),
                 columns: vec![],
+                version: 1,
             }],
             relationships: vec![],
         };
@@ -1098,22 +1268,24 @@ mod tests {
                 TableSnapshot {
                     node_id: 1,
                     name: "users".to_string(),
-                    position: (0.0, 0.0),
+                    position: (100.0, 200.0),
                     columns: vec![ColumnData {
                         name: "id".to_string(),
-                        data_type: "INT".to_string(),
+                        data_type: "INTEGER".to_string(),
                         is_primary_key: true,
                         is_nullable: false,
                         is_unique: true,
                         default_value: None,
                         foreign_key: None,
                     }],
+                    version: 1,
                 },
                 TableSnapshot {
                     node_id: 2,
-                    name: "orders".to_string(),
-                    position: (200.0, 0.0),
+                    name: "posts".to_string(),
+                    position: (300.0, 400.0),
                     columns: vec![],
+                    version: 1,
                 },
             ],
             relationships: vec![RelationshipSnapshot {
@@ -1121,11 +1293,12 @@ mod tests {
                 from_node: 1,
                 to_node: 2,
                 data: RelationshipData {
-                    name: "user_orders".to_string(),
+                    name: "user_posts".to_string(),
                     relationship_type: "one_to_many".to_string(),
                     from_column: "id".to_string(),
                     to_column: "user_id".to_string(),
                 },
+                version: 1,
             }],
         };
 
@@ -1286,5 +1459,247 @@ mod tests {
         let json = serde_json::to_string(&code).unwrap();
 
         assert!(json.contains("not_authenticated"));
+    }
+
+    // ============================================================================
+    // Message Type and Priority Tests
+    // ============================================================================
+
+    #[test]
+    fn test_ws_message_type_priority() {
+        assert_eq!(WsMessageType::Init.priority(), MessagePriority::Critical);
+        assert_eq!(WsMessageType::Update.priority(), MessagePriority::Critical);
+        assert_eq!(
+            WsMessageType::CursorMove.priority(),
+            MessagePriority::Volatile
+        );
+        assert_eq!(WsMessageType::IdleStatus.priority(), MessagePriority::Low);
+        assert_eq!(WsMessageType::UserViewport.priority(), MessagePriority::Low);
+    }
+
+    #[test]
+    fn test_ws_message_type_is_droppable() {
+        assert!(!WsMessageType::Init.is_droppable());
+        assert!(!WsMessageType::Update.is_droppable());
+        assert!(WsMessageType::CursorMove.is_droppable());
+        assert!(WsMessageType::IdleStatus.is_droppable());
+        assert!(WsMessageType::UserViewport.is_droppable());
+    }
+
+    #[test]
+    fn test_ws_message_type_requires_ordering() {
+        assert!(WsMessageType::Init.requires_ordering());
+        assert!(WsMessageType::Update.requires_ordering());
+        assert!(!WsMessageType::CursorMove.requires_ordering());
+        assert!(!WsMessageType::IdleStatus.requires_ordering());
+        assert!(!WsMessageType::UserViewport.requires_ordering());
+    }
+
+    #[test]
+    fn test_client_message_cursor_move_serialization() {
+        let msg = ClientMessage::CursorMove {
+            position: (100.5, 200.3),
+        };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: ClientMessage = serde_json::from_str(&json).unwrap();
+
+        match parsed {
+            ClientMessage::CursorMove { position } => {
+                assert_eq!(position, (100.5, 200.3));
+            }
+            _ => panic!("Expected CursorMove variant"),
+        }
+    }
+
+    #[test]
+    fn test_client_message_idle_status_serialization() {
+        let msg = ClientMessage::IdleStatus { is_active: true };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: ClientMessage = serde_json::from_str(&json).unwrap();
+
+        match parsed {
+            ClientMessage::IdleStatus { is_active } => {
+                assert!(is_active);
+            }
+            _ => panic!("Expected IdleStatus variant"),
+        }
+    }
+
+    #[test]
+    fn test_client_message_user_viewport_serialization() {
+        let msg = ClientMessage::UserViewport {
+            center: (500.0, 600.0),
+            zoom: 1.5,
+        };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: ClientMessage = serde_json::from_str(&json).unwrap();
+
+        match parsed {
+            ClientMessage::UserViewport { center, zoom } => {
+                assert_eq!(center, (500.0, 600.0));
+                assert_eq!(zoom, 1.5);
+            }
+            _ => panic!("Expected UserViewport variant"),
+        }
+    }
+
+    #[test]
+    fn test_server_message_cursor_move_broadcast() {
+        let user_id = Uuid::new_v4();
+        let msg = ServerMessage::CursorMove {
+            user_id,
+            position: (150.0, 250.0),
+        };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
+
+        match parsed {
+            ServerMessage::CursorMove {
+                user_id: uid,
+                position,
+            } => {
+                assert_eq!(uid, user_id);
+                assert_eq!(position, (150.0, 250.0));
+            }
+            _ => panic!("Expected CursorMove variant"),
+        }
+    }
+
+    #[test]
+    fn test_server_message_idle_status_broadcast() {
+        let user_id = Uuid::new_v4();
+        let msg = ServerMessage::IdleStatus {
+            user_id,
+            is_active: false,
+        };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
+
+        match parsed {
+            ServerMessage::IdleStatus {
+                user_id: uid,
+                is_active,
+            } => {
+                assert_eq!(uid, user_id);
+                assert!(!is_active);
+            }
+            _ => panic!("Expected IdleStatus variant"),
+        }
+    }
+
+    #[test]
+    fn test_server_message_user_viewport_broadcast() {
+        let user_id = Uuid::new_v4();
+        let msg = ServerMessage::UserViewport {
+            user_id,
+            center: (800.0, 600.0),
+            zoom: 2.0,
+        };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
+
+        match parsed {
+            ServerMessage::UserViewport {
+                user_id: uid,
+                center,
+                zoom,
+            } => {
+                assert_eq!(uid, user_id);
+                assert_eq!(center, (800.0, 600.0));
+                assert_eq!(zoom, 2.0);
+            }
+            _ => panic!("Expected UserViewport variant"),
+        }
+    }
+
+    #[test]
+    fn test_client_message_priority_classification() {
+        let auth_msg = ClientMessage::Auth {
+            user_id: Uuid::new_v4(),
+            username: "test".to_string(),
+            password: None,
+        };
+        assert_eq!(auth_msg.priority(), MessagePriority::Critical);
+
+        let graph_op_msg = ClientMessage::GraphOp {
+            op: GraphOperation::DeleteTable { node_id: 1 },
+        };
+        assert_eq!(graph_op_msg.priority(), MessagePriority::Critical);
+
+        let cursor_msg = ClientMessage::CursorMove {
+            position: (0.0, 0.0),
+        };
+        assert_eq!(cursor_msg.priority(), MessagePriority::Volatile);
+        assert!(cursor_msg.is_droppable());
+
+        let idle_msg = ClientMessage::IdleStatus { is_active: true };
+        assert_eq!(idle_msg.priority(), MessagePriority::Low);
+        assert!(idle_msg.is_droppable());
+
+        let viewport_msg = ClientMessage::UserViewport {
+            center: (0.0, 0.0),
+            zoom: 1.0,
+        };
+        assert_eq!(viewport_msg.priority(), MessagePriority::Low);
+        assert!(viewport_msg.is_droppable());
+    }
+
+    #[test]
+    fn test_server_message_priority_classification() {
+        let user_id = Uuid::new_v4();
+
+        let graph_state_msg = ServerMessage::GraphState {
+            state: GraphStateSnapshot {
+                tables: vec![],
+                relationships: vec![],
+            },
+            target_user_id: None,
+        };
+        assert_eq!(graph_state_msg.priority(), MessagePriority::Critical);
+
+        let graph_op_msg = ServerMessage::GraphOp {
+            user_id,
+            op: GraphOperation::CreateTable {
+                node_id: 1,
+                name: "test".to_string(),
+                position: (0.0, 0.0),
+            },
+        };
+        assert_eq!(graph_op_msg.priority(), MessagePriority::Critical);
+
+        let cursor_msg = ServerMessage::CursorMove {
+            user_id,
+            position: (100.0, 200.0),
+        };
+        assert_eq!(cursor_msg.priority(), MessagePriority::Volatile);
+        assert!(cursor_msg.is_droppable());
+
+        let idle_msg = ServerMessage::IdleStatus {
+            user_id,
+            is_active: false,
+        };
+        assert_eq!(idle_msg.priority(), MessagePriority::Low);
+        assert!(idle_msg.is_droppable());
+
+        let viewport_msg = ServerMessage::UserViewport {
+            user_id,
+            center: (400.0, 300.0),
+            zoom: 1.5,
+        };
+        assert_eq!(viewport_msg.priority(), MessagePriority::Low);
+        assert!(viewport_msg.is_droppable());
+    }
+
+    #[test]
+    fn test_message_priority_ordering() {
+        assert!(MessagePriority::Critical > MessagePriority::Normal);
+        assert!(MessagePriority::Normal > MessagePriority::Low);
+        assert!(MessagePriority::Low > MessagePriority::Volatile);
     }
 }

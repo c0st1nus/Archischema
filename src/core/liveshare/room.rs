@@ -16,6 +16,7 @@ use uuid::Uuid;
 use yrs::{Doc, ReadTxn, Transact, updates::decoder::Decode, updates::encoder::Encode};
 
 use super::auth::AuthenticatedUser;
+use super::broadcast_manager::BroadcastManager;
 use super::protocol::*;
 
 // ============================================================================
@@ -139,6 +140,9 @@ pub struct Room {
 
     /// Broadcast channel for sending messages to all connected clients
     broadcast_tx: broadcast::Sender<ServerMessage>,
+
+    /// Broadcast manager for tracking incremental updates
+    broadcast_manager: RwLock<BroadcastManager>,
 }
 
 impl Room {
@@ -154,6 +158,7 @@ impl Room {
             doc: RwLock::new(Doc::new()),
             users: DashMap::new(),
             broadcast_tx,
+            broadcast_manager: RwLock::new(BroadcastManager::new()),
         }
     }
 
@@ -225,6 +230,11 @@ impl Room {
         let user = ConnectedUser::new(user_id, username.clone());
         self.users.insert(user_id, user);
 
+        // Register user in broadcast manager for incremental updates tracking
+        if let Some(mut manager) = self.broadcast_manager.try_write().ok() {
+            manager.register_user(user_id.to_string());
+        }
+
         // Broadcast user joined event
         let _ = self
             .broadcast_tx
@@ -236,6 +246,11 @@ impl Room {
     /// Remove a user from the room
     pub fn remove_user(&self, user_id: &UserId) -> Option<ConnectedUser> {
         if let Some((_, user)) = self.users.remove(user_id) {
+            // Unregister user from broadcast manager
+            if let Some(mut manager) = self.broadcast_manager.try_write().ok() {
+                manager.unregister_user(&user_id.to_string());
+            }
+
             // Broadcast user left event
             let _ = self
                 .broadcast_tx
@@ -370,6 +385,179 @@ impl Room {
         }
 
         Ok(())
+    }
+
+    // ============================================================================
+    // Incremental Updates Management
+    // ============================================================================
+
+    /// Check if a user needs a full sync (initial sync or periodic resync)
+    pub async fn needs_full_sync(&self, user_id: &str) -> bool {
+        let manager = self.broadcast_manager.read().await;
+        manager.needs_full_sync(user_id)
+    }
+
+    /// Mark that a full sync was sent to a user
+    pub async fn mark_full_sync_sent(&self, user_id: String) {
+        let mut manager = self.broadcast_manager.write().await;
+        manager.mark_full_sync(user_id);
+    }
+
+    /// Check if an element update should be sent to a specific user
+    /// Returns true if the element version is newer than what was last sent
+    pub async fn should_send_element_update(
+        &self,
+        user_id: &str,
+        element_id: super::broadcast_manager::ElementId,
+        version: u64,
+    ) -> bool {
+        let manager = self.broadcast_manager.read().await;
+        manager.should_send_update(user_id, element_id, version)
+    }
+
+    /// Mark that an element was sent to a user
+    pub async fn mark_element_sent(
+        &self,
+        user_id: String,
+        element_id: super::broadcast_manager::ElementId,
+        version: u64,
+    ) {
+        let mut manager = self.broadcast_manager.write().await;
+        manager.mark_sent(user_id, element_id, version);
+    }
+
+    /// Mark that multiple elements were sent to a user (batch operation)
+    pub async fn mark_batch_sent(
+        &self,
+        user_id: String,
+        updates: Vec<(super::broadcast_manager::ElementId, u64)>,
+    ) {
+        let mut manager = self.broadcast_manager.write().await;
+        manager.mark_batch_sent(user_id, updates);
+    }
+
+    /// Get list of elements that have changed for a specific user
+    pub async fn get_changed_elements(
+        &self,
+        user_id: &str,
+        current_state: &[(super::broadcast_manager::ElementId, u64)],
+    ) -> Vec<super::broadcast_manager::ElementId> {
+        let manager = self.broadcast_manager.read().await;
+        manager.get_changed_elements(user_id, current_state)
+    }
+
+    /// Reset a user's broadcast state (force full resync on next update)
+    pub async fn reset_user_broadcast_state(&self, user_id: &str) {
+        let mut manager = self.broadcast_manager.write().await;
+        manager.reset_user(user_id);
+    }
+
+    /// Broadcast incremental graph update to all users except sender
+    /// Only sends changed elements to each user based on their last received version
+    pub async fn broadcast_incremental_update(
+        &self,
+        sender_id: &UserId,
+        snapshot: &GraphStateSnapshot,
+    ) {
+        let users: Vec<UserId> = self.users.iter().map(|entry| *entry.key()).collect();
+
+        for user_id in users {
+            if user_id == *sender_id {
+                continue; // Don't send back to sender
+            }
+
+            let user_id_str = user_id.to_string();
+
+            // Check if user needs full sync
+            if self.needs_full_sync(&user_id_str).await {
+                // Send full state
+                let _ = self.broadcast_tx.send(ServerMessage::GraphState {
+                    state: snapshot.clone(),
+                    target_user_id: Some(user_id),
+                });
+                self.mark_full_sync_sent(user_id_str).await;
+            } else {
+                // Build incremental update with only changed elements
+                let mut changed_tables = Vec::new();
+                let mut changed_relationships = Vec::new();
+
+                for table in &snapshot.tables {
+                    let element_id = super::broadcast_manager::ElementId::Table(table.node_id);
+                    if self
+                        .should_send_element_update(&user_id_str, element_id, table.version)
+                        .await
+                    {
+                        changed_tables.push(table.clone());
+                    }
+                }
+
+                for rel in &snapshot.relationships {
+                    let element_id = super::broadcast_manager::ElementId::Relationship(rel.edge_id);
+                    if self
+                        .should_send_element_update(&user_id_str, element_id, rel.version)
+                        .await
+                    {
+                        changed_relationships.push(rel.clone());
+                    }
+                }
+
+                // Only send if there are changes
+                if !changed_tables.is_empty() || !changed_relationships.is_empty() {
+                    let incremental_snapshot = GraphStateSnapshot {
+                        tables: changed_tables,
+                        relationships: changed_relationships,
+                    };
+
+                    let _ = self.broadcast_tx.send(ServerMessage::GraphState {
+                        state: incremental_snapshot,
+                        target_user_id: Some(user_id),
+                    });
+
+                    // Mark elements as sent
+                    let mut updates = Vec::new();
+                    for table in &snapshot.tables {
+                        updates.push((
+                            super::broadcast_manager::ElementId::Table(table.node_id),
+                            table.version,
+                        ));
+                    }
+                    for rel in &snapshot.relationships {
+                        updates.push((
+                            super::broadcast_manager::ElementId::Relationship(rel.edge_id),
+                            rel.version,
+                        ));
+                    }
+                    self.mark_batch_sent(user_id_str, updates).await;
+                }
+            }
+        }
+    }
+
+    /// Send full graph state to a specific user (for INIT or forced resync)
+    pub async fn send_full_graph_state(&self, user_id: &UserId, snapshot: &GraphStateSnapshot) {
+        let _ = self.broadcast_tx.send(ServerMessage::GraphState {
+            state: snapshot.clone(),
+            target_user_id: Some(*user_id),
+        });
+
+        // Mark as full sync sent and record all element versions
+        let user_id_str = user_id.to_string();
+        self.mark_full_sync_sent(user_id_str.clone()).await;
+
+        let mut updates = Vec::new();
+        for table in &snapshot.tables {
+            updates.push((
+                super::broadcast_manager::ElementId::Table(table.node_id),
+                table.version,
+            ));
+        }
+        for rel in &snapshot.relationships {
+            updates.push((
+                super::broadcast_manager::ElementId::Relationship(rel.edge_id),
+                rel.version,
+            ));
+        }
+        self.mark_batch_sent(user_id_str, updates).await;
     }
 }
 
