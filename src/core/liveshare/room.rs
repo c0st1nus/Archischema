@@ -231,7 +231,7 @@ impl Room {
         self.users.insert(user_id, user);
 
         // Register user in broadcast manager for incremental updates tracking
-        if let Some(mut manager) = self.broadcast_manager.try_write().ok() {
+        if let Ok(mut manager) = self.broadcast_manager.try_write() {
             manager.register_user(user_id.to_string());
         }
 
@@ -247,7 +247,7 @@ impl Room {
     pub fn remove_user(&self, user_id: &UserId) -> Option<ConnectedUser> {
         if let Some((_, user)) = self.users.remove(user_id) {
             // Unregister user from broadcast manager
-            if let Some(mut manager) = self.broadcast_manager.try_write().ok() {
+            if let Ok(mut manager) = self.broadcast_manager.try_write() {
                 manager.unregister_user(&user_id.to_string());
             }
 

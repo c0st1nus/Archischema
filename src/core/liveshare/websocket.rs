@@ -21,8 +21,11 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use super::api::LiveshareState;
+use super::cursor_broadcaster::CursorBroadcaster;
 use super::protocol::*;
+use super::rate_limiter::MessageRateLimiter;
 use super::room::Room;
+use super::throttling::{AwarenessBatcher, SchemaThrottler};
 
 // ============================================================================
 // Constants
@@ -77,8 +80,18 @@ async fn handle_socket(socket: WebSocket, room_id: Uuid, state: LiveshareState) 
     // Connection state
     let mut session = ConnectionSession::new(room_id, tx.clone());
 
-    // Process incoming messages
-    while let Some(result) = ws_receiver.next().await {
+    // Create periodic timer for batching and throttling checks
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(50));
+
+    // Process incoming messages and periodic tasks
+    loop {
+        tokio::select! {
+            // Handle incoming WebSocket messages
+            result = ws_receiver.next() => {
+                let Some(result) = result else {
+                    // Connection closed
+                    break;
+                };
         match result {
             Ok(Message::Text(text)) => {
                 let text_str: &str = &text;
@@ -137,13 +150,21 @@ async fn handle_socket(socket: WebSocket, room_id: Uuid, state: LiveshareState) 
                 tracing::error!("WebSocket error: {}", e);
                 break;
             }
+                }
+            }
+            // Handle periodic tasks (batching, throttling)
+            _ = interval.tick() => {
+                if let Err(e) = session.check_pending_updates().await {
+                    tracing::debug!("Error checking pending updates: {}", e);
+                }
+            }
         }
     }
 
     // Cleanup: remove user from room
     session.cleanup();
 
-    // Abort the send task
+    // Abort send task
     send_task.abort();
 
     tracing::info!(
@@ -173,6 +194,14 @@ struct ConnectionSession {
     tx: mpsc::Sender<ServerMessage>,
     /// Broadcast receiver task handle
     broadcast_task: Option<tokio::task::JoinHandle<()>>,
+    /// Rate limiter for incoming messages
+    rate_limiter: MessageRateLimiter,
+    /// Cursor broadcaster with throttling
+    cursor_broadcaster: CursorBroadcaster,
+    /// Schema update throttler
+    schema_throttler: SchemaThrottler,
+    /// Awareness batcher
+    awareness_batcher: AwarenessBatcher,
 }
 
 impl ConnectionSession {
@@ -185,6 +214,10 @@ impl ConnectionSession {
             room: None,
             tx,
             broadcast_task: None,
+            rate_limiter: MessageRateLimiter::new(),
+            cursor_broadcaster: CursorBroadcaster::new(),
+            schema_throttler: SchemaThrottler::new(),
+            awareness_batcher: AwarenessBatcher::new(),
         }
     }
 
@@ -198,6 +231,19 @@ impl ConnectionSession {
         msg: ClientMessage,
         state: &LiveshareState,
     ) -> Result<(), String> {
+        // Rate limit check based on message priority
+        let priority = msg.priority();
+        let rate_limit_ok = match priority {
+            MessagePriority::Volatile => self.rate_limiter.check_volatile(),
+            MessagePriority::Low => self.rate_limiter.check_normal(),
+            MessagePriority::Normal => self.rate_limiter.check_normal(),
+            MessagePriority::Critical => self.rate_limiter.check_critical(),
+        };
+
+        if !rate_limit_ok {
+            return Err("Rate limit exceeded".to_string());
+        }
+
         match msg {
             ClientMessage::Auth {
                 user_id,
@@ -276,12 +322,17 @@ impl ConnectionSession {
     }
 
     /// Handle graph operation - broadcast to all other users in room
-    async fn handle_graph_op(&self, op: super::protocol::GraphOperation) -> Result<(), String> {
+    async fn handle_graph_op(&mut self, op: super::protocol::GraphOperation) -> Result<(), String> {
         if let Some(ref room) = self.room
             && let Some(user_id) = self.user_id
         {
-            // Broadcast to all other clients in the room
-            room.broadcast(ServerMessage::GraphOp { user_id, op });
+            // Apply schema throttling for graph operations
+            if self.schema_throttler.should_send() {
+                room.broadcast(ServerMessage::GraphOp { user_id, op });
+                self.schema_throttler.mark_sent();
+            }
+            // If throttled, the update is silently dropped
+            // This is acceptable for high-frequency operations
         }
         Ok(())
     }
@@ -301,12 +352,21 @@ impl ConnectionSession {
     }
 
     /// Handle cursor move - broadcast to all other users (volatile)
-    async fn handle_cursor_move(&self, position: (f64, f64)) -> Result<(), String> {
+    async fn handle_cursor_move(&mut self, position: (f64, f64)) -> Result<(), String> {
         if let Some(ref room) = self.room
             && let Some(user_id) = self.user_id
         {
-            // Broadcast cursor position to all other clients
-            room.broadcast(ServerMessage::CursorMove { user_id, position });
+            // Apply cursor throttling
+            if let Some(throttled_position) = self
+                .cursor_broadcaster
+                .update_position(position.0, position.1)
+            {
+                // Broadcast cursor position to all other clients
+                room.broadcast(ServerMessage::CursorMove {
+                    user_id,
+                    position: throttled_position,
+                });
+            }
         }
         Ok(())
     }
@@ -486,11 +546,44 @@ impl ConnectionSession {
     }
 
     /// Handle awareness update (cursor, selection, etc.)
-    async fn handle_awareness(&self, state: AwarenessState) -> Result<(), String> {
-        let room = self.room.as_ref().ok_or("No room")?;
+    async fn handle_awareness(&mut self, state: AwarenessState) -> Result<(), String> {
         let user_id = self.user_id.ok_or("No user ID")?;
 
-        room.update_awareness(&user_id, state);
+        // Add to batcher instead of sending immediately
+        let state_json = serde_json::to_value(&state).map_err(|e| e.to_string())?;
+        self.awareness_batcher.add(user_id.to_string(), state_json);
+
+        // Update room awareness state
+        if let Some(ref room) = self.room {
+            room.update_awareness(&user_id, state);
+        }
+
+        Ok(())
+    }
+
+    /// Check and flush pending updates (called periodically)
+    async fn check_pending_updates(&mut self) -> Result<(), String> {
+        // Check cursor pending
+        if let Some(position) = self.cursor_broadcaster.check_pending()
+            && let (Some(room), Some(user_id)) = (&self.room, self.user_id)
+        {
+            room.broadcast(ServerMessage::CursorMove { user_id, position });
+        }
+
+        // Check awareness batch
+        if self.awareness_batcher.should_flush() {
+            let batch = self.awareness_batcher.flush();
+            if let Some(ref room) = self.room {
+                for (user_id_str, state_json) in batch {
+                    if let Ok(state) = serde_json::from_value::<AwarenessState>(state_json) {
+                        // Convert user_id back to Uuid
+                        if let Ok(user_id) = uuid::Uuid::parse_str(&user_id_str) {
+                            room.broadcast(ServerMessage::Awareness { user_id, state });
+                        }
+                    }
+                }
+            }
+        }
 
         Ok(())
     }

@@ -56,11 +56,11 @@
   - Автоматическая регистрация в `add_user()`
 
 #### Фаза 5: Throttling и оптимизация
-- [ ] 1.18. Реализовать throttling для cursor updates (33ms = ~30fps)
-- [ ] 1.19. Реализовать throttling для схемы updates (100-300ms)
-- [ ] 1.20. Создать `CursorBroadcaster` с защитой от спама
-- [ ] 1.21. Реализовать batching для awareness updates (собирать 100ms, отправлять батчом)
-- [ ] 1.22. Добавить rate limiting на уровне WebSocket connection
+- [x] 1.18. Реализовать throttling для cursor updates (33ms = ~30fps)
+- [x] 1.19. Реализовать throttling для схемы updates (100-300ms)
+- [x] 1.20. Создать `CursorBroadcaster` с защитой от спама
+- [x] 1.21. Реализовать batching для awareness updates (собирать 100ms, отправлять батчом)
+- [x] 1.22. Добавить rate limiting на уровне WebSocket connection
 
 #### Фаза 6: Reconciliation алгоритм
 - [ ] 1.23. Создать функцию `reconcile_elements` для слияния локальных и удаленных изменений

@@ -12,9 +12,15 @@ mod api;
 mod auth;
 #[cfg(feature = "ssr")]
 mod broadcast_manager;
+#[cfg(feature = "ssr")]
+mod cursor_broadcaster;
 mod protocol;
 #[cfg(feature = "ssr")]
+mod rate_limiter;
+#[cfg(feature = "ssr")]
 mod room;
+#[cfg(feature = "ssr")]
+pub mod throttling;
 #[cfg(feature = "ssr")]
 mod websocket;
 
@@ -24,7 +30,11 @@ pub use api::*;
 pub use auth::*;
 #[cfg(feature = "ssr")]
 pub use broadcast_manager::*;
+#[cfg(feature = "ssr")]
+pub use cursor_broadcaster::*;
 pub use protocol::*;
+#[cfg(feature = "ssr")]
+pub use rate_limiter::*;
 #[cfg(feature = "ssr")]
 pub use room::*;
 #[cfg(feature = "ssr")]
