@@ -240,35 +240,78 @@ where
 /// - If user is the room owner
 /// - If user has admin/moderator role
 pub fn can_modify_room(user: &AuthenticatedUser, room_owner_id: UserId) -> bool {
-    // TODO: Implement proper authorization
-    // For now, allow everyone (permissive mode for development)
-    //
-    // Future implementation:
-    // user.user_id == room_owner_id || user.is_admin()
-
-    let _ = (user, room_owner_id); // Suppress unused warnings
-    true
+    // Only room owner can modify room settings
+    user.user_id == room_owner_id
 }
 
 /// Check if a user can delete a room
 ///
 /// Currently returns `true` for all users (permissive mode).
 pub fn can_delete_room(user: &AuthenticatedUser, room_owner_id: UserId) -> bool {
-    // TODO: Implement proper authorization
-    // Only owner should be able to delete
-    //
-    // Future implementation:
-    // user.user_id == room_owner_id
-
-    let _ = (user, room_owner_id);
-    true
+    // Only room owner can delete a room
+    user.user_id == room_owner_id
 }
 
 /// Check if a user can join a room (basic check, doesn't verify password)
 pub fn can_join_room(user: &AuthenticatedUser) -> bool {
-    // Currently all users can attempt to join rooms
+    // All authenticated and guest users can attempt to join rooms
+    // Password validation happens separately
     let _ = user;
     true
+}
+
+/// Check if a user can create a LiveShare session for a diagram
+///
+/// Requirements:
+/// - User must be the diagram owner OR have 'edit' permission on the diagram
+///
+/// # Arguments
+/// * `user` - The authenticated user
+/// * `diagram_owner_id` - The owner of the diagram
+/// * `user_permission` - The user's permission level on the diagram (None if owner)
+///
+/// # Returns
+/// `true` if user can create a session, `false` otherwise
+pub fn can_create_session(
+    user: &AuthenticatedUser,
+    diagram_owner_id: UserId,
+    user_permission: Option<&str>,
+) -> bool {
+    // User must be diagram owner OR have 'edit' permission
+    if user.user_id == diagram_owner_id {
+        return true;
+    }
+
+    // Check if user has edit permission via diagram_shares
+    matches!(user_permission, Some("edit"))
+}
+
+/// Check if a user can connect to a LiveShare session for a diagram
+///
+/// Requirements:
+/// - User must be the diagram owner, OR
+/// - Have any permission level ('view' or 'edit') on the diagram
+///
+/// # Arguments
+/// * `user` - The authenticated user
+/// * `diagram_owner_id` - The owner of the diagram
+/// * `user_permission` - The user's permission level on the diagram (None if owner)
+///
+/// # Returns
+/// `true` if user can join the session, `false` otherwise
+pub fn can_join_session(
+    user: &AuthenticatedUser,
+    diagram_owner_id: UserId,
+    user_permission: Option<&str>,
+) -> bool {
+    // User must be diagram owner OR have any permission level
+    if user.user_id == diagram_owner_id {
+        return true;
+    }
+
+    // Check if user has any permission via diagram_shares
+    // Guests cannot join shared sessions
+    !user.is_guest && user_permission.is_some()
 }
 
 // ============================================================================
@@ -627,5 +670,122 @@ mod tests {
         let cloned = optional.clone();
 
         assert!(cloned.0.is_some());
+    }
+
+    // ========================================================================
+    // Tests for diagram-based permission checks (Phase 8)
+    // ========================================================================
+
+    #[test]
+    fn test_can_create_session_as_diagram_owner() {
+        let user = AuthenticatedUser::authenticated(
+            uuid::Uuid::new_v4(),
+            "testuser".to_string(),
+            Some("test@example.com".to_string()),
+        );
+        let diagram_owner_id = user.user_id;
+
+        // Owner can create session
+        assert!(can_create_session(&user, diagram_owner_id, None));
+    }
+
+    #[test]
+    fn test_can_create_session_with_edit_permission() {
+        let user = AuthenticatedUser::authenticated(
+            uuid::Uuid::new_v4(),
+            "testuser".to_string(),
+            Some("test@example.com".to_string()),
+        );
+        let diagram_owner_id = uuid::Uuid::new_v4(); // Different owner
+
+        // User with 'edit' permission can create session
+        assert!(can_create_session(&user, diagram_owner_id, Some("edit")));
+    }
+
+    #[test]
+    fn test_can_create_session_with_view_permission_fails() {
+        let user = AuthenticatedUser::authenticated(
+            uuid::Uuid::new_v4(),
+            "testuser".to_string(),
+            Some("test@example.com".to_string()),
+        );
+        let diagram_owner_id = uuid::Uuid::new_v4(); // Different owner
+
+        // User with only 'view' permission cannot create session
+        assert!(!can_create_session(&user, diagram_owner_id, Some("view")));
+    }
+
+    #[test]
+    fn test_can_create_session_no_permission_fails() {
+        let user = AuthenticatedUser::authenticated(
+            uuid::Uuid::new_v4(),
+            "testuser".to_string(),
+            Some("test@example.com".to_string()),
+        );
+        let diagram_owner_id = uuid::Uuid::new_v4(); // Different owner
+
+        // User with no permission cannot create session
+        assert!(!can_create_session(&user, diagram_owner_id, None));
+    }
+
+    #[test]
+    fn test_can_join_session_as_diagram_owner() {
+        let user = AuthenticatedUser::authenticated(
+            uuid::Uuid::new_v4(),
+            "testuser".to_string(),
+            Some("test@example.com".to_string()),
+        );
+        let diagram_owner_id = user.user_id;
+
+        // Owner can join session
+        assert!(can_join_session(&user, diagram_owner_id, None));
+    }
+
+    #[test]
+    fn test_can_join_session_with_edit_permission() {
+        let user = AuthenticatedUser::authenticated(
+            uuid::Uuid::new_v4(),
+            "testuser".to_string(),
+            Some("test@example.com".to_string()),
+        );
+        let diagram_owner_id = uuid::Uuid::new_v4(); // Different owner
+
+        // User with 'edit' permission can join session
+        assert!(can_join_session(&user, diagram_owner_id, Some("edit")));
+    }
+
+    #[test]
+    fn test_can_join_session_with_view_permission() {
+        let user = AuthenticatedUser::authenticated(
+            uuid::Uuid::new_v4(),
+            "testuser".to_string(),
+            Some("test@example.com".to_string()),
+        );
+        let diagram_owner_id = uuid::Uuid::new_v4(); // Different owner
+
+        // User with 'view' permission can join session
+        assert!(can_join_session(&user, diagram_owner_id, Some("view")));
+    }
+
+    #[test]
+    fn test_can_join_session_no_permission_fails() {
+        let user = AuthenticatedUser::authenticated(
+            uuid::Uuid::new_v4(),
+            "testuser".to_string(),
+            Some("test@example.com".to_string()),
+        );
+        let diagram_owner_id = uuid::Uuid::new_v4(); // Different owner
+
+        // User with no permission cannot join session
+        assert!(!can_join_session(&user, diagram_owner_id, None));
+    }
+
+    #[test]
+    fn test_can_join_session_guest_fails() {
+        let user = AuthenticatedUser::guest();
+        let diagram_owner_id = uuid::Uuid::new_v4();
+
+        // Guest cannot join shared session even with permission
+        assert!(!can_join_session(&user, diagram_owner_id, Some("view")));
     }
 }

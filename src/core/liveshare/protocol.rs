@@ -92,6 +92,8 @@ impl WsMessageType {
 /// Request to create a new room
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateRoomRequest {
+    /// The diagram ID for which this session is being created
+    pub diagram_id: Uuid,
     /// Optional room name (for display purposes)
     pub name: Option<String>,
     /// Optional password to protect the room
@@ -1412,6 +1414,7 @@ mod tests {
     #[test]
     fn test_create_room_request_full() {
         let request = CreateRoomRequest {
+            diagram_id: Uuid::new_v4(),
             name: Some("Test Room".to_string()),
             password: Some("secret123".to_string()),
             max_users: Some(25),
@@ -1428,6 +1431,7 @@ mod tests {
     #[test]
     fn test_create_room_request_minimal() {
         let request = CreateRoomRequest {
+            diagram_id: Uuid::new_v4(),
             name: None,
             password: None,
             max_users: None,

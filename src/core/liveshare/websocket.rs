@@ -941,6 +941,7 @@ mod tests {
                 room_id,
                 &owner,
                 CreateRoomRequest {
+                    diagram_id: Uuid::new_v4(),
                     name: Some("Test Room".to_string()),
                     password: None,
                     max_users: None,
@@ -995,6 +996,7 @@ mod tests {
                 room_id,
                 &owner,
                 CreateRoomRequest {
+                    diagram_id: Uuid::new_v4(),
                     name: Some("Protected Room".to_string()),
                     password: Some("secret123".to_string()),
                     max_users: None,
@@ -1044,6 +1046,7 @@ mod tests {
                 room_id,
                 &owner,
                 CreateRoomRequest {
+                    diagram_id: Uuid::new_v4(),
                     name: Some("Small Room".to_string()),
                     password: None,
                     max_users: Some(1),
@@ -1101,6 +1104,7 @@ mod tests {
                 room_id,
                 &owner,
                 CreateRoomRequest {
+                    diagram_id: Uuid::new_v4(),
                     name: None,
                     password: None,
                     max_users: None,
@@ -1149,6 +1153,7 @@ mod tests {
                 room_id,
                 &owner,
                 CreateRoomRequest {
+                    diagram_id: Uuid::new_v4(),
                     name: None,
                     password: None,
                     max_users: None,
@@ -1191,6 +1196,7 @@ mod tests {
                 room_id,
                 &owner,
                 CreateRoomRequest {
+                    diagram_id: Uuid::new_v4(),
                     name: Some("Sync Test Room".to_string()),
                     password: None,
                     max_users: None,
@@ -1270,8 +1276,9 @@ mod tests {
     #[tokio::test]
     async fn test_handle_cursor_move_broadcasts() {
         let room_id = Uuid::new_v4();
+        let diagram_id = Uuid::new_v4();
         let owner_id = Uuid::new_v4();
-        let room = Arc::new(Room::with_defaults(room_id, owner_id));
+        let room = Arc::new(Room::with_defaults(room_id, diagram_id, owner_id));
         #[allow(unused_variables)]
         let (tx, rx) = mpsc::channel(10);
 
@@ -1290,8 +1297,9 @@ mod tests {
     #[tokio::test]
     async fn test_handle_idle_status_broadcasts() {
         let room_id = Uuid::new_v4();
+        let diagram_id = Uuid::new_v4();
         let owner_id = Uuid::new_v4();
-        let room = Arc::new(Room::with_defaults(room_id, owner_id));
+        let room = Arc::new(Room::with_defaults(room_id, diagram_id, owner_id));
         #[allow(unused_variables)]
         let (tx, rx) = mpsc::channel(10);
 
@@ -1310,8 +1318,9 @@ mod tests {
     #[tokio::test]
     async fn test_handle_user_viewport_broadcasts() {
         let room_id = Uuid::new_v4();
+        let diagram_id = Uuid::new_v4();
         let owner_id = Uuid::new_v4();
-        let room = Arc::new(Room::with_defaults(room_id, owner_id));
+        let room = Arc::new(Room::with_defaults(room_id, diagram_id, owner_id));
         #[allow(unused_variables)]
         let (tx, rx) = mpsc::channel(10);
 
