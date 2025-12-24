@@ -959,6 +959,8 @@ fn DiagramTab(
 
                 // LiveShare content based on connection state
                 {
+                    #[allow(unused_variables)]
+                    let diagram_id = diagram_id.clone();
                     move || {
                         let state = connection_state.get();
                         if state == ConnectionState::Connected {

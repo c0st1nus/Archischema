@@ -653,7 +653,7 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
             if user_id != ctx.user_id.get_untracked() {
                 ctx.remote_users.update(|users| {
                     if let Some(user) = users.iter_mut().find(|u| u.user_id == user_id) {
-                        user.cursor = position;
+                        user.cursor = Some(position);
                     }
                 });
             }
@@ -670,20 +670,24 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
         }
         ServerMessage::UserViewport {
             user_id: _,
-            viewport: _,
+            center: _,
+            zoom: _,
         } => {
             // TODO: Handle user viewport updates for optimization
             // This would be used to only send updates for visible elements
         }
         ServerMessage::SnapshotRecovery {
-            tables,
-            relationships,
+            snapshot_id,
+            snapshot_data,
+            element_count,
+            created_at: _,
         } => {
             // TODO: Handle snapshot recovery
             leptos::logging::log!(
-                "Received snapshot recovery: {} tables, {} relationships",
-                tables.len(),
-                relationships.len()
+                "Received snapshot recovery: id={}, {} elements, {} bytes",
+                snapshot_id,
+                element_count,
+                snapshot_data.len()
             );
         }
     }
