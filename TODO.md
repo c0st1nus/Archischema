@@ -238,6 +238,38 @@
 
 ---
 
+## Реализация Фазы 6: Reconciliation алгоритм
+
+### Выполненные шаги:
+1. ✅ Создан новый модуль `src/core/liveshare/reconciliation.rs` с алгоритмом Last-Write-Wins
+2. ✅ Реализована trait `Reconcilable` для TableSnapshot и RelationshipSnapshot
+3. ✅ Функция `reconcile_element()` - сравнение элементов по версии и timestamp
+4. ✅ Функция `reconcile_elements()` - обработка списков элементов с конфликтами
+5. ✅ Функция `reconcile_snapshot()` - синхронизация полных снимков состояния
+6. ✅ Добавлены поля в TableSnapshot и RelationshipSnapshot:
+   - `last_modified_at: i64` - timestamp последнего изменения (Unix ms)
+   - `is_deleted: bool` - флаг мягкого удаления (tombstone)
+   - `version: u64` - счетчик версий
+7. ✅ Расширены методы Room:
+   - `reconcile_state()` - синхронизация снимков состояния
+   - `get_state()` - получение текущего состояния комнаты
+   - `update_table()` - обновление таблицы с reconciliation
+   - `update_relationship()` - обновление связи с reconciliation
+8. ✅ Улучшена обработка RequestGraphState в WebSocket:
+   - Сервер отправляет текущее состояние перед broadcast запроса
+9. ✅ Добавлены comprehensive unit тесты (6 тестов для reconciliation)
+10. ✅ Все проверки пройдены: check ✓, fmt ✓, clippy ✓, test ✓ (616 passed)
+11. ✅ Обновлены инициализаторы TableSnapshot и RelationshipSnapshot в тестах protocol.rs
+12. ✅ Отмечены выполненные пункты 1.23-1.27 в TODO.md
+
+### Поведение алгоритма:
+- **Версия выше побеждает**: Если remote.version > local.version → используется remote
+- **При равных версиях**: Сравниваются timestamp, новее выигрывает
+- **Мягкое удаление**: is_deleted флаг позволяет отслеживать удаленные элементы
+- **Идемпотентность**: Одинаковые данные → NoAction, безопасно переустанавливать
+
+---
+
 ## Легенда
 - [ ] Не выполнено
 - [x] Выполнено
