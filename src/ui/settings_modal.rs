@@ -729,6 +729,7 @@ fn DiagramTab(
 
     // Clone diagram_id for use in closures
     let has_diagram_id = diagram_id.is_some();
+    let diagram_id_for_liveshare = diagram_id.clone();
 
     // Rename state
     let is_editing_name = RwSignal::new(false);
@@ -960,7 +961,7 @@ fn DiagramTab(
                 // LiveShare content based on connection state
                 {
                     #[allow(unused_variables)]
-                    let diagram_id = diagram_id.clone();
+                    let diagram_id = diagram_id_for_liveshare.clone();
                     move || {
                         let state = connection_state.get();
                         if state == ConnectionState::Connected {
