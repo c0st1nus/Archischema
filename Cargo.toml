@@ -120,7 +120,7 @@ style-file = "style/output.css"
 assets-dir = "public"
 
 # The IP and port where the server serves the content
-site-addr = "192.168.8.5:3000"
+site-addr = "127.0.0.1:3000"
 
 # The port to use for automatic reload monitoring
 reload-port = 3001

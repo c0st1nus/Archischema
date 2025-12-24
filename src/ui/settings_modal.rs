@@ -813,11 +813,13 @@ fn DiagramTab(
     });
 
     // Copy link handler
-    let copy_link = move |_| {
+    #[allow(unused_variables)]
+    let diagram_id_for_copy_link = diagram_id.clone();
+    let copy_link = StoredValue::new_local(move |_| {
         #[cfg(not(feature = "ssr"))]
         {
             if let Some(rid) = room_id.get() {
-                if let Some(ref diagram_id_val) = diagram_id {
+                if let Some(ref diagram_id_val) = diagram_id_for_copy_link {
                     if let Some(window) = web_sys::window() {
                         let location = window.location();
                         let protocol = location.protocol().unwrap_or_default();
@@ -832,7 +834,7 @@ fn DiagramTab(
                 }
             }
         }
-    };
+    });
 
     view! {
         <div class="space-y-6">
@@ -965,6 +967,7 @@ fn DiagramTab(
                     move || {
                         let state = connection_state.get();
                         if state == ConnectionState::Connected {
+                            let diagram_id = diagram_id.clone();
                             // Connected view
                             view! {
                                 <div class="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl space-y-3">
@@ -979,33 +982,36 @@ fn DiagramTab(
                                             type="text"
                                             readonly
                                             class="flex-1 px-2 py-1.5 text-xs font-mono bg-theme-surface border border-green-300 dark:border-green-700 text-theme-primary rounded-lg"
-                                            prop:value=move || {
-                                                #[cfg(not(feature = "ssr"))]
-                                                {
-                                                    room_id.get().map(|id| {
-                                                        if let Some(diagram_id_val) = diagram_id.as_ref() {
-                                                            if let Some(window) = web_sys::window() {
-                                                                let location = window.location();
-                                                                let protocol = location.protocol().unwrap_or_default();
-                                                                let host = location.host().unwrap_or_default();
-                                                                format!("{}//{}editor/{}?room={}", protocol, host, diagram_id_val, id)
+                                            prop:value={
+                                                let _diagram_id = diagram_id.clone();
+                                                move || {
+                                                    #[cfg(not(feature = "ssr"))]
+                                                    {
+                                                        room_id.get().map(|id| {
+                                                            if let Some(diagram_id_val) = _diagram_id.as_ref() {
+                                                                if let Some(window) = web_sys::window() {
+                                                                    let location = window.location();
+                                                                    let protocol = location.protocol().unwrap_or_default();
+                                                                    let host = location.host().unwrap_or_default();
+                                                                    format!("{}//{}editor/{}?room={}", protocol, host, diagram_id_val, id)
+                                                                } else {
+                                                                    id
+                                                                }
                                                             } else {
                                                                 id
                                                             }
-                                                        } else {
-                                                            id
-                                                        }
-                                                    }).unwrap_or_default()
-                                                }
-                                                #[cfg(feature = "ssr")]
-                                                {
-                                                    room_id.get().unwrap_or_default()
+                                                        }).unwrap_or_default()
+                                                    }
+                                                    #[cfg(feature = "ssr")]
+                                                    {
+                                                        room_id.get().unwrap_or_default()
+                                                    }
                                                 }
                                             }
                                     />
                                     <button
                                         class="p-1.5 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors"
-                                        on:click=copy_link
+                                        on:click=move |ev| copy_link.with_value(|f| f(ev))
                                         title="Copy room link"
                                     >
                                         <Icon name=icons::DOCUMENT_DUPLICATE class="w-4 h-4" />
