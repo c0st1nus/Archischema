@@ -469,6 +469,8 @@ mod tests {
                     .method("POST")
                     .uri(format!("/room/{}", room_id))
                     .header("Content-Type", "application/json")
+                    .header("X-User-ID", Uuid::new_v4().to_string())
+                    .header("X-Username", "testuser")
                     .body(Body::from(serde_json::to_string(&create_request).unwrap()))
                     .unwrap(),
             )
@@ -484,6 +486,8 @@ mod tests {
                     .method("POST")
                     .uri(format!("/room/{}", room_id))
                     .header("Content-Type", "application/json")
+                    .header("X-User-ID", Uuid::new_v4().to_string())
+                    .header("X-Username", "testuser")
                     .body(Body::from(serde_json::to_string(&create_request).unwrap()))
                     .unwrap(),
             )
@@ -514,6 +518,8 @@ mod tests {
                     .method("POST")
                     .uri(format!("/room/{}", room_id))
                     .header("Content-Type", "application/json")
+                    .header("X-User-ID", Uuid::new_v4().to_string())
+                    .header("X-Username", "testuser")
                     .body(Body::from(serde_json::to_string(&create_request).unwrap()))
                     .unwrap(),
             )
@@ -565,6 +571,8 @@ mod tests {
                     .method("POST")
                     .uri(format!("/room/{}", room_id))
                     .header("Content-Type", "application/json")
+                    .header("X-User-ID", Uuid::new_v4().to_string())
+                    .header("X-Username", "testuser")
                     .body(Body::from(serde_json::to_string(&create_request).unwrap()))
                     .unwrap(),
             )
@@ -641,6 +649,8 @@ mod tests {
                     .method("POST")
                     .uri(format!("/room/{}", room_id))
                     .header("Content-Type", "application/json")
+                    .header("X-User-ID", Uuid::new_v4().to_string())
+                    .header("X-Username", "testuser")
                     .body(Body::from(serde_json::to_string(&create_request).unwrap()))
                     .unwrap(),
             )
@@ -660,6 +670,8 @@ mod tests {
                     .method("PATCH")
                     .uri(format!("/room/{}", room_id))
                     .header("Content-Type", "application/json")
+                    .header("X-User-ID", Uuid::new_v4().to_string())
+                    .header("X-Username", "testuser")
                     .body(Body::from(serde_json::to_string(&update_request).unwrap()))
                     .unwrap(),
             )
@@ -686,6 +698,8 @@ mod tests {
                     .method("PATCH")
                     .uri(format!("/room/{}", room_id))
                     .header("Content-Type", "application/json")
+                    .header("X-User-ID", Uuid::new_v4().to_string())
+                    .header("X-Username", "testuser")
                     .body(Body::from(serde_json::to_string(&update_request).unwrap()))
                     .unwrap(),
             )
