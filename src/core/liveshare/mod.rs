@@ -12,22 +12,22 @@ mod api;
 #[cfg(feature = "ssr")]
 mod auth;
 #[cfg(feature = "ssr")]
-mod broadcast_manager;
+pub mod broadcast_manager;
 #[cfg(feature = "ssr")]
-mod cursor_broadcaster;
+pub mod cursor_broadcaster;
 mod protocol;
 #[cfg(feature = "ssr")]
-mod rate_limiter;
+pub mod rate_limiter;
 #[cfg(feature = "ssr")]
-mod reconciliation;
+pub mod reconciliation;
 #[cfg(feature = "ssr")]
-mod room;
+pub mod room;
 #[cfg(feature = "ssr")]
 pub mod snapshots;
 #[cfg(feature = "ssr")]
 pub mod throttling;
 #[cfg(feature = "ssr")]
-mod websocket;
+pub mod websocket;
 
 #[cfg(feature = "ssr")]
 pub use api::*;
