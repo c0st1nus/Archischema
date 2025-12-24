@@ -885,7 +885,7 @@ mod tests {
         // Get room
         let fetched = manager.get_room(&room.id);
         assert!(fetched.is_some());
-        assert_eq!(fetched.unwrap().config.name, "Test Room");
+        assert_eq!(fetched.unwrap().config.name, "Manager Room 2");
 
         // Delete room
         let deleted = manager.delete_room(&room.id);
@@ -1183,7 +1183,7 @@ mod tests {
         let owner = AuthenticatedUser::guest();
         let room_id = Uuid::new_v4();
         let diagram_id = Uuid::new_v4();
-        let owner_id = Uuid::new_v4();
+        let _owner_id = Uuid::new_v4();
 
         let request = CreateRoomRequest {
             diagram_id,
@@ -1207,7 +1207,7 @@ mod tests {
         let manager = RoomManager::default();
         let owner = AuthenticatedUser::guest();
         let room_id = Uuid::new_v4();
-        let diagram_id = Uuid::new_v4();
+        let _diagram_id = Uuid::new_v4();
 
         let request = CreateRoomRequest {
             diagram_id: Uuid::new_v4(),

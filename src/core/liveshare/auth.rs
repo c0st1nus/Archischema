@@ -531,13 +531,15 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_authorization_permissive() {
+    fn test_authorization_guest_restrictions() {
+        // This test verifies proper authorization checks
         let user = AuthenticatedUser::guest();
         let owner_id = Uuid::new_v4();
 
-        // In permissive mode, all checks should pass
-        assert!(can_modify_room(&user, owner_id));
-        assert!(can_delete_room(&user, owner_id));
+        // Non-owners cannot modify or delete
+        assert!(!can_modify_room(&user, owner_id));
+        assert!(!can_delete_room(&user, owner_id));
+        // Guests can attempt to join (password validation separate)
         assert!(can_join_room(&user));
     }
 
@@ -555,8 +557,8 @@ mod tests {
         let user = AuthenticatedUser::guest();
         let different_owner = Uuid::new_v4();
 
-        // Permissive mode - non-owner can still modify
-        assert!(can_modify_room(&user, different_owner));
+        // Phase 8: Only owner can modify room
+        assert!(!can_modify_room(&user, different_owner));
     }
 
     #[test]
@@ -568,12 +570,12 @@ mod tests {
     }
 
     #[test]
-    fn test_can_delete_room_as_non_owner() {
+    fn test_can_delete_room_as_non_owner_fails() {
         let user = AuthenticatedUser::guest();
         let different_owner = Uuid::new_v4();
 
-        // Permissive mode - non-owner can still delete
-        assert!(can_delete_room(&user, different_owner));
+        // Phase 8: Only owner can delete room
+        assert!(!can_delete_room(&user, different_owner));
     }
 
     #[test]
