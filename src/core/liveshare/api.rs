@@ -324,6 +324,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires running PostgreSQL database"]
     async fn test_create_and_get_room() {
         let app = create_test_app();
         let room_id = Uuid::new_v4();
@@ -374,6 +375,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires running PostgreSQL database"]
     async fn test_create_room_with_custom_name() {
         let app = create_test_app();
         let room_id = Uuid::new_v4();
@@ -412,6 +414,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires running PostgreSQL database"]
     async fn test_create_room_with_default_name() {
         let app = create_test_app();
         let room_id = Uuid::new_v4();
@@ -449,6 +452,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires running PostgreSQL database"]
     async fn test_create_duplicate_room() {
         let state = LiveshareState::new();
         let app = liveshare_router(state.clone());
@@ -498,6 +502,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires running PostgreSQL database"]
     async fn test_get_room_info() {
         let state = LiveshareState::new();
         let app = liveshare_router(state.clone());
@@ -551,6 +556,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires running PostgreSQL database"]
     async fn test_delete_room() {
         let state = LiveshareState::new();
         let app = liveshare_router(state.clone());
@@ -629,6 +635,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires running PostgreSQL database"]
     async fn test_update_room() {
         let state = LiveshareState::new();
         let app = liveshare_router(state.clone());
@@ -710,6 +717,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires running PostgreSQL database"]
     async fn test_create_room_with_password() {
         let app = create_test_app();
         let room_id = Uuid::new_v4();
@@ -746,6 +754,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires running PostgreSQL database"]
     async fn test_create_room_with_user_headers() {
         let app = create_test_app();
         let room_id = Uuid::new_v4();

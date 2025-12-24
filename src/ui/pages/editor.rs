@@ -5,11 +5,12 @@
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_params_map, use_query_map};
 
 use crate::core::SchemaGraph;
 use crate::ui::auth::{AuthState, use_auth_context};
 use crate::ui::canvas::SchemaCanvas;
+use crate::ui::liveshare_client::use_liveshare_context;
 use leptos::prelude::Show;
 
 /// Update diagram name via API
@@ -74,9 +75,14 @@ async fn update_diagram_name(_id: &str, _name: &str) -> Result<(), String> {
 pub fn EditorPage() -> impl IntoView {
     let auth = use_auth_context();
     let params = use_params_map();
+    let query = use_query_map();
+    let liveshare_ctx = use_liveshare_context();
 
     // Get diagram ID from URL params
     let diagram_id = Memo::new(move |_| params.get().get("id").unwrap_or_default());
+
+    // Get room ID from query params
+    let room_id_from_url = Memo::new(move |_| query.get().get("room").map(|s| s.to_string()));
 
     // Diagram state
     let graph = RwSignal::new(SchemaGraph::new());
@@ -149,6 +155,14 @@ pub fn EditorPage() -> impl IntoView {
         } else {
             // Not authenticated and not demo - show empty
             loading.set(false);
+        }
+    });
+
+    // Auto-connect to LiveShare room if room parameter is present
+    Effect::new(move |_| {
+        if let Some(room_id) = room_id_from_url.get() {
+            // Connect to the room without password (shared links don't use passwords)
+            liveshare_ctx.connect(room_id, None);
         }
     });
 

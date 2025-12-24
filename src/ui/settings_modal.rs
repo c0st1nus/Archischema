@@ -816,13 +816,18 @@ fn DiagramTab(
         #[cfg(not(feature = "ssr"))]
         {
             if let Some(rid) = room_id.get() {
-                if let Some(window) = web_sys::window() {
-                    let location = window.location();
-                    let protocol = location.protocol().unwrap_or_default();
-                    let host = location.host().unwrap_or_default();
-                    let link = format!("{}//{}?room={}", protocol, host, rid);
-                    let js_code = format!("navigator.clipboard.writeText('{}')", link);
-                    let _ = js_sys::eval(&js_code);
+                if let Some(ref diagram_id_val) = diagram_id {
+                    if let Some(window) = web_sys::window() {
+                        let location = window.location();
+                        let protocol = location.protocol().unwrap_or_default();
+                        let host = location.host().unwrap_or_default();
+                        let link = format!(
+                            "{}//{}editor/{}?room={}",
+                            protocol, host, diagram_id_val, rid
+                        );
+                        let js_code = format!("navigator.clipboard.writeText('{}')", link);
+                        let _ = js_sys::eval(&js_code);
+                    }
                 }
             }
         }
@@ -974,11 +979,15 @@ fn DiagramTab(
                                             #[cfg(not(feature = "ssr"))]
                                             {
                                                 room_id.get().map(|id| {
-                                                    if let Some(window) = web_sys::window() {
-                                                        let location = window.location();
-                                                        let protocol = location.protocol().unwrap_or_default();
-                                                        let host = location.host().unwrap_or_default();
-                                                        format!("{}//{}?room={}", protocol, host, id)
+                                                    if let Some(diagram_id_val) = diagram_id.as_ref() {
+                                                        if let Some(window) = web_sys::window() {
+                                                            let location = window.location();
+                                                            let protocol = location.protocol().unwrap_or_default();
+                                                            let host = location.host().unwrap_or_default();
+                                                            format!("{}//{}editor/{}?room={}", protocol, host, diagram_id_val, id)
+                                                        } else {
+                                                            id
+                                                        }
                                                     } else {
                                                         id
                                                     }
