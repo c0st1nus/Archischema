@@ -202,6 +202,9 @@ struct ConnectionSession {
     schema_throttler: SchemaThrottler,
     /// Awareness batcher
     awareness_batcher: AwarenessBatcher,
+    /// Last time a snapshot was created for this session
+    #[allow(dead_code)]
+    last_snapshot_time: std::sync::Arc<tokio::sync::RwLock<std::time::Instant>>,
 }
 
 impl ConnectionSession {
@@ -218,6 +221,9 @@ impl ConnectionSession {
             cursor_broadcaster: CursorBroadcaster::new(),
             schema_throttler: SchemaThrottler::new(),
             awareness_batcher: AwarenessBatcher::new(),
+            last_snapshot_time: std::sync::Arc::new(tokio::sync::RwLock::new(
+                std::time::Instant::now(),
+            )),
         }
     }
 
@@ -501,6 +507,36 @@ impl ConnectionSession {
         let room_info = room.to_response(state.room_manager.host(), state.room_manager.is_secure());
         let _ = self.tx.send(ServerMessage::auth_success(room_info)).await;
 
+        // Phase 7: Attempt to restore state from latest snapshot
+        // This helps users reconnect quickly to the last known state
+        match room.get_latest_snapshot().await {
+            Some(snapshot) => {
+                tracing::info!(
+                    room_id = %self.room_id,
+                    user_id = %user_id,
+                    snapshot_id = %snapshot.id,
+                    snapshot_size = snapshot.size_bytes,
+                    "Sending latest snapshot to user for recovery"
+                );
+                let _ = self
+                    .tx
+                    .send(ServerMessage::SnapshotRecovery {
+                        snapshot_id: snapshot.id,
+                        snapshot_data: snapshot.data.clone(),
+                        element_count: snapshot.element_count,
+                        created_at: snapshot.created_at.to_rfc3339(),
+                    })
+                    .await;
+            }
+            None => {
+                tracing::debug!(
+                    room_id = %self.room_id,
+                    user_id = %user_id,
+                    "No snapshots available for recovery"
+                );
+            }
+        }
+
         tracing::info!(
             room_id = %self.room_id,
             user_id = %user_id,
@@ -593,6 +629,30 @@ impl ConnectionSession {
                             room.broadcast(ServerMessage::Awareness { user_id, state });
                         }
                     }
+                }
+            }
+        }
+
+        // Check if it's time to create a snapshot (Phase 7)
+        if let Some(ref room) = self.room
+            && room.should_create_snapshot().await
+        {
+            match room.create_snapshot().await {
+                Ok(snapshot) => {
+                    tracing::debug!(
+                        room_id = %room.id,
+                        snapshot_id = %snapshot.id,
+                        size_bytes = snapshot.size_bytes,
+                        element_count = snapshot.element_count,
+                        "Snapshot created successfully"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        room_id = %room.id,
+                        error = %e,
+                        "Failed to create snapshot"
+                    );
                 }
             }
         }

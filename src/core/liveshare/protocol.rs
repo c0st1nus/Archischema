@@ -351,6 +351,15 @@ pub enum ServerMessage {
 
     /// Pong response to Ping
     Pong,
+
+    /// Snapshot recovery data (Phase 7)
+    /// Sent to users on connection to restore state from last snapshot
+    SnapshotRecovery {
+        snapshot_id: uuid::Uuid,
+        snapshot_data: Vec<u8>,
+        element_count: usize,
+        created_at: String, // RFC3339 timestamp
+    },
 }
 
 // ============================================================================
@@ -535,9 +544,10 @@ impl ServerMessage {
     /// Get the message type for prioritization
     pub fn message_type(&self) -> WsMessageType {
         match self {
-            Self::GraphState { .. } | Self::AuthResult { .. } | Self::RequestGraphState { .. } => {
-                WsMessageType::Init
-            }
+            Self::GraphState { .. }
+            | Self::AuthResult { .. }
+            | Self::RequestGraphState { .. }
+            | Self::SnapshotRecovery { .. } => WsMessageType::Init,
             Self::GraphOp { .. }
             | Self::SyncStep1 { .. }
             | Self::SyncStep2 { .. }

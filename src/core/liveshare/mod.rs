@@ -5,6 +5,7 @@
 //! - Optional password protection
 //! - CRDT-based state synchronization via Yrs
 //! - Full CRUD API for room management
+//! - Periodic snapshots for crash recovery
 
 #[cfg(feature = "ssr")]
 mod api;
@@ -21,6 +22,8 @@ mod rate_limiter;
 mod reconciliation;
 #[cfg(feature = "ssr")]
 mod room;
+#[cfg(feature = "ssr")]
+pub mod snapshots;
 #[cfg(feature = "ssr")]
 pub mod throttling;
 #[cfg(feature = "ssr")]
@@ -41,5 +44,7 @@ pub use rate_limiter::*;
 pub use reconciliation::*;
 #[cfg(feature = "ssr")]
 pub use room::*;
+#[cfg(feature = "ssr")]
+pub use snapshots::*;
 #[cfg(feature = "ssr")]
 pub use websocket::*;

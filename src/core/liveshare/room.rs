@@ -18,6 +18,7 @@ use yrs::{Doc, ReadTxn, Transact, updates::decoder::Decode, updates::encoder::En
 use super::auth::AuthenticatedUser;
 use super::broadcast_manager::BroadcastManager;
 use super::protocol::*;
+use super::snapshots::SnapshotManager;
 
 // ============================================================================
 // Constants
@@ -146,6 +147,9 @@ pub struct Room {
 
     /// Current graph state snapshot (source of truth for reconciliation)
     schema_state: RwLock<GraphStateSnapshot>,
+
+    /// Snapshot manager for periodic state snapshots
+    snapshot_manager: Arc<SnapshotManager>,
 }
 
 impl Room {
@@ -166,6 +170,7 @@ impl Room {
                 tables: Vec::new(),
                 relationships: Vec::new(),
             }),
+            snapshot_manager: Arc::new(SnapshotManager::new(id)),
         }
     }
 
@@ -626,6 +631,41 @@ impl Room {
             state.relationships.push(remote_rel);
             true
         }
+    }
+
+    // ========================================================================
+    // Snapshot Management
+    // ========================================================================
+
+    /// Check if a new snapshot should be created
+    pub async fn should_create_snapshot(&self) -> bool {
+        self.snapshot_manager.should_snapshot().await
+    }
+
+    /// Create a snapshot of the current room state
+    pub async fn create_snapshot(&self) -> Result<super::snapshots::Snapshot, String> {
+        let state = self.schema_state.read().await;
+        self.snapshot_manager.create_snapshot(&state).await
+    }
+
+    /// Get the most recent snapshot
+    pub async fn get_latest_snapshot(&self) -> Option<super::snapshots::Snapshot> {
+        self.snapshot_manager.get_latest_snapshot().await
+    }
+
+    /// Restore room state from the latest snapshot
+    pub async fn restore_from_snapshot(&self) -> Result<GraphStateSnapshot, String> {
+        self.snapshot_manager.restore_from_latest().await
+    }
+
+    /// Get snapshot statistics for this room
+    pub async fn get_snapshot_stats(&self) -> super::snapshots::SnapshotStats {
+        self.snapshot_manager.get_stats().await
+    }
+
+    /// Clear all snapshots for this room
+    pub async fn clear_snapshots(&self) {
+        self.snapshot_manager.clear_snapshots().await
     }
 }
 
