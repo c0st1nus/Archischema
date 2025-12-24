@@ -648,6 +648,44 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
         ServerMessage::Pong => {
             // Keepalive response, ignore
         }
+        ServerMessage::CursorMove { user_id, position } => {
+            // Update remote user cursor position
+            if user_id != ctx.user_id.get_untracked() {
+                ctx.remote_users.update(|users| {
+                    if let Some(user) = users.iter_mut().find(|u| u.user_id == user_id) {
+                        user.cursor = position;
+                    }
+                });
+            }
+        }
+        ServerMessage::IdleStatus { user_id, is_active } => {
+            // Update remote user activity status
+            if user_id != ctx.user_id.get_untracked() {
+                ctx.remote_users.update(|users| {
+                    if let Some(user) = users.iter_mut().find(|u| u.user_id == user_id) {
+                        user.is_active = is_active;
+                    }
+                });
+            }
+        }
+        ServerMessage::UserViewport {
+            user_id: _,
+            viewport: _,
+        } => {
+            // TODO: Handle user viewport updates for optimization
+            // This would be used to only send updates for visible elements
+        }
+        ServerMessage::SnapshotRecovery {
+            tables,
+            relationships,
+        } => {
+            // TODO: Handle snapshot recovery
+            leptos::logging::log!(
+                "Received snapshot recovery: {} tables, {} relationships",
+                tables.len(),
+                relationships.len()
+            );
+        }
     }
 }
 

@@ -958,46 +958,47 @@ fn DiagramTab(
                 </div>
 
                 // LiveShare content based on connection state
-                {move || {
-                    let state = connection_state.get();
-                    if state == ConnectionState::Connected {
-                        // Connected view
-                        view! {
-                            <div class="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl space-y-3">
-                                // Room info
-                                {move || room_info.get().map(|info| view! {
-                                    <p class="text-sm font-medium text-green-700 dark:text-green-300">{info.name}</p>
-                                })}
+                {
+                    move || {
+                        let state = connection_state.get();
+                        if state == ConnectionState::Connected {
+                            // Connected view
+                            view! {
+                                <div class="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl space-y-3">
+                                    // Room info
+                                    {move || room_info.get().map(|info| view! {
+                                        <p class="text-sm font-medium text-green-700 dark:text-green-300">{info.name}</p>
+                                    })}
 
-                                // Room link
-                                <div class="flex items-center gap-2">
-                                    <input
-                                        type="text"
-                                        readonly
-                                        class="flex-1 px-2 py-1.5 text-xs font-mono bg-theme-surface border border-green-300 dark:border-green-700 text-theme-primary rounded-lg"
-                                        prop:value=move || {
-                                            #[cfg(not(feature = "ssr"))]
-                                            {
-                                                room_id.get().map(|id| {
-                                                    if let Some(diagram_id_val) = diagram_id.as_ref() {
-                                                        if let Some(window) = web_sys::window() {
-                                                            let location = window.location();
-                                                            let protocol = location.protocol().unwrap_or_default();
-                                                            let host = location.host().unwrap_or_default();
-                                                            format!("{}//{}editor/{}?room={}", protocol, host, diagram_id_val, id)
+                                    // Room link
+                                    <div class="flex items-center gap-2">
+                                        <input
+                                            type="text"
+                                            readonly
+                                            class="flex-1 px-2 py-1.5 text-xs font-mono bg-theme-surface border border-green-300 dark:border-green-700 text-theme-primary rounded-lg"
+                                            prop:value=move || {
+                                                #[cfg(not(feature = "ssr"))]
+                                                {
+                                                    room_id.get().map(|id| {
+                                                        if let Some(diagram_id_val) = diagram_id.as_ref() {
+                                                            if let Some(window) = web_sys::window() {
+                                                                let location = window.location();
+                                                                let protocol = location.protocol().unwrap_or_default();
+                                                                let host = location.host().unwrap_or_default();
+                                                                format!("{}//{}editor/{}?room={}", protocol, host, diagram_id_val, id)
+                                                            } else {
+                                                                id
+                                                            }
                                                         } else {
                                                             id
                                                         }
-                                                    } else {
-                                                        id
-                                                    }
-                                                }).unwrap_or_default()
+                                                    }).unwrap_or_default()
+                                                }
+                                                #[cfg(feature = "ssr")]
+                                                {
+                                                    room_id.get().unwrap_or_default()
+                                                }
                                             }
-                                            #[cfg(feature = "ssr")]
-                                            {
-                                                room_id.get().unwrap_or_default()
-                                            }
-                                        }
                                     />
                                     <button
                                         class="p-1.5 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors"

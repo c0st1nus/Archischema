@@ -1592,6 +1592,9 @@ fn create_graph_snapshot(graph: RwSignal<SchemaGraph>) -> GraphStateSnapshot {
                         name: node.name.clone(),
                         position: node.position,
                         columns,
+                        version: 0,
+                        last_modified_at: 0,
+                        is_deleted: false,
                     }
                 })
             })
@@ -1614,6 +1617,9 @@ fn create_graph_snapshot(graph: RwSignal<SchemaGraph>) -> GraphStateSnapshot {
                         from_column: edge.from_column.clone(),
                         to_column: edge.to_column.clone(),
                     },
+                    version: 0,
+                    last_modified_at: 0,
+                    is_deleted: false,
                 })
             })
             .collect();
