@@ -338,7 +338,7 @@ mod tests {
 
         // Should have refilled some tokens
         let tokens = limiter.current_tokens();
-        assert!(tokens >= 4 && tokens <= 6); // Allow some variance
+        assert!((4..=6).contains(&tokens)); // Allow some variance
     }
 
     #[test]
@@ -365,7 +365,7 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_default() {
-        let mut limiter = RateLimiter::default();
+        let limiter = RateLimiter::default();
         assert_eq!(limiter.max_tokens(), DEFAULT_MAX_TOKENS);
         assert_eq!(limiter.refill_rate(), DEFAULT_REFILL_RATE as f64);
     }

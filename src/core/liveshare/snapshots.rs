@@ -358,7 +358,6 @@ mod tests {
         let data = SnapshotCodec::serialize(&state).unwrap();
 
         assert!(!data.is_empty());
-        assert!(data.len() > 0);
     }
 
     #[test]

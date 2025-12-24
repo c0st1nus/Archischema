@@ -1272,7 +1272,8 @@ mod tests {
         let room_id = Uuid::new_v4();
         let owner_id = Uuid::new_v4();
         let room = Arc::new(Room::with_defaults(room_id, owner_id));
-        let (tx, mut rx) = mpsc::channel(10);
+        #[allow(unused_variables)]
+        let (tx, rx) = mpsc::channel(10);
 
         let user_id = Uuid::new_v4();
         let mut session = ConnectionSession::new(room_id, tx);
@@ -1291,7 +1292,8 @@ mod tests {
         let room_id = Uuid::new_v4();
         let owner_id = Uuid::new_v4();
         let room = Arc::new(Room::with_defaults(room_id, owner_id));
-        let (tx, mut rx) = mpsc::channel(10);
+        #[allow(unused_variables)]
+        let (tx, rx) = mpsc::channel(10);
 
         let user_id = Uuid::new_v4();
         let mut session = ConnectionSession::new(room_id, tx);
@@ -1310,7 +1312,8 @@ mod tests {
         let room_id = Uuid::new_v4();
         let owner_id = Uuid::new_v4();
         let room = Arc::new(Room::with_defaults(room_id, owner_id));
-        let (tx, mut rx) = mpsc::channel(10);
+        #[allow(unused_variables)]
+        let (tx, rx) = mpsc::channel(10);
 
         let user_id = Uuid::new_v4();
         let mut session = ConnectionSession::new(room_id, tx);
