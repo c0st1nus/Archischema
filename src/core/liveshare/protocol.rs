@@ -439,6 +439,12 @@ pub struct TableSnapshot {
     /// Version counter for tracking changes, incremented on each modification
     #[serde(default)]
     pub version: u64,
+    /// Timestamp of the last modification (Unix timestamp in milliseconds)
+    #[serde(default)]
+    pub last_modified_at: i64,
+    /// Whether this element has been deleted (tombstone)
+    #[serde(default)]
+    pub is_deleted: bool,
 }
 
 /// Relationship snapshot for graph state
@@ -451,6 +457,12 @@ pub struct RelationshipSnapshot {
     /// Version counter for tracking changes, incremented on each modification
     #[serde(default)]
     pub version: u64,
+    /// Timestamp of the last modification (Unix timestamp in milliseconds)
+    #[serde(default)]
+    pub last_modified_at: i64,
+    /// Whether this element has been deleted (tombstone)
+    #[serde(default)]
+    pub is_deleted: bool,
 }
 
 // ============================================================================
@@ -851,6 +863,8 @@ mod tests {
                 position: (0.0, 0.0),
                 columns: vec![],
                 version: 1,
+                last_modified_at: 0,
+                is_deleted: false,
             }],
             relationships: vec![],
         };
@@ -1279,6 +1293,8 @@ mod tests {
                         foreign_key: None,
                     }],
                     version: 1,
+                    last_modified_at: 0,
+                    is_deleted: false,
                 },
                 TableSnapshot {
                     node_id: 2,
@@ -1286,19 +1302,23 @@ mod tests {
                     position: (300.0, 400.0),
                     columns: vec![],
                     version: 1,
+                    last_modified_at: 0,
+                    is_deleted: false,
                 },
             ],
             relationships: vec![RelationshipSnapshot {
                 edge_id: 1,
                 from_node: 1,
                 to_node: 2,
+                version: 1,
+                last_modified_at: 0,
+                is_deleted: false,
                 data: RelationshipData {
                     name: "user_posts".to_string(),
                     relationship_type: "one_to_many".to_string(),
                     from_column: "id".to_string(),
                     to_column: "user_id".to_string(),
                 },
-                version: 1,
             }],
         };
 

@@ -343,7 +343,19 @@ impl ConnectionSession {
         if let Some(ref room) = self.room
             && let Some(user_id) = self.user_id
         {
-            // Broadcast request to all other users - they should respond with GraphState
+            // First, send what the server currently knows
+            let current_state = room.get_state().await;
+            if !current_state.tables.is_empty() {
+                let _ = self
+                    .tx
+                    .send(ServerMessage::GraphState {
+                        state: current_state,
+                        target_user_id: Some(user_id),
+                    })
+                    .await;
+            }
+
+            // Also broadcast request to all other users to get the most up-to-date state
             room.broadcast(ServerMessage::RequestGraphState {
                 requester_id: user_id,
             });

@@ -143,6 +143,9 @@ pub struct Room {
 
     /// Broadcast manager for tracking incremental updates
     broadcast_manager: RwLock<BroadcastManager>,
+
+    /// Current graph state snapshot (source of truth for reconciliation)
+    schema_state: RwLock<GraphStateSnapshot>,
 }
 
 impl Room {
@@ -159,6 +162,10 @@ impl Room {
             users: DashMap::new(),
             broadcast_tx,
             broadcast_manager: RwLock::new(BroadcastManager::new()),
+            schema_state: RwLock::new(GraphStateSnapshot {
+                tables: Vec::new(),
+                relationships: Vec::new(),
+            }),
         }
     }
 
@@ -558,6 +565,67 @@ impl Room {
             ));
         }
         self.mark_batch_sent(user_id_str, updates).await;
+    }
+
+    /// Reconcile an incoming state snapshot with the current room state.
+    /// Returns (updated_table_ids, updated_rel_ids)
+    pub async fn reconcile_state(
+        &self,
+        remote_snapshot: GraphStateSnapshot,
+    ) -> (Vec<u32>, Vec<u32>) {
+        let mut current_state = self.schema_state.write().await;
+        super::reconciliation::reconcile_snapshot(&mut current_state, remote_snapshot)
+    }
+
+    /// Get current room state
+    pub async fn get_state(&self) -> GraphStateSnapshot {
+        self.schema_state.read().await.clone()
+    }
+
+    /// Update an individual table in the room state with reconciliation
+    pub async fn update_table(&self, remote_table: TableSnapshot) -> bool {
+        let mut state = self.schema_state.write().await;
+
+        if let Some(local_idx) = state
+            .tables
+            .iter()
+            .position(|t| t.node_id == remote_table.node_id)
+        {
+            let local = &state.tables[local_idx];
+            match super::reconciliation::reconcile_element(local, &remote_table) {
+                super::reconciliation::ReconciliationAction::UpdateFromRemote => {
+                    state.tables[local_idx] = remote_table;
+                    true
+                }
+                _ => false,
+            }
+        } else {
+            state.tables.push(remote_table);
+            true
+        }
+    }
+
+    /// Update an individual relationship in the room state with reconciliation
+    pub async fn update_relationship(&self, remote_rel: RelationshipSnapshot) -> bool {
+        let mut state = self.schema_state.write().await;
+
+        if let Some(local_idx) = state
+            .relationships
+            .iter()
+            .position(|r| r.edge_id == remote_rel.edge_id)
+        {
+            let local = &state.relationships[local_idx];
+            match super::reconciliation::reconcile_element(local, &remote_rel) {
+                super::reconciliation::ReconciliationAction::UpdateFromRemote => {
+                    state.relationships[local_idx] = remote_rel;
+                    true
+                }
+                _ => false,
+            }
+        } else {
+            state.relationships.push(remote_rel);
+            true
+        }
     }
 }
 

@@ -18,6 +18,8 @@ mod protocol;
 #[cfg(feature = "ssr")]
 mod rate_limiter;
 #[cfg(feature = "ssr")]
+mod reconciliation;
+#[cfg(feature = "ssr")]
 mod room;
 #[cfg(feature = "ssr")]
 pub mod throttling;
@@ -35,6 +37,8 @@ pub use cursor_broadcaster::*;
 pub use protocol::*;
 #[cfg(feature = "ssr")]
 pub use rate_limiter::*;
+#[cfg(feature = "ssr")]
+pub use reconciliation::*;
 #[cfg(feature = "ssr")]
 pub use room::*;
 #[cfg(feature = "ssr")]
