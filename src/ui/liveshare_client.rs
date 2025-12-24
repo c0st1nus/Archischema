@@ -5,6 +5,7 @@
 
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 use uuid::Uuid;
 
 // Re-export protocol types for convenience
@@ -26,6 +27,17 @@ pub enum ConnectionState {
     Connected,
     Reconnecting,
     Error,
+}
+
+/// Synchronization status for tracking updates
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SyncStatus {
+    #[default]
+    Idle,
+    Syncing,
+    Synced,
+    Error,
+    Throttled,
 }
 
 /// Remote user with their awareness state
@@ -124,6 +136,18 @@ pub struct LiveShareContext {
     pub local_cursor: RwSignal<Option<(f64, f64)>>,
     /// Pending room to join from URL (e.g., /?room=uuid)
     pub pending_join_room: RwSignal<Option<String>>,
+    /// Synchronization status
+    pub sync_status: RwSignal<SyncStatus>,
+    /// Number of pending updates waiting to be sent
+    pub pending_updates: RwSignal<usize>,
+    /// Last successful sync time
+    pub last_sync_time: RwSignal<Option<Instant>>,
+    /// Time when connection was lost (for reconnection UI)
+    pub connection_lost_since: RwSignal<Option<Instant>>,
+    /// Whether a snapshot is currently being saved
+    pub snapshot_saving: RwSignal<bool>,
+    /// Last successful snapshot save time
+    pub last_snapshot_time: RwSignal<Option<Instant>>,
 }
 
 impl LiveShareContext {
@@ -143,7 +167,51 @@ impl LiveShareContext {
             error: RwSignal::new(None),
             local_cursor: RwSignal::new(None),
             pending_join_room: RwSignal::new(None),
+            sync_status: RwSignal::new(SyncStatus::Idle),
+            pending_updates: RwSignal::new(0),
+            last_sync_time: RwSignal::new(None),
+            connection_lost_since: RwSignal::new(None),
+            snapshot_saving: RwSignal::new(false),
+            last_snapshot_time: RwSignal::new(None),
         }
+    }
+
+    /// Update sync status
+    pub fn set_sync_status(&self, status: SyncStatus) {
+        self.sync_status.set(status);
+        if status == SyncStatus::Synced {
+            self.last_sync_time.set(Some(Instant::now()));
+            self.pending_updates.set(0);
+        }
+    }
+
+    /// Increment pending updates counter
+    pub fn add_pending_update(&self) {
+        self.pending_updates.update(|count| *count += 1);
+        if self.sync_status.get() != SyncStatus::Syncing {
+            self.set_sync_status(SyncStatus::Syncing);
+        }
+    }
+
+    /// Mark connection as lost
+    pub fn mark_connection_lost(&self) {
+        self.connection_lost_since.set(Some(Instant::now()));
+    }
+
+    /// Clear connection lost time when reconnected
+    pub fn mark_connection_restored(&self) {
+        self.connection_lost_since.set(None);
+    }
+
+    /// Mark snapshot save started
+    pub fn mark_snapshot_save_started(&self) {
+        self.snapshot_saving.set(true);
+    }
+
+    /// Mark snapshot save completed
+    pub fn mark_snapshot_save_completed(&self) {
+        self.snapshot_saving.set(false);
+        self.last_snapshot_time.set(Some(Instant::now()));
     }
 
     /// Check URL for room parameter and set pending_join_room if found

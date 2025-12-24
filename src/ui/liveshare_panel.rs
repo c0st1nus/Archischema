@@ -6,7 +6,9 @@
 //! - Viewing connected users
 //! - Room settings
 use crate::ui::liveshare_client::{ConnectionState, use_liveshare_context};
-use crate::ui::{Icon, icons};
+use crate::ui::{
+    ConnectionStatusBar, Icon, SnapshotSaveIndicator, SyncStatusBadge, UserPresenceIndicator, icons,
+};
 use leptos::prelude::*;
 
 #[cfg(not(feature = "ssr"))]
@@ -184,7 +186,10 @@ pub fn LiveSharePanel() -> impl IntoView {
     let room_info = ctx.room_info;
 
     view! {
-        <div class="absolute top-4 right-4 z-50">
+        <div class="absolute top-4 right-4 z-50 flex flex-col gap-2">
+            // Top status bar with connection and sync indicators
+            <ConnectionStatusBar />
+
             // Toggle button
             <button
                 class="btn-secondary shadow-theme-lg"
@@ -236,9 +241,9 @@ pub fn LiveSharePanel() -> impl IntoView {
                     let ctx_users = ctx;
                     view! {
                         <div class="mt-2 w-80 card shadow-theme-xl overflow-hidden">
-                            // Header
+                            // Header with sync status
                             <div class="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white">
-                                <div class="flex items-center justify-between">
+                                <div class="flex items-center justify-between mb-2">
                                     <h3 class="font-semibold">"Connected"</h3>
                                     <button
                                         class="text-white/80 hover:text-white text-sm"
@@ -247,13 +252,26 @@ pub fn LiveSharePanel() -> impl IntoView {
                                         "Disconnect"
                                     </button>
                                 </div>
-                                {move || room_info.get().map(|info| view! {
-                                    <p class="text-sm text-white/80 mt-1">{info.name}</p>
-                                })}
+                                <div class="flex items-center justify-between gap-2">
+                                    <div>
+                                        {move || room_info.get().map(|info| view! {
+                                            <p class="text-sm text-white/80">{info.name}</p>
+                                        })}
+                                    </div>
+                                    <UserPresenceIndicator />
+                                </div>
+                            </div>
+
+                            // Status bar with sync and snapshot info
+                            <div class="px-4 py-2 bg-theme-secondary/20 border-b border-theme-tertiary flex items-center justify-between gap-2 text-xs">
+                                <div class="flex items-center gap-3">
+                                    <SyncStatusBadge />
+                                    <SnapshotSaveIndicator />
+                                </div>
                             </div>
 
                             // Room info
-                            <div class="p-4 divider-bottom">
+                            <div class="p-4 border-b border-theme-tertiary">
                                 <div class="flex items-center justify-between text-sm">
                                     <span class="text-theme-muted">"Room ID"</span>
                                     <div class="flex items-center gap-2">

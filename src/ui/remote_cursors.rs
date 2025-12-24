@@ -94,6 +94,7 @@ fn CursorView(
                         color,
                         if is_active { "1" } else { "0.7" }
                     );
+                    let username_clone = username.clone();
 
                     view! {
                         <div
@@ -135,13 +136,27 @@ fn CursorView(
                                 />
                             </svg>
 
-                            // Username label - positioned to the right of cursor
-                            <div
-                                class="absolute left-4 top-3 px-2 py-1 rounded-md text-xs font-medium text-white whitespace-nowrap"
-                                style=label_style
-                            >
-                                {username}
-                            </div>
+                            // Username label - positioned to the right of cursor with activity indicator
+                                            <div
+                                                class="absolute left-4 top-3 px-2 py-1 rounded-md text-xs font-medium text-white whitespace-nowrap flex items-center gap-1"
+                                                style=label_style
+                                                title={move || {
+                                                    if is_active {
+                                                        format!("{} is editing", username_clone)
+                                                    } else {
+                                                        format!("{} (idle)", username_clone)
+                                                    }
+                                                }}
+                                            >
+                                                <span class={move || {
+                                                    if is_active {
+                                                        "w-1.5 h-1.5 rounded-full bg-white animate-pulse"
+                                                    } else {
+                                                        "w-1.5 h-1.5 rounded-full bg-white/50"
+                                                    }
+                                                }}></span>
+                                                {username}
+                                            </div>
                         </div>
                     }.into_any()
                 }

@@ -15,6 +15,7 @@ pub mod remote_cursors;
 pub mod settings_modal;
 pub mod sidebar;
 pub mod source_editor;
+pub mod sync_status_indicator;
 pub mod table;
 pub mod table_editor;
 pub mod theme;
@@ -48,6 +49,9 @@ pub use settings_modal::{SettingsButton, SettingsModal};
 pub use sidebar::Sidebar;
 pub use source_editor::{
     EditorMode, EditorModeSwitcher, SourceEditor, check_before_save, validate_for_llm,
+};
+pub use sync_status_indicator::{
+    ConnectionStatusBar, SnapshotSaveIndicator, SyncStatusBadge, UserPresenceIndicator,
 };
 pub use table_editor::TableEditor;
 pub use theme::{ThemeContext, ThemeMode, provide_theme_context, use_theme_context};
