@@ -350,7 +350,7 @@ mod tests {
         let has_latencies = metrics
             .user_metrics
             .iter()
-            .any(|u| u.latencies.blocking_lock().len() > 0);
+            .any(|u| !u.latencies.blocking_lock().is_empty());
         assert!(
             has_latencies,
             "At least one user should have recorded latencies"
