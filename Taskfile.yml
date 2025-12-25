@@ -76,6 +76,7 @@ tasks:
     desc: Run pre-commit checks (check, fmt, clippy, test)
     cmds:
       - cargo check --features ssr
+      - cargo check --features hydrate
       - task: fmt
       - task: clippy
       - task: test
