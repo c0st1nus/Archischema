@@ -77,10 +77,14 @@ fn CursorView(
     // Reactively get cursor data for this user
     let cursor_data = Memo::new(move |_| {
         ctx.remote_users.with(|users| {
-            users
-                .iter()
-                .find(|u| u.user_id == user_id)
-                .map(|u| (u.username.clone(), u.color.clone(), u.cursor, u.is_active))
+            users.iter().find(|u| u.user_id == user_id).and_then(|u| {
+                // Get activity status from activity_status signal for this user
+                // We need to determine status based on is_active field
+                // is_active=true means Active, is_active=false means Idle or Away
+                u.cursor
+                    .as_ref()
+                    .map(|cursor| (u.username.clone(), u.color.clone(), *cursor, u.is_active))
+            })
         })
     });
 
@@ -88,13 +92,15 @@ fn CursorView(
         {move || {
             let data = cursor_data.get();
             match data {
-                Some((username, color, Some((canvas_x, canvas_y)), is_active)) => {
+                Some((username, color, (canvas_x, canvas_y), is_active)) => {
+                    let opacity = if is_active { "1" } else { "0.5" };
                     let label_style = format!(
                         "background-color: {}; opacity: {}; box-shadow: 0 1px 3px rgba(0,0,0,0.2);",
                         color,
-                        if is_active { "1" } else { "0.7" }
+                        opacity
                     );
                     let username_clone = username.clone();
+                    let status_text = if is_active { "editing" } else { "idle" };
 
                     view! {
                         <div
@@ -137,26 +143,26 @@ fn CursorView(
                             </svg>
 
                             // Username label - positioned to the right of cursor with activity indicator
-                                            <div
-                                                class="absolute left-4 top-3 px-2 py-1 rounded-md text-xs font-medium text-white whitespace-nowrap flex items-center gap-1"
-                                                style=label_style
-                                                title={move || {
-                                                    if is_active {
-                                                        format!("{} is editing", username_clone)
-                                                    } else {
-                                                        format!("{} (idle)", username_clone)
-                                                    }
-                                                }}
-                                            >
-                                                <span class={move || {
-                                                    if is_active {
-                                                        "w-1.5 h-1.5 rounded-full bg-white animate-pulse"
-                                                    } else {
-                                                        "w-1.5 h-1.5 rounded-full bg-white/50"
-                                                    }
-                                                }}></span>
-                                                {username}
-                                            </div>
+                            <div
+                                class="absolute left-4 top-3 px-2 py-1 rounded-md text-xs font-medium text-white whitespace-nowrap flex items-center gap-1"
+                                style=label_style
+                                title={move || {
+                                    if is_active {
+                                        format!("{} is editing", username_clone)
+                                    } else {
+                                        format!("{} is {}", username_clone, status_text)
+                                    }
+                                }}
+                            >
+                                <span class={move || {
+                                    if is_active {
+                                        "w-1.5 h-1.5 rounded-full bg-white animate-pulse"
+                                    } else {
+                                        "w-1.5 h-1.5 rounded-full bg-white/50"
+                                    }
+                                }}></span>
+                                {username}
+                            </div>
                         </div>
                     }.into_any()
                 }

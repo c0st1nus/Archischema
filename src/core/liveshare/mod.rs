@@ -15,6 +15,7 @@ mod auth;
 pub mod broadcast_manager;
 #[cfg(feature = "ssr")]
 pub mod cursor_broadcaster;
+pub mod idle_detection;
 mod protocol;
 #[cfg(feature = "ssr")]
 pub mod rate_limiter;
@@ -37,14 +38,16 @@ pub use auth::*;
 pub use broadcast_manager::*;
 #[cfg(feature = "ssr")]
 pub use cursor_broadcaster::*;
+pub use idle_detection::*;
 pub use protocol::*;
 #[cfg(feature = "ssr")]
 pub use rate_limiter::*;
 #[cfg(feature = "ssr")]
 pub use reconciliation::*;
-#[cfg(feature = "ssr")]
 pub use room::*;
 #[cfg(feature = "ssr")]
 pub use snapshots::*;
+#[cfg(feature = "ssr")]
+pub use throttling::*;
 #[cfg(feature = "ssr")]
 pub use websocket::*;

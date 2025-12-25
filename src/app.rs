@@ -6,8 +6,8 @@ use leptos_router::{
 };
 
 use crate::ui::{
-    DashboardPage, EditorPage, LandingPage, LoginPage, NotFoundPage, ProfilePage, RegisterPage,
-    provide_auth_context, provide_liveshare_context, provide_theme_context,
+    ActivityTracker, DashboardPage, EditorPage, LandingPage, LoginPage, NotFoundPage, ProfilePage,
+    RegisterPage, provide_auth_context, provide_liveshare_context, provide_theme_context,
 };
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
@@ -49,6 +49,9 @@ pub fn App() -> impl IntoView {
 
         // sets the document title
         <Title text="Archischema - Database Schema Editor"/>
+
+        // Activity tracker for monitoring user idle status
+        <ActivityTracker />
 
         // Router for page navigation
         // For SSR + hydration, we need to provide the initial URL

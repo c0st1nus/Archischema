@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 // Re-export protocol types for convenience
 pub use crate::core::liveshare::{
-    AwarenessState, ClientMessage, ColumnData, GraphOperation, GraphStateSnapshot,
+    ActivityStatus, AwarenessState, ClientMessage, ColumnData, GraphOperation, GraphStateSnapshot,
     RelationshipData, RelationshipSnapshot, RoomResponse, ServerMessage, TableSnapshot, UserInfo,
     WsErrorCode,
 };
@@ -148,6 +148,10 @@ pub struct LiveShareContext {
     pub snapshot_saving: RwSignal<bool>,
     /// Last successful snapshot save time
     pub last_snapshot_time: RwSignal<Option<Instant>>,
+    /// Current user's activity status (Active, Idle, or Away)
+    pub activity_status: RwSignal<ActivityStatus>,
+    /// Last time activity was detected locally
+    pub last_activity_time: RwSignal<Instant>,
 }
 
 impl LiveShareContext {
@@ -173,6 +177,8 @@ impl LiveShareContext {
             connection_lost_since: RwSignal::new(None),
             snapshot_saving: RwSignal::new(false),
             last_snapshot_time: RwSignal::new(None),
+            activity_status: RwSignal::new(ActivityStatus::Active),
+            last_activity_time: RwSignal::new(Instant::now()),
         }
     }
 
@@ -460,6 +466,111 @@ impl LiveShareContext {
     #[cfg(feature = "ssr")]
     pub fn send_graph_state_response(&self, _target_user_id: UserId, _state: GraphStateSnapshot) {
         // No-op on server
+    }
+
+    /// Record user activity and update activity status
+    #[cfg(not(feature = "ssr"))]
+    pub fn record_activity(&self) {
+        self.last_activity_time.set(Instant::now());
+
+        // If we were in idle/away state, transition back to active
+        if self.activity_status.get() != ActivityStatus::Active {
+            self.activity_status.set(ActivityStatus::Active);
+            self.send_idle_status(true);
+        }
+    }
+
+    /// Record user activity stub for SSR
+    #[cfg(feature = "ssr")]
+    pub fn record_activity(&self) {
+        self.last_activity_time.set(Instant::now());
+    }
+
+    /// Update activity status based on elapsed time
+    /// Returns true if status changed
+    #[cfg(not(feature = "ssr"))]
+    pub fn update_activity_status(&self) -> bool {
+        let elapsed = self.last_activity_time.get_untracked().elapsed();
+        let idle_threshold = std::time::Duration::from_secs(30);
+        let away_threshold = std::time::Duration::from_secs(600); // 10 minutes
+
+        let new_status = if elapsed >= away_threshold {
+            ActivityStatus::Away
+        } else if elapsed >= idle_threshold {
+            ActivityStatus::Idle
+        } else {
+            ActivityStatus::Active
+        };
+
+        let current_status = self.activity_status.get_untracked();
+        if new_status != current_status {
+            self.activity_status.set(new_status);
+            self.send_idle_status(new_status == ActivityStatus::Active);
+            return true;
+        }
+
+        false
+    }
+
+    /// Update activity status stub for SSR
+    #[cfg(feature = "ssr")]
+    pub fn update_activity_status(&self) -> bool {
+        false
+    }
+
+    /// Record that page/tab is now hidden
+    #[cfg(not(feature = "ssr"))]
+    pub fn record_page_hidden(&self) {
+        if self.activity_status.get() != ActivityStatus::Away {
+            self.activity_status.set(ActivityStatus::Away);
+            self.send_idle_status(false);
+        }
+    }
+
+    /// Record that page/tab is now hidden stub for SSR
+    #[cfg(feature = "ssr")]
+    pub fn record_page_hidden(&self) {
+        // No-op on server
+    }
+
+    /// Record that page/tab is now visible again
+    #[cfg(not(feature = "ssr"))]
+    pub fn record_page_visible(&self) {
+        if self.activity_status.get() == ActivityStatus::Away {
+            self.activity_status.set(ActivityStatus::Active);
+            self.last_activity_time.set(Instant::now());
+            self.send_idle_status(true);
+        }
+    }
+
+    /// Record that page/tab is now visible again stub for SSR
+    #[cfg(feature = "ssr")]
+    pub fn record_page_visible(&self) {
+        // No-op on server
+    }
+
+    /// Send idle status to server
+    #[cfg(not(feature = "ssr"))]
+    #[allow(dead_code)]
+    fn send_idle_status(&self, is_active: bool) {
+        if self.connection_state.get() != ConnectionState::Connected {
+            return;
+        }
+
+        let msg = ClientMessage::IdleStatus { is_active };
+        send_message(&msg);
+    }
+
+    /// Send idle status stub for SSR
+    #[cfg(feature = "ssr")]
+    #[allow(dead_code)]
+    fn send_idle_status(&self, _is_active: bool) {
+        // No-op on server
+    }
+
+    /// Get current activity status display name
+    pub fn get_activity_status_display(&self) -> &'static str {
+        self.activity_status.get().display_name()
     }
 }
 

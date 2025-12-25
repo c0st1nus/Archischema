@@ -1,3 +1,4 @@
+pub mod activity_tracker;
 pub mod ai_chat;
 pub mod auth;
 pub mod canvas;
@@ -20,6 +21,7 @@ pub mod table;
 pub mod table_editor;
 pub mod theme;
 
+pub use activity_tracker::ActivityTracker;
 pub use ai_chat::{AiChatButton, AiChatPanel};
 pub use auth::{
     AuthContext, AuthState, LoginForm, RegisterForm, User, UserMenu, provide_auth_context,

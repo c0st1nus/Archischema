@@ -102,29 +102,42 @@ pub fn UserPresenceIndicator() -> impl IntoView {
             .collect::<Vec<_>>()
     };
 
+    let idle_users = move || {
+        remote_users
+            .get()
+            .into_iter()
+            .filter(|u| !u.is_active)
+            .collect::<Vec<_>>()
+    };
+
     view! {
         <div class="inline-flex items-center gap-2">
         <Icon name=icons::USER_PLUS class="icon-text text-theme-secondary" />
         <span class="text-xs font-medium text-theme-primary">
             {move || format!("{} user{}", user_count(), if user_count() != 1 { "s" } else { "" })}
         </span>
-            <Show when=move || !active_users().is_empty()>
+            <Show when=move || !active_users().is_empty() || !idle_users().is_empty()>
                 <div class="flex items-center gap-1">
-                    {move || active_users().into_iter().take(3).map(|user| {
-                        let initials = user.username.chars()
-                            .take(2)
-                            .collect::<String>()
-                            .to_uppercase();
-                        view! {
-                            <div
-                                class="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                                style=move || format!("background-color: {}", user.color)
-                                title=user.username.clone()
-                            >
-                                {initials}
-                            </div>
-                        }
-                    }).collect_view()}
+                    {move || {
+                        let mut all_users = active_users();
+                        all_users.extend(idle_users());
+                        all_users.into_iter().take(3).map(|user| {
+                            let initials = user.username.chars()
+                                .take(2)
+                                .collect::<String>()
+                                .to_uppercase();
+                            let opacity = if user.is_active { "opacity-100" } else { "opacity-50" };
+                            view! {
+                                <div
+                                    class={format!("w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white {}", opacity)}
+                                    style=move || format!("background-color: {}", user.color)
+                                    title={if user.is_active { format!("{} (active)", user.username) } else { format!("{} (idle)", user.username) }}
+                                >
+                                    {initials}
+                                </div>
+                            }
+                        }).collect_view()
+                    }}
                     <Show when=move || { user_count() > 3 }>
                         <span class="text-xs text-theme-secondary">
                             {move || format!("+{}", user_count() - 3)}
