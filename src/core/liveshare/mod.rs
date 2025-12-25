@@ -16,6 +16,7 @@ pub mod broadcast_manager;
 #[cfg(feature = "ssr")]
 pub mod cursor_broadcaster;
 pub mod idle_detection;
+#[cfg(feature = "ssr")]
 pub mod load_test;
 #[cfg(test)]
 mod load_test_integration;
@@ -42,6 +43,7 @@ pub use broadcast_manager::*;
 #[cfg(feature = "ssr")]
 pub use cursor_broadcaster::*;
 pub use idle_detection::*;
+#[cfg(feature = "ssr")]
 pub use load_test::*;
 pub use protocol::*;
 #[cfg(feature = "ssr")]
