@@ -22,7 +22,7 @@ pub mod rate_limiter;
 #[cfg(feature = "ssr")]
 pub mod reconciliation;
 #[cfg(feature = "ssr")]
-pub mod room;
+mod room;
 #[cfg(feature = "ssr")]
 pub mod snapshots;
 #[cfg(feature = "ssr")]
@@ -44,6 +44,7 @@ pub use protocol::*;
 pub use rate_limiter::*;
 #[cfg(feature = "ssr")]
 pub use reconciliation::*;
+#[cfg(feature = "ssr")]
 pub use room::*;
 #[cfg(feature = "ssr")]
 pub use snapshots::*;

@@ -6,7 +6,10 @@
 use leptos::prelude::*;
 
 #[cfg(not(feature = "ssr"))]
-use leptos::wasm_bindgen;
+use wasm_bindgen::JsCast;
+
+#[cfg(not(feature = "ssr"))]
+use gloo_timers::callback::Interval;
 
 /// Activity tracker component
 ///
@@ -17,7 +20,7 @@ pub fn ActivityTracker() -> impl IntoView {
     #[cfg(not(feature = "ssr"))]
     {
         use crate::ui::liveshare_client::{ConnectionState, use_liveshare_context};
-        use leptos::wasm_bindgen::closure::Closure;
+        use wasm_bindgen::closure::Closure;
 
         let ctx = use_liveshare_context();
 
@@ -74,18 +77,11 @@ pub fn ActivityTracker() -> impl IntoView {
 
             // Update activity status periodically (every 5 seconds)
             let ctx_update = ctx;
-            let interval_handle = set_interval_with_handle(
-                move || {
-                    ctx_update.update_activity_status();
-                },
-                5000, // 5 seconds
-            )
-            .expect("failed to set interval");
-
-            // Clean up interval on effect cleanup
-            on_cleanup(move || {
-                clear_interval_with_handle(interval_handle);
+            let _interval = Interval::new(5000, move || {
+                ctx_update.update_activity_status();
             });
+            // Keep interval alive for the duration of the component
+            std::mem::forget(_interval);
         });
     }
 
