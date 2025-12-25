@@ -70,13 +70,12 @@ tasks:
   clippy:
     desc: Run clippy lints
     cmds:
-      - cargo clippy --features ssr -- -D warnings
+      - cargo clippy --all-features
 
   check:
     desc: Run pre-commit checks (check, fmt, clippy, test)
     cmds:
-      - cargo check --features ssr
-      - cargo check --features hydrate
+      - cargo check --all-features
       - task: fmt
       - task: clippy
       - task: test
