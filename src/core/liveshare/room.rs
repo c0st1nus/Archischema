@@ -743,12 +743,10 @@ impl RoomManager {
                 .map_err(|e| format!("Failed to set password: {}", e))?;
         }
 
-        let room = Arc::new(Room::new(
-            room_id,
-            request.diagram_id,
-            owner.user_id,
-            config,
-        ));
+        // Use provided diagram_id or generate a new one for testing
+        let diagram_id = request.diagram_id.unwrap_or_else(Uuid::new_v4);
+
+        let room = Arc::new(Room::new(room_id, diagram_id, owner.user_id, config));
         self.rooms.insert(room_id, room.clone());
 
         Ok(room)
@@ -872,7 +870,7 @@ mod tests {
             .create_room(
                 &owner,
                 CreateRoomRequest {
-                    diagram_id: Uuid::new_v4(),
+                    diagram_id: Some(Uuid::new_v4()),
                     name: Some("Manager Room 2".to_string()),
                     password: None,
                     max_users: Some(20),
@@ -1186,7 +1184,7 @@ mod tests {
         let _owner_id = Uuid::new_v4();
 
         let request = CreateRoomRequest {
-            diagram_id,
+            diagram_id: Some(diagram_id),
             name: Some("Specific ID Room".to_string()),
             password: None,
             max_users: Some(30),
@@ -1210,7 +1208,7 @@ mod tests {
         let _diagram_id = Uuid::new_v4();
 
         let request = CreateRoomRequest {
-            diagram_id: Uuid::new_v4(),
+            diagram_id: Some(Uuid::new_v4()),
             name: None,
             password: None,
             max_users: None,
@@ -1234,7 +1232,7 @@ mod tests {
         let owner = AuthenticatedUser::guest();
 
         let request = CreateRoomRequest {
-            diagram_id: Uuid::new_v4(),
+            diagram_id: Some(Uuid::new_v4()),
             name: Some("Protected Room".to_string()),
             password: Some("secret".to_string()),
             max_users: None,
@@ -1272,7 +1270,7 @@ mod tests {
             .create_room(
                 &owner,
                 CreateRoomRequest {
-                    diagram_id: Uuid::new_v4(),
+                    diagram_id: Some(Uuid::new_v4()),
                     name: Some("Room1".to_string()),
                     password: None,
                     max_users: None,
@@ -1284,7 +1282,7 @@ mod tests {
             .create_room(
                 &owner,
                 CreateRoomRequest {
-                    diagram_id: Uuid::new_v4(),
+                    diagram_id: Some(Uuid::new_v4()),
                     name: Some("Room2".to_string()),
                     password: None,
                     max_users: None,
@@ -1311,7 +1309,7 @@ mod tests {
                 .create_room(
                     &owner,
                     CreateRoomRequest {
-                        diagram_id: Uuid::new_v4(),
+                        diagram_id: Some(Uuid::new_v4()),
                         name: Some(format!("Room {}", i)),
                         password: None,
                         max_users: None,
@@ -1334,7 +1332,7 @@ mod tests {
             .create_room(
                 &owner,
                 CreateRoomRequest {
-                    diagram_id: Uuid::new_v4(),
+                    diagram_id: Some(Uuid::new_v4()),
                     name: Some("Empty Room".to_string()),
                     password: None,
                     max_users: None,
@@ -1346,7 +1344,7 @@ mod tests {
             .create_room(
                 &owner,
                 CreateRoomRequest {
-                    diagram_id: Uuid::new_v4(),
+                    diagram_id: Some(Uuid::new_v4()),
                     name: Some("Occupied Room".to_string()),
                     password: None,
                     max_users: None,

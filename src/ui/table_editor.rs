@@ -5,6 +5,26 @@ use leptos::prelude::*;
 use leptos::web_sys;
 use petgraph::graph::NodeIndex;
 
+#[cfg(not(feature = "ssr"))]
+fn dispatch_save_event(reason: &str) {
+    use wasm_bindgen::JsValue;
+
+    if let Some(window) = web_sys::window() {
+        let init = web_sys::CustomEventInit::new();
+        init.set_detail(&JsValue::from_str(reason));
+        if let Ok(event) =
+            web_sys::CustomEvent::new_with_event_init_dict("diagram-save-requested", &init)
+        {
+            let _ = window.dispatch_event(&event);
+        }
+    }
+}
+
+#[cfg(feature = "ssr")]
+fn dispatch_save_event(_reason: &str) {
+    // No-op on server
+}
+
 #[component]
 pub fn TableEditor(
     graph: RwSignal<SchemaGraph>,
@@ -53,13 +73,19 @@ pub fn TableEditor(
         match graph.write().rename_table(node_idx, name.clone()) {
             Ok(()) => {
                 // Send sync op
-                if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected {
+                if liveshare_ctx.connection_state.with_untracked(|v| *v)
+                    == ConnectionState::Connected
+                {
                     liveshare_ctx.send_graph_op(GraphOperation::RenameTable {
                         node_id: node_idx.index() as u32,
                         new_name: name,
                     });
                 }
                 set_is_saving.set(false);
+
+                // Trigger save after table rename
+                dispatch_save_event("table_renamed");
+
                 on_save.run(());
             }
             Err(err) => {

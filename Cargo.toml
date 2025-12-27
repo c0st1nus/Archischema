@@ -29,7 +29,7 @@ uuid = { version = "1.19.0", features = ["v4", "serde", "js"] }
 sqlparser = "0.60.0"
 gloo-timers = { version = "0.3", features = ["futures"], optional = true }
 web-sys = { version = "0.3", features = [
-    "Window", "Navigator", "Clipboard", "Request", "RequestInit", "Response", "Headers", "Location",
+    "Window", "Navigator", "Clipboard", "Request", "RequestInit", "RequestCredentials", "Response", "Headers", "Location",
     "WebSocket", "BinaryType", "MessageEvent", "CloseEvent", "ErrorEvent", "Event",
     "CustomEvent", "CustomEventInit",
     "Storage", "MediaQueryList", "MediaQueryListEvent",
@@ -47,7 +47,7 @@ chrono = { version = "0.4.42", features = ["serde"], optional = true }
 tracing = { version = "0.1.43", optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
 dotenvy = { version = "0.15", optional = true }
-tower = "0.5.2"
+tower = { version = "0.5.2", optional = true }
 rand = { version = "0.8", optional = true }
 derive_more = { version = "2.1.0", features = ["full"] }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-ring", "postgres", "uuid", "chrono", "json"], optional = true }
@@ -68,12 +68,12 @@ hydrate = [
     "dep:js-sys",
     "dep:wasm-bindgen-futures",
     "dep:serde-wasm-bindgen",
-    "dep:futures"
 ]
 ssr = [
     "dep:axum",
     "dep:axum-extra",
     "dep:tokio",
+    "dep:tower",
     "dep:tower-http",
     "dep:leptos_axum",
     "dep:futures",

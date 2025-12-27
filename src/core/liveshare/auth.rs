@@ -142,30 +142,45 @@ where
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         // First, try JWT authentication from Authorization header
+        let mut token_to_validate: Option<&str> = None;
+
         if let Some(auth_header) = parts.headers.get(header::AUTHORIZATION)
             && let Ok(auth_str) = auth_header.to_str()
             && auth_str.starts_with("Bearer ")
         {
             let token = auth_str.trim_start_matches("Bearer ");
             if !token.is_empty() {
-                // Try to validate JWT token
-                #[cfg(feature = "ssr")]
-                if let Some(jwt_service) = get_jwt_service() {
-                    match jwt_service.validate_access_token(token) {
-                        Ok(claims) => {
-                            if let Ok(user_id) = claims.user_id() {
-                                return Ok(AuthenticatedUser::authenticated(
-                                    user_id,
-                                    claims.username,
-                                    Some(claims.email),
-                                ));
-                            }
+                token_to_validate = Some(token);
+            }
+        }
+
+        // If no Authorization header, try to get token from cookies
+        if token_to_validate.is_none()
+            && let Some(cookie_header) = parts.headers.get(header::COOKIE)
+            && let Ok(cookies_str) = cookie_header.to_str()
+            && let Some(access_token) = extract_cookie(cookies_str, "access_token")
+        {
+            token_to_validate = Some(Box::leak(access_token.into_boxed_str()));
+        }
+
+        // Validate the token if we found one
+        if let Some(token) = token_to_validate {
+            #[cfg(feature = "ssr")]
+            if let Some(jwt_service) = get_jwt_service() {
+                match jwt_service.validate_access_token(token) {
+                    Ok(claims) => {
+                        if let Ok(user_id) = claims.user_id() {
+                            return Ok(AuthenticatedUser::authenticated(
+                                user_id,
+                                claims.username,
+                                Some(claims.email),
+                            ));
                         }
-                        Err(e) => {
-                            tracing::debug!("JWT validation failed: {:?}", e);
-                            // Don't reject - fall through to guest mode
-                            // This allows guests to join rooms even with invalid/expired tokens
-                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!("JWT validation failed: {:?}", e);
+                        // Don't reject - fall through to guest mode
+                        // This allows guests to join rooms even with invalid/expired tokens
                     }
                 }
             }
@@ -361,7 +376,6 @@ impl IntoResponse for AuthError {
 // ============================================================================
 
 /// Extract a specific cookie value from the Cookie header
-#[allow(dead_code)]
 fn extract_cookie(cookies: &str, name: &str) -> Option<String> {
     cookies
         .split(';')

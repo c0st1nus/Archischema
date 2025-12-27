@@ -7,6 +7,26 @@ use crate::ui::liveshare_client::{ConnectionState, SyncStatus, use_liveshare_con
 use crate::ui::{Icon, icons};
 use leptos::prelude::*;
 
+/// Calculate elapsed seconds from a timestamp in milliseconds
+#[cfg(target_arch = "wasm32")]
+fn elapsed_secs(timestamp_ms: f64) -> u64 {
+    let now = js_sys::Date::now();
+    let elapsed_ms = now - timestamp_ms;
+    (elapsed_ms / 1000.0) as u64
+}
+
+/// Calculate elapsed seconds from a timestamp in milliseconds
+#[cfg(not(target_arch = "wasm32"))]
+fn elapsed_secs(timestamp_ms: f64) -> u64 {
+    use std::time::SystemTime;
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as f64;
+    let elapsed_ms = now - timestamp_ms;
+    (elapsed_ms / 1000.0) as u64
+}
+
 /// Sync status badge component
 /// Shows current sync state with visual indicators
 #[component]
@@ -165,7 +185,7 @@ pub fn ConnectionStatusBar() -> impl IntoView {
 
     let lost_duration = move || {
         if let Some(lost_time) = connection_lost_since.get() {
-            let elapsed = lost_time.elapsed().as_secs();
+            let elapsed = elapsed_secs(lost_time);
             if elapsed < 60 {
                 format!("{}s", elapsed)
             } else {
@@ -219,7 +239,7 @@ pub fn SnapshotSaveIndicator() -> impl IntoView {
         if snapshot_saving.get() {
             "Saving snapshot...".to_string()
         } else if let Some(last_time) = last_snapshot_time.get() {
-            let elapsed = last_time.elapsed().as_secs();
+            let elapsed = elapsed_secs(last_time);
             if elapsed < 60 {
                 format!("Snapshot saved {}s ago", elapsed)
             } else {

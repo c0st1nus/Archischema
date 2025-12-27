@@ -297,6 +297,16 @@ impl ConnectionSession {
                 self.handle_user_viewport(center, zoom).await
             }
 
+            ClientMessage::TableDragStart { node_id, offset } => {
+                self.require_auth()?;
+                self.handle_table_drag_start(node_id, offset).await
+            }
+
+            ClientMessage::TableDragEnd { node_id, position } => {
+                self.require_auth()?;
+                self.handle_table_drag_end(node_id, position).await
+            }
+
             ClientMessage::RequestGraphState => {
                 self.require_auth()?;
                 self.handle_request_graph_state().await
@@ -400,16 +410,51 @@ impl ConnectionSession {
         Ok(())
     }
 
-    /// Handle user viewport update - broadcast to all other users
+    /// Handle user viewport update - broadcast to other users
     async fn handle_user_viewport(&self, center: (f64, f64), zoom: f64) -> Result<(), String> {
         if let Some(ref room) = self.room
             && let Some(user_id) = self.user_id
         {
-            // Broadcast viewport to all other clients
             room.broadcast(ServerMessage::UserViewport {
                 user_id,
                 center,
                 zoom,
+            });
+        }
+        Ok(())
+    }
+
+    /// Handle table drag start - broadcast to other users
+    async fn handle_table_drag_start(
+        &self,
+        node_id: u32,
+        offset: (f64, f64),
+    ) -> Result<(), String> {
+        if let Some(ref room) = self.room
+            && let Some(user_id) = self.user_id
+        {
+            room.broadcast(ServerMessage::TableDragStart {
+                user_id,
+                node_id,
+                offset,
+            });
+        }
+        Ok(())
+    }
+
+    /// Handle table drag end - broadcast to other users
+    async fn handle_table_drag_end(
+        &self,
+        node_id: u32,
+        position: (f64, f64),
+    ) -> Result<(), String> {
+        if let Some(ref room) = self.room
+            && let Some(user_id) = self.user_id
+        {
+            room.broadcast(ServerMessage::TableDragEnd {
+                user_id,
+                node_id,
+                position,
             });
         }
         Ok(())
@@ -941,7 +986,7 @@ mod tests {
                 room_id,
                 &owner,
                 CreateRoomRequest {
-                    diagram_id: Uuid::new_v4(),
+                    diagram_id: Some(Uuid::new_v4()),
                     name: Some("Test Room".to_string()),
                     password: None,
                     max_users: None,
@@ -996,7 +1041,7 @@ mod tests {
                 room_id,
                 &owner,
                 CreateRoomRequest {
-                    diagram_id: Uuid::new_v4(),
+                    diagram_id: Some(Uuid::new_v4()),
                     name: Some("Protected Room".to_string()),
                     password: Some("secret123".to_string()),
                     max_users: None,
@@ -1046,7 +1091,7 @@ mod tests {
                 room_id,
                 &owner,
                 CreateRoomRequest {
-                    diagram_id: Uuid::new_v4(),
+                    diagram_id: Some(Uuid::new_v4()),
                     name: Some("Small Room".to_string()),
                     password: None,
                     max_users: Some(1),
@@ -1104,7 +1149,7 @@ mod tests {
                 room_id,
                 &owner,
                 CreateRoomRequest {
-                    diagram_id: Uuid::new_v4(),
+                    diagram_id: Some(Uuid::new_v4()),
                     name: None,
                     password: None,
                     max_users: None,
@@ -1153,7 +1198,7 @@ mod tests {
                 room_id,
                 &owner,
                 CreateRoomRequest {
-                    diagram_id: Uuid::new_v4(),
+                    diagram_id: Some(Uuid::new_v4()),
                     name: None,
                     password: None,
                     max_users: None,
@@ -1196,7 +1241,7 @@ mod tests {
                 room_id,
                 &owner,
                 CreateRoomRequest {
-                    diagram_id: Uuid::new_v4(),
+                    diagram_id: Some(Uuid::new_v4()),
                     name: Some("Sync Test Room".to_string()),
                     password: None,
                     max_users: None,

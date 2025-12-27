@@ -5,8 +5,28 @@
 
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
 use uuid::Uuid;
+
+/// Get current timestamp in milliseconds
+/// For WASM, uses js_sys::Date::now()
+#[cfg(target_arch = "wasm32")]
+fn now_ms() -> f64 {
+    js_sys::Date::now()
+}
+
+/// Get current timestamp in milliseconds
+/// For non-WASM, uses SystemTime
+#[cfg(not(target_arch = "wasm32"))]
+fn now_ms() -> f64 {
+    use std::time::SystemTime;
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as f64
+}
+
+// Import auth context for getting username
+use crate::ui::auth::use_auth_context;
 
 // Re-export protocol types for convenience
 pub use crate::core::liveshare::{
@@ -49,6 +69,8 @@ pub struct RemoteUser {
     pub cursor: Option<(f64, f64)>,
     pub selected_nodes: Vec<String>,
     pub is_active: bool,
+    /// Table being dragged by this user (node_id, offset_x, offset_y)
+    pub dragging_table: Option<(u32, f64, f64)>,
 }
 
 impl RemoteUser {
@@ -60,6 +82,7 @@ impl RemoteUser {
             cursor: None,
             selected_nodes: vec![],
             is_active: true,
+            dragging_table: None,
         }
     }
 
@@ -140,25 +163,25 @@ pub struct LiveShareContext {
     pub sync_status: RwSignal<SyncStatus>,
     /// Number of pending updates waiting to be sent
     pub pending_updates: RwSignal<usize>,
-    /// Last successful sync time
-    pub last_sync_time: RwSignal<Option<Instant>>,
-    /// Time when connection was lost (for reconnection UI)
-    pub connection_lost_since: RwSignal<Option<Instant>>,
+    /// Last successful sync time (timestamp in milliseconds)
+    pub last_sync_time: RwSignal<Option<f64>>,
+    /// Time when connection was lost (for reconnection UI, timestamp in milliseconds)
+    pub connection_lost_since: RwSignal<Option<f64>>,
     /// Whether a snapshot is currently being saved
     pub snapshot_saving: RwSignal<bool>,
-    /// Last successful snapshot save time
-    pub last_snapshot_time: RwSignal<Option<Instant>>,
+    /// Last successful snapshot save time (timestamp in milliseconds)
+    pub last_snapshot_time: RwSignal<Option<f64>>,
     /// Current user's activity status (Active, Idle, or Away)
     pub activity_status: RwSignal<ActivityStatus>,
-    /// Last time activity was detected locally
-    pub last_activity_time: RwSignal<Instant>,
+    /// Last time activity was detected locally (timestamp in milliseconds)
+    pub last_activity_time: RwSignal<f64>,
 }
 
 impl LiveShareContext {
-    /// Create a new LiveShare context
-    pub fn new() -> Self {
+    /// Create a new LiveShare context with optional username from auth
+    pub fn new(username: Option<String>) -> Self {
         let user_id = Uuid::new_v4();
-        let username = format!("User_{}", &user_id.to_string()[..6]);
+        let username = username.unwrap_or_else(|| format!("User_{}", &user_id.to_string()[..6]));
 
         // pending_join_room starts as None - will be set on client-side hydration
         Self {
@@ -178,7 +201,7 @@ impl LiveShareContext {
             snapshot_saving: RwSignal::new(false),
             last_snapshot_time: RwSignal::new(None),
             activity_status: RwSignal::new(ActivityStatus::Active),
-            last_activity_time: RwSignal::new(Instant::now()),
+            last_activity_time: RwSignal::new(now_ms()),
         }
     }
 
@@ -186,7 +209,7 @@ impl LiveShareContext {
     pub fn set_sync_status(&self, status: SyncStatus) {
         self.sync_status.set(status);
         if status == SyncStatus::Synced {
-            self.last_sync_time.set(Some(Instant::now()));
+            self.last_sync_time.set(Some(now_ms()));
             self.pending_updates.set(0);
         }
     }
@@ -194,14 +217,14 @@ impl LiveShareContext {
     /// Increment pending updates counter
     pub fn add_pending_update(&self) {
         self.pending_updates.update(|count| *count += 1);
-        if self.sync_status.get() != SyncStatus::Syncing {
+        if self.sync_status.get_untracked() != SyncStatus::Syncing {
             self.set_sync_status(SyncStatus::Syncing);
         }
     }
 
     /// Mark connection as lost
     pub fn mark_connection_lost(&self) {
-        self.connection_lost_since.set(Some(Instant::now()));
+        self.connection_lost_since.set(Some(now_ms()));
     }
 
     /// Clear connection lost time when reconnected
@@ -217,7 +240,7 @@ impl LiveShareContext {
     /// Mark snapshot save completed
     pub fn mark_snapshot_save_completed(&self) {
         self.snapshot_saving.set(false);
-        self.last_snapshot_time.set(Some(Instant::now()));
+        self.last_snapshot_time.set(Some(now_ms()));
     }
 
     /// Check URL for room parameter and set pending_join_room if found
@@ -259,19 +282,19 @@ impl LiveShareContext {
 
     /// Check if connected to a room
     pub fn is_connected(&self) -> bool {
-        self.connection_state.get() == ConnectionState::Connected
+        self.connection_state.get_untracked() == ConnectionState::Connected
     }
 
     /// Get all users (including self) as DisplayUser
     pub fn get_all_users(&self) -> Vec<DisplayUser> {
         let mut users = vec![DisplayUser {
-            user_id: self.user_id.get(),
-            username: self.username.get(),
-            color: generate_user_color(&self.user_id.get()),
+            user_id: self.user_id.get_untracked(),
+            username: self.username.get_untracked(),
+            color: generate_user_color(&self.user_id.get_untracked()),
             is_self: true,
         }];
 
-        for remote in self.remote_users.get() {
+        for remote in self.remote_users.get_untracked() {
             users.push(DisplayUser {
                 user_id: remote.user_id,
                 username: remote.username.clone(),
@@ -327,8 +350,8 @@ impl LiveShareContext {
         let onopen = Closure::wrap(Box::new(move |_: leptos::web_sys::Event| {
             // Send auth message
             let auth_msg = ClientMessage::Auth {
-                user_id: ctx.user_id.get_untracked(),
-                username: ctx.username.get_untracked(),
+                user_id: ctx.user_id.with_untracked(|v| *v),
+                username: ctx.username.with_untracked(|v| v.clone()),
                 password: password_clone.clone(),
             };
 
@@ -404,7 +427,7 @@ impl LiveShareContext {
     pub fn send_awareness(&self, cursor: Option<(f64, f64)>, selected_nodes: Vec<String>) {
         self.local_cursor.set(cursor);
 
-        if self.connection_state.get() != ConnectionState::Connected {
+        if self.connection_state.get_untracked() != ConnectionState::Connected {
             return;
         }
 
@@ -412,7 +435,7 @@ impl LiveShareContext {
             state: AwarenessState {
                 cursor,
                 selected_nodes,
-                color: Some(generate_user_color(&self.user_id.get_untracked())),
+                color: Some(generate_user_color(&self.user_id.with_untracked(|v| *v))),
                 is_active: true,
             },
         };
@@ -436,7 +459,7 @@ impl LiveShareContext {
     /// Send a graph operation for synchronization
     #[cfg(not(feature = "ssr"))]
     pub fn send_graph_op(&self, op: GraphOperation) {
-        if self.connection_state.get() != ConnectionState::Connected {
+        if self.connection_state.get_untracked() != ConnectionState::Connected {
             return;
         }
         let msg = ClientMessage::GraphOp { op };
@@ -449,10 +472,42 @@ impl LiveShareContext {
         // No-op on server
     }
 
+    /// Send table drag start notification
+    #[cfg(not(feature = "ssr"))]
+    pub fn send_table_drag_start(&self, node_id: u32, offset: (f64, f64)) {
+        if self.connection_state.get_untracked() != ConnectionState::Connected {
+            return;
+        }
+        let msg = ClientMessage::TableDragStart { node_id, offset };
+        send_message(&msg);
+    }
+
+    /// Send table drag start stub for SSR
+    #[cfg(feature = "ssr")]
+    pub fn send_table_drag_start(&self, _node_id: u32, _offset: (f64, f64)) {
+        // No-op on server
+    }
+
+    /// Send table drag end notification
+    #[cfg(not(feature = "ssr"))]
+    pub fn send_table_drag_end(&self, node_id: u32, position: (f64, f64)) {
+        if self.connection_state.get_untracked() != ConnectionState::Connected {
+            return;
+        }
+        let msg = ClientMessage::TableDragEnd { node_id, position };
+        send_message(&msg);
+    }
+
+    /// Send table drag end stub for SSR
+    #[cfg(feature = "ssr")]
+    pub fn send_table_drag_end(&self, _node_id: u32, _position: (f64, f64)) {
+        // No-op on server
+    }
+
     /// Send graph state response to a specific user
     #[cfg(not(feature = "ssr"))]
     pub fn send_graph_state_response(&self, target_user_id: UserId, state: GraphStateSnapshot) {
-        if self.connection_state.get() != ConnectionState::Connected {
+        if self.connection_state.get_untracked() != ConnectionState::Connected {
             return;
         }
         let msg = ClientMessage::GraphStateResponse {
@@ -471,10 +526,10 @@ impl LiveShareContext {
     /// Record user activity and update activity status
     #[cfg(not(feature = "ssr"))]
     pub fn record_activity(&self) {
-        self.last_activity_time.set(Instant::now());
+        self.last_activity_time.set(now_ms());
 
         // If we were in idle/away state, transition back to active
-        if self.activity_status.get() != ActivityStatus::Active {
+        if self.activity_status.get_untracked() != ActivityStatus::Active {
             self.activity_status.set(ActivityStatus::Active);
             self.send_idle_status(true);
         }
@@ -483,26 +538,29 @@ impl LiveShareContext {
     /// Record user activity stub for SSR
     #[cfg(feature = "ssr")]
     pub fn record_activity(&self) {
-        self.last_activity_time.set(Instant::now());
+        self.last_activity_time.set(now_ms());
     }
 
     /// Update activity status based on elapsed time
     /// Returns true if status changed
     #[cfg(not(feature = "ssr"))]
     pub fn update_activity_status(&self) -> bool {
-        let elapsed = self.last_activity_time.get_untracked().elapsed();
-        let idle_threshold = std::time::Duration::from_secs(30);
-        let away_threshold = std::time::Duration::from_secs(600); // 10 minutes
+        let now = now_ms();
+        let last_activity = self.last_activity_time.with_untracked(|v| *v);
+        let elapsed_ms = now - last_activity;
 
-        let new_status = if elapsed >= away_threshold {
+        let idle_threshold_ms = 30_000.0; // 30 seconds
+        let away_threshold_ms = 600_000.0; // 10 minutes
+
+        let new_status = if elapsed_ms >= away_threshold_ms {
             ActivityStatus::Away
-        } else if elapsed >= idle_threshold {
+        } else if elapsed_ms >= idle_threshold_ms {
             ActivityStatus::Idle
         } else {
             ActivityStatus::Active
         };
 
-        let current_status = self.activity_status.get_untracked();
+        let current_status = self.activity_status.with_untracked(|v| *v);
         if new_status != current_status {
             self.activity_status.set(new_status);
             self.send_idle_status(new_status == ActivityStatus::Active);
@@ -521,7 +579,7 @@ impl LiveShareContext {
     /// Record that page/tab is now hidden
     #[cfg(not(feature = "ssr"))]
     pub fn record_page_hidden(&self) {
-        if self.activity_status.get() != ActivityStatus::Away {
+        if self.activity_status.get_untracked() != ActivityStatus::Away {
             self.activity_status.set(ActivityStatus::Away);
             self.send_idle_status(false);
         }
@@ -536,9 +594,9 @@ impl LiveShareContext {
     /// Record that page/tab is now visible again
     #[cfg(not(feature = "ssr"))]
     pub fn record_page_visible(&self) {
-        if self.activity_status.get() == ActivityStatus::Away {
+        if self.activity_status.get_untracked() == ActivityStatus::Away {
             self.activity_status.set(ActivityStatus::Active);
-            self.last_activity_time.set(Instant::now());
+            self.last_activity_time.set(now_ms());
             self.send_idle_status(true);
         }
     }
@@ -553,7 +611,7 @@ impl LiveShareContext {
     #[cfg(not(feature = "ssr"))]
     #[allow(dead_code)]
     fn send_idle_status(&self, is_active: bool) {
-        if self.connection_state.get() != ConnectionState::Connected {
+        if self.connection_state.get_untracked() != ConnectionState::Connected {
             return;
         }
 
@@ -570,13 +628,13 @@ impl LiveShareContext {
 
     /// Get current activity status display name
     pub fn get_activity_status_display(&self) -> &'static str {
-        self.activity_status.get().display_name()
+        self.activity_status.get_untracked().display_name()
     }
 }
 
 impl Default for LiveShareContext {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
@@ -604,7 +662,7 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
                     let remote_users: Vec<RemoteUser> = info
                         .users
                         .iter()
-                        .filter(|u| u.user_id != ctx.user_id.get_untracked())
+                        .filter(|u| u.user_id != ctx.user_id.with_untracked(|v| *v))
                         .map(|u| RemoteUser::new(u.user_id, u.username.clone()))
                         .collect();
                     ctx.remote_users.set(remote_users.clone());
@@ -623,7 +681,7 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
             }
         }
         ServerMessage::UserJoined { user_id, username } => {
-            if user_id != ctx.user_id.get_untracked() {
+            if user_id != ctx.user_id.with_untracked(|v| *v) {
                 ctx.remote_users.update(|users| {
                     // Don't add if already exists
                     if !users.iter().any(|u| u.user_id == user_id) {
@@ -633,7 +691,7 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
                 // Update room info user count
                 ctx.room_info.update(|info| {
                     if let Some(i) = info {
-                        i.user_count = ctx.remote_users.get_untracked().len() + 1;
+                        i.user_count = ctx.remote_users.with_untracked(|v| v.len()) + 1;
                     }
                 });
             }
@@ -644,12 +702,12 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
             });
             ctx.room_info.update(|info| {
                 if let Some(i) = info {
-                    i.user_count = ctx.remote_users.get_untracked().len() + 1;
+                    i.user_count = ctx.remote_users.with_untracked(|v| v.len()) + 1;
                 }
             });
         }
         ServerMessage::Awareness { user_id, state } => {
-            if user_id != ctx.user_id.get_untracked() {
+            if user_id != ctx.user_id.with_untracked(|v| *v) {
                 ctx.remote_users.update(|users| {
                     if let Some(user) = users.iter_mut().find(|u| u.user_id == user_id) {
                         user.update_awareness(&state);
@@ -671,7 +729,7 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
         }
         ServerMessage::GraphOp { user_id, op } => {
             // Ignore our own operations - we already applied them locally
-            let my_id = ctx.user_id.get_untracked();
+            let my_id = ctx.user_id.with_untracked(|v| *v);
             if user_id == my_id {
                 return;
             }
@@ -700,7 +758,7 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
             target_user_id,
         } => {
             // Only process if this message is for us (or for everyone if target is None)
-            let my_id = ctx.user_id.get_untracked();
+            let my_id = ctx.user_id.with_untracked(|v| *v);
             if target_user_id.is_some() && target_user_id != Some(my_id) {
                 // This message is for another user, ignore it
                 return;
@@ -761,7 +819,7 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
         }
         ServerMessage::CursorMove { user_id, position } => {
             // Update remote user cursor position
-            if user_id != ctx.user_id.get_untracked() {
+            if user_id != ctx.user_id.with_untracked(|v| *v) {
                 ctx.remote_users.update(|users| {
                     if let Some(user) = users.iter_mut().find(|u| u.user_id == user_id) {
                         user.cursor = Some(position);
@@ -771,7 +829,7 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
         }
         ServerMessage::IdleStatus { user_id, is_active } => {
             // Update remote user activity status
-            if user_id != ctx.user_id.get_untracked() {
+            if user_id != ctx.user_id.with_untracked(|v| *v) {
                 ctx.remote_users.update(|users| {
                     if let Some(user) = users.iter_mut().find(|u| u.user_id == user_id) {
                         user.is_active = is_active;
@@ -786,6 +844,76 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
         } => {
             // TODO: Handle user viewport updates for optimization
             // This would be used to only send updates for visible elements
+        }
+        ServerMessage::TableDragStart {
+            user_id,
+            node_id,
+            offset,
+        } => {
+            // Update remote user's dragging state
+            if user_id != ctx.user_id.with_untracked(|v| *v) {
+                ctx.remote_users.update(|users| {
+                    if let Some(user) = users.iter_mut().find(|u| u.user_id == user_id) {
+                        user.dragging_table = Some((node_id, offset.0, offset.1));
+                    }
+                });
+
+                // Dispatch event for canvas to handle visual feedback
+                #[cfg(not(feature = "ssr"))]
+                {
+                    use leptos::wasm_bindgen::JsValue;
+                    if let Some(window) = web_sys::window() {
+                        let init = web_sys::CustomEventInit::new();
+                        let detail = serde_json::json!({
+                            "user_id": user_id.to_string(),
+                            "node_id": node_id,
+                            "offset": offset,
+                        });
+                        init.set_detail(&JsValue::from_str(&detail.to_string()));
+                        if let Ok(event) = web_sys::CustomEvent::new_with_event_init_dict(
+                            "liveshare-table-drag-start",
+                            &init,
+                        ) {
+                            let _ = window.dispatch_event(&event);
+                        }
+                    }
+                }
+            }
+        }
+        ServerMessage::TableDragEnd {
+            user_id,
+            node_id,
+            position,
+        } => {
+            // Clear remote user's dragging state
+            if user_id != ctx.user_id.with_untracked(|v| *v) {
+                ctx.remote_users.update(|users| {
+                    if let Some(user) = users.iter_mut().find(|u| u.user_id == user_id) {
+                        user.dragging_table = None;
+                    }
+                });
+
+                // Dispatch event for canvas to update final position
+                #[cfg(not(feature = "ssr"))]
+                {
+                    use leptos::wasm_bindgen::JsValue;
+                    if let Some(window) = web_sys::window() {
+                        let init = web_sys::CustomEventInit::new();
+                        let detail = serde_json::json!({
+                            "user_id": user_id.to_string(),
+                            "node_id": node_id,
+                            "position": position,
+                        });
+                        init.set_detail(&JsValue::from_str(&detail.to_string()));
+                        if let Ok(event) = web_sys::CustomEvent::new_with_event_init_dict(
+                            "liveshare-table-drag-end",
+                            &init,
+                        ) {
+                            let _ = window.dispatch_event(&event);
+                        }
+                    }
+                }
+            }
         }
         ServerMessage::SnapshotRecovery {
             snapshot_id,
@@ -855,8 +983,30 @@ pub struct DisplayUser {
 
 /// Provide LiveShare context to the component tree
 pub fn provide_liveshare_context() -> LiveShareContext {
-    let ctx = LiveShareContext::new();
+    let auth_ctx = use_auth_context();
+
+    // Try to get username from auth context if user is authenticated
+    let username = auth_ctx.user().map(|user| user.username);
+
+    let ctx = LiveShareContext::new(username);
     provide_context(ctx);
+
+    // Reactively update username when auth state changes
+    let ctx_for_effect = ctx;
+    Effect::new(move |_| {
+        let new_username = auth_ctx
+            .user()
+            .map(|user| user.username)
+            .unwrap_or_else(|| {
+                let user_id = ctx_for_effect.user_id.with_untracked(|v| *v);
+                format!("User_{}", &user_id.to_string()[..6])
+            });
+
+        // Only update if username actually changed
+        if ctx_for_effect.username.with_untracked(|v| v.clone()) != new_username {
+            ctx_for_effect.username.set(new_username);
+        }
+    });
 
     // Check URL for room parameter on client-side (handles invite links)
     #[cfg(not(feature = "ssr"))]

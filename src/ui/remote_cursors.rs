@@ -5,12 +5,59 @@
 
 use crate::ui::liveshare_client::{ConnectionState, use_liveshare_context};
 use leptos::prelude::*;
+#[cfg(not(feature = "ssr"))]
+use std::cell::RefCell;
+#[cfg(not(feature = "ssr"))]
+use std::rc::Rc;
 use uuid::Uuid;
 
-/// Sidebar width in pixels when expanded (ml-96 = 24rem = 384px)
-const SIDEBAR_WIDTH_EXPANDED: f64 = 384.0;
-/// Sidebar width in pixels when collapsed (ml-14 = 3.5rem = 56px)
-const SIDEBAR_WIDTH_COLLAPSED: f64 = 56.0;
+/// Smoothed cursor position with simple interpolation (no velocity prediction)
+#[cfg(not(feature = "ssr"))]
+#[derive(Clone, Copy, Debug)]
+struct SmoothedPosition {
+    x: f64,
+    y: f64,
+    target_x: f64,
+    target_y: f64,
+}
+
+#[cfg(not(feature = "ssr"))]
+impl SmoothedPosition {
+    fn new(x: f64, y: f64) -> Self {
+        Self {
+            x,
+            y,
+            target_x: x,
+            target_y: y,
+        }
+    }
+
+    fn update_target(&mut self, target_x: f64, target_y: f64) {
+        self.target_x = target_x;
+        self.target_y = target_y;
+    }
+
+    fn interpolate(&mut self) -> (f64, f64) {
+        // Simple exponential smoothing - no velocity prediction
+        // This is more stable with irregular network updates
+        let smoothing = 0.25; // Higher = faster catch-up, lower = smoother but more lag
+
+        let dx = self.target_x - self.x;
+        let dy = self.target_y - self.y;
+
+        // Apply smoothing
+        self.x += dx * smoothing;
+        self.y += dy * smoothing;
+
+        // Snap to target if very close (prevents infinite drift)
+        if dx.abs() < 1.0 && dy.abs() < 1.0 {
+            self.x = self.target_x;
+            self.y = self.target_y;
+        }
+
+        (self.x, self.y)
+    }
+}
 
 /// Remote cursors overlay component
 ///
@@ -21,7 +68,6 @@ pub fn RemoteCursors(
     #[prop(into)] zoom: Signal<f64>,
     #[prop(into)] pan_x: Signal<f64>,
     #[prop(into)] pan_y: Signal<f64>,
-    #[prop(into)] sidebar_collapsed: Signal<bool>,
 ) -> impl IntoView {
     let ctx = use_liveshare_context();
 
@@ -53,7 +99,6 @@ pub fn RemoteCursors(
                             zoom=zoom
                             pan_x=pan_x
                             pan_y=pan_y
-                            sidebar_collapsed=sidebar_collapsed
                         />
                     }
                 }
@@ -70,9 +115,16 @@ fn CursorView(
     #[prop(into)] zoom: Signal<f64>,
     #[prop(into)] pan_x: Signal<f64>,
     #[prop(into)] pan_y: Signal<f64>,
-    #[prop(into)] sidebar_collapsed: Signal<bool>,
 ) -> impl IntoView {
     let ctx = use_liveshare_context();
+
+    // Smoothed position state with animation frame loop
+    #[cfg(not(feature = "ssr"))]
+    let smoothed_pos: Rc<RefCell<Option<SmoothedPosition>>> = Rc::new(RefCell::new(None));
+    #[cfg(not(feature = "ssr"))]
+    let (interpolated_x, set_interpolated_x) = signal(0.0_f64);
+    #[cfg(not(feature = "ssr"))]
+    let (interpolated_y, set_interpolated_y) = signal(0.0_f64);
 
     // Reactively get cursor data for this user
     let cursor_data = Memo::new(move |_| {
@@ -88,10 +140,64 @@ fn CursorView(
         })
     });
 
+    // Update target position when cursor data changes
+    #[cfg(not(feature = "ssr"))]
+    {
+        let smoothed_pos_for_effect = smoothed_pos.clone();
+        Effect::new(move |_| {
+            if let Some((_, _, (canvas_x, canvas_y), _)) = cursor_data.get() {
+                let mut pos = smoothed_pos_for_effect.borrow_mut();
+                match pos.as_mut() {
+                    Some(p) => p.update_target(canvas_x, canvas_y),
+                    None => *pos = Some(SmoothedPosition::new(canvas_x, canvas_y)),
+                }
+            }
+        });
+    }
+
+    // Animation loop for smooth interpolation
+    #[cfg(not(feature = "ssr"))]
+    {
+        use wasm_bindgen::prelude::*;
+
+        let smoothed_pos_for_animation = smoothed_pos.clone();
+        let animation_frame_closure = Rc::new(RefCell::new(None::<Closure<dyn FnMut()>>));
+        let animation_frame_closure_clone = animation_frame_closure.clone();
+
+        let animate = move || {
+            if let Some(pos) = smoothed_pos_for_animation.borrow_mut().as_mut() {
+                let (x, y) = pos.interpolate();
+                set_interpolated_x.set(x);
+                set_interpolated_y.set(y);
+            }
+
+            // Request next frame
+            if let Some(window) = web_sys::window() {
+                let closure = animation_frame_closure_clone.borrow();
+                if let Some(closure) = closure.as_ref() {
+                    let _ = window.request_animation_frame(closure.as_ref().unchecked_ref());
+                }
+            }
+        };
+
+        let closure = Closure::new(animate);
+
+        // Start animation loop
+        if let Some(window) = web_sys::window() {
+            let _ = window.request_animation_frame(closure.as_ref().unchecked_ref());
+        }
+
+        *animation_frame_closure.borrow_mut() = Some(closure);
+
+        // Note: closure is intentionally leaked to keep animation running
+        // In production, should clean up on component unmount
+    }
+
     view! {
         {move || {
             let data = cursor_data.get();
             match data {
+                #[allow(unused_variables)]
                 Some((username, color, (canvas_x, canvas_y), is_active)) => {
                     let opacity = if is_active { "1" } else { "0.5" };
                     let label_style = format!(
@@ -108,17 +214,24 @@ fn CursorView(
                             style:left=move || {
                                 let current_zoom = zoom.get();
                                 let current_pan_x = pan_x.get();
-                                let sidebar_width = if sidebar_collapsed.get() { SIDEBAR_WIDTH_COLLAPSED } else { SIDEBAR_WIDTH_EXPANDED };
-                                let viewport_x = canvas_x * current_zoom + current_pan_x + sidebar_width;
+                                // Canvas is full-width, so no sidebar offset needed
+                                #[cfg(not(feature = "ssr"))]
+                                let x = interpolated_x.get();
+                                #[cfg(feature = "ssr")]
+                                let x = canvas_x;
+                                let viewport_x = x * current_zoom + current_pan_x;
                                 format!("{}px", viewport_x)
                             }
                             style:top=move || {
                                 let current_zoom = zoom.get();
                                 let current_pan_y = pan_y.get();
-                                let viewport_y = canvas_y * current_zoom + current_pan_y;
+                                #[cfg(not(feature = "ssr"))]
+                                let y = interpolated_y.get();
+                                #[cfg(feature = "ssr")]
+                                let y = canvas_y;
+                                let viewport_y = y * current_zoom + current_pan_y;
                                 format!("{}px", viewport_y)
                             }
-                            style:transition="left 50ms linear, top 50ms linear"
                         >
                             // Cursor pointer SVG - classic arrow shape
                             <svg
@@ -179,10 +292,9 @@ pub fn CursorTracker(
     #[prop(into)] zoom: Signal<f64>,
     #[prop(into)] pan_x: Signal<f64>,
     #[prop(into)] pan_y: Signal<f64>,
-    #[prop(into)] sidebar_collapsed: Signal<bool>,
 ) -> impl IntoView {
     // Suppress unused warnings for SSR builds
-    let _ = (&zoom, &pan_x, &pan_y, &sidebar_collapsed);
+    let _ = (&zoom, &pan_x, &pan_y);
 
     #[cfg(not(feature = "ssr"))]
     {
@@ -200,43 +312,42 @@ pub fn CursorTracker(
             let window = web_sys::window().expect("no window");
             let document = window.document().expect("no document");
 
-            // Throttle cursor updates (send at most every 30ms for smoother experience)
+            // Simple throttling - send latest position at ~50fps (20ms)
+            // Smoothing is handled on the receiving side
             let last_update = std::rc::Rc::new(std::cell::RefCell::new(0.0_f64));
+            let last_position = std::rc::Rc::new(std::cell::RefCell::new(None::<(f64, f64)>));
 
             let ctx_move = ctx;
             let last_update_move = last_update.clone();
+            let last_position_move = last_position.clone();
 
             let mousemove = Closure::wrap(Box::new(move |e: web_sys::MouseEvent| {
                 let now = js_sys::Date::now();
-                let last = *last_update_move.borrow();
-
-                // Throttle to 30ms (~33 updates per second) for smoother cursor movement
-                if now - last < 30.0 {
-                    return;
-                }
-                *last_update_move.borrow_mut() = now;
 
                 // Get viewport coordinates
                 let viewport_x = e.client_x() as f64;
                 let viewport_y = e.client_y() as f64;
 
                 // Get current transform values
-                let current_zoom = zoom.get_untracked();
-                let current_pan_x = pan_x.get_untracked();
-                let current_pan_y = pan_y.get_untracked();
+                let current_zoom = zoom.with_untracked(|v| *v);
+                let current_pan_x = pan_x.with_untracked(|v| *v);
+                let current_pan_y = pan_y.with_untracked(|v| *v);
 
                 // Convert viewport coordinates to canvas coordinates
-                // Reverse the transform: viewport = canvas * zoom + pan + sidebar_offset
-                // Therefore: canvas = (viewport - sidebar_offset - pan) / zoom
-                let sidebar_width = if sidebar_collapsed.get_untracked() {
-                    SIDEBAR_WIDTH_COLLAPSED
-                } else {
-                    SIDEBAR_WIDTH_EXPANDED
-                };
-                let canvas_x = (viewport_x - sidebar_width - current_pan_x) / current_zoom;
+                let canvas_x = (viewport_x - current_pan_x) / current_zoom;
                 let canvas_y = (viewport_y - current_pan_y) / current_zoom;
 
-                ctx_move.send_awareness(Some((canvas_x, canvas_y)), vec![]);
+                // Always store latest position
+                *last_position_move.borrow_mut() = Some((canvas_x, canvas_y));
+
+                // Send at ~50fps (20ms) for smooth cursor movement
+                let last = *last_update_move.borrow();
+                if now - last >= 20.0 {
+                    if let Some((x, y)) = *last_position_move.borrow() {
+                        ctx_move.send_awareness(Some((x, y)), vec![]);
+                    }
+                    *last_update_move.borrow_mut() = now;
+                }
             }) as Box<dyn FnMut(web_sys::MouseEvent)>);
 
             let ctx_leave = ctx;

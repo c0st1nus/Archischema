@@ -94,11 +94,17 @@ pub fn LiveSharePanel() -> impl IntoView {
                     .unwrap();
                 request
                     .headers()
-                    .set("X-User-ID", &ctx_inner.user_id.get_untracked().to_string())
+                    .set(
+                        "X-User-ID",
+                        &ctx_inner.user_id.with_untracked(|v| v.to_string()),
+                    )
                     .unwrap();
                 request
                     .headers()
-                    .set("X-Username", &ctx_inner.username.get_untracked())
+                    .set(
+                        "X-Username",
+                        &ctx_inner.username.with_untracked(|v| v.clone()),
+                    )
                     .unwrap();
 
                 let window = web_sys::window().unwrap();

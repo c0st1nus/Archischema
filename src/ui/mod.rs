@@ -1,6 +1,7 @@
 pub mod activity_tracker;
 pub mod ai_chat;
 pub mod auth;
+pub mod auth_utils;
 pub mod canvas;
 pub mod column_editor;
 pub mod common;

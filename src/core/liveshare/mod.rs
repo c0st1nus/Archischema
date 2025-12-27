@@ -15,6 +15,7 @@ mod auth;
 pub mod broadcast_manager;
 #[cfg(feature = "ssr")]
 pub mod cursor_broadcaster;
+#[cfg(feature = "ssr")]
 pub mod idle_detection;
 #[cfg(feature = "ssr")]
 pub mod load_test;
@@ -42,6 +43,7 @@ pub use auth::*;
 pub use broadcast_manager::*;
 #[cfg(feature = "ssr")]
 pub use cursor_broadcaster::*;
+#[cfg(feature = "ssr")]
 pub use idle_detection::*;
 #[cfg(feature = "ssr")]
 pub use load_test::*;

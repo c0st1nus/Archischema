@@ -369,16 +369,20 @@ pub fn ProfilePage() -> impl IntoView {
                                                 <div class="flex items-center gap-2">
                                                     <button
                                                         class="px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
-                                                        class=("bg-accent-primary text-white", move || theme.mode.get() == ThemeMode::Light)
-                                                        class=("bg-theme-secondary text-theme-secondary hover:text-theme-primary", move || theme.mode.get() != ThemeMode::Light)
+                                                        class:bg-accent-primary=move || theme.mode.get() == ThemeMode::Light
+                                                        class:text-white=move || theme.mode.get() == ThemeMode::Light
+                                                        class:bg-theme-secondary=move || theme.mode.get() != ThemeMode::Light
+                                                        class:text-theme-secondary=move || theme.mode.get() != ThemeMode::Light
                                                         on:click=move |_| theme.set_mode(ThemeMode::Light)
                                                     >
                                                         "Light"
                                                     </button>
                                                     <button
                                                         class="px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
-                                                        class=("bg-accent-primary text-white", move || theme.mode.get() == ThemeMode::Dark)
-                                                        class=("bg-theme-secondary text-theme-secondary hover:text-theme-primary", move || theme.mode.get() != ThemeMode::Dark)
+                                                        class:bg-accent-primary=move || theme.mode.get() == ThemeMode::Dark
+                                                        class:text-white=move || theme.mode.get() == ThemeMode::Dark
+                                                        class:bg-theme-secondary=move || theme.mode.get() != ThemeMode::Dark
+                                                        class:text-theme-secondary=move || theme.mode.get() != ThemeMode::Dark
                                                         on:click=move |_| theme.set_mode(ThemeMode::Dark)
                                                     >
                                                         "Dark"

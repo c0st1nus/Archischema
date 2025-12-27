@@ -7,6 +7,26 @@ use leptos::prelude::*;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
+#[cfg(not(feature = "ssr"))]
+fn dispatch_save_event(reason: &str) {
+    use wasm_bindgen::JsValue;
+
+    if let Some(window) = web_sys::window() {
+        let init = web_sys::CustomEventInit::new();
+        init.set_detail(&JsValue::from_str(reason));
+        if let Ok(event) =
+            web_sys::CustomEvent::new_with_event_init_dict("diagram-save-requested", &init)
+        {
+            let _ = window.dispatch_event(&event);
+        }
+    }
+}
+
+#[cfg(feature = "ssr")]
+fn dispatch_save_event(_reason: &str) {
+    // No-op on server
+}
+
 #[component]
 pub fn ColumnEditor(
     /// Текущая колонка для редактирования (None для создания новой)
@@ -56,7 +76,7 @@ pub fn ColumnEditor(
     // Определяем начальное состояние FK из существующих связей
     let (initial_fk, initial_fk_table, initial_fk_column, initial_fk_type) = {
         if let (Some(g), Some(current_node), Some(col)) = (graph, current_table, column.as_ref()) {
-            let graph_val = g.get_untracked();
+            let graph_val = g.with_untracked(|v| v.clone());
             // Ищем связь, исходящую из текущей таблицы с этой колонкой
             let mut found_fk = false;
             let mut found_table: Option<NodeIndex> = None;
@@ -135,7 +155,7 @@ pub fn ColumnEditor(
                 && let (Some(target_node), Some(target_col_name)) =
                     (target_table, target_col.as_ref())
             {
-                let g_value = g.get_untracked();
+                let g_value = g.with_untracked(|v| v.clone());
                 if let Some(target_table_node) = g_value.node_weight(target_node)
                     && let Some(target_column_obj) = target_table_node
                         .columns
@@ -154,7 +174,7 @@ pub fn ColumnEditor(
             // Подготавливаем данные для LiveShare sync
             let liveshare_ctx = use_liveshare_context();
             let is_connected =
-                liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected;
+                liveshare_ctx.connection_state.with_untracked(|v| *v) == ConnectionState::Connected;
 
             // Клонируем данные для использования в closure
             let name_value_clone = name_value.clone();
@@ -256,6 +276,18 @@ pub fn ColumnEditor(
                     });
                 }
             }
+        }
+
+        // Trigger save after column changes
+        if column_index.is_some() {
+            dispatch_save_event("column_updated");
+        } else {
+            dispatch_save_event("column_added");
+        }
+
+        // If FK was added/changed, trigger additional save event
+        if is_foreign_key.get() {
+            dispatch_save_event("foreign_key_changed");
         }
 
         on_save.run(());

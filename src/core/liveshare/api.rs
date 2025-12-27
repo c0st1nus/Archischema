@@ -65,6 +65,7 @@ impl Default for LiveshareState {
 /// Create the LiveShare API router
 ///
 /// Routes:
+/// - `POST   /room` - Create a new room with auto-generated UUID
 /// - `POST   /room/{uuid}` - Create a new room with specific UUID
 /// - `GET    /room/{uuid}/info` - Get room information
 /// - `PATCH  /room/{uuid}` - Update room settings
@@ -73,6 +74,7 @@ impl Default for LiveshareState {
 /// Note: WebSocket connections use `GET /room/{uuid}` (handled separately)
 pub fn liveshare_router(state: LiveshareState) -> Router {
     Router::new()
+        .route("/room", post(create_room_auto))
         .route("/room/{room_id}", post(create_room))
         .route("/room/{room_id}/info", get(get_room))
         .route("/room/{room_id}", patch(update_room))
@@ -84,11 +86,66 @@ pub fn liveshare_router(state: LiveshareState) -> Router {
 // API Handlers
 // ============================================================================
 
-/// Create a new room
+/// Create a new room with auto-generated UUID
+///
+/// POST /room
+///
+/// Request body: CreateRoomRequest (diagram_id is optional for testing)
+/// Response: RoomResponse (201 Created) or ApiError
+///
+/// Headers:
+/// - X-User-ID: User's UUID (optional, will be generated if not provided)
+/// - X-Username: User's display name (optional)
+///
+/// Permission Requirements (Phase 8.1.34):
+/// - User must be the diagram owner OR have 'edit' permission on the diagram
+/// - Guests cannot create sessions
+async fn create_room_auto(
+    State(state): State<LiveshareState>,
+    user: AuthenticatedUser,
+    Json(request): Json<CreateRoomRequest>,
+) -> impl IntoResponse {
+    // Generate a new UUID for the room
+    let room_id = Uuid::new_v4();
+
+    // Guests cannot create sessions
+    if user.is_guest {
+        return (StatusCode::FORBIDDEN, Json(ApiError::forbidden())).into_response();
+    }
+
+    // Create room configuration
+    let create_request = CreateRoomRequest {
+        diagram_id: request.diagram_id,
+        name: request
+            .name
+            .or_else(|| Some(format!("Room {}", &room_id.to_string()[..8]))),
+        password: request.password,
+        max_users: request.max_users,
+    };
+
+    // Create the room using the manager's create_room_with_id method
+    match state
+        .room_manager
+        .create_room_with_id(room_id, &user, create_request)
+    {
+        Ok(room) => {
+            let response =
+                room.to_response(state.room_manager.host(), state.room_manager.is_secure());
+            (StatusCode::CREATED, Json(response)).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError::internal(e)),
+        )
+            .into_response(),
+    }
+}
+
+/// Create a new room with specific UUID
 ///
 /// POST /room/{uuid}
 ///
-/// Request body: CreateRoomRequest (must include diagram_id)
+/// Request body: CreateRoomRequest (diagram_id is optional for testing)
 /// Response: RoomResponse (201 Created) or ApiError
 ///
 /// Headers:
@@ -331,7 +388,7 @@ mod tests {
 
         // Create room
         let create_request = CreateRoomRequest {
-            diagram_id: Uuid::new_v4(),
+            diagram_id: Some(Uuid::new_v4()),
             name: Some("Test Room".to_string()),
             password: None,
             max_users: Some(20),
@@ -381,7 +438,7 @@ mod tests {
         let room_id = Uuid::new_v4();
 
         let create_request = CreateRoomRequest {
-            diagram_id: Uuid::new_v4(),
+            diagram_id: Some(Uuid::new_v4()),
             name: Some("My Custom Room".to_string()),
             password: None,
             max_users: Some(25),
@@ -420,7 +477,7 @@ mod tests {
         let room_id = Uuid::new_v4();
 
         let create_request = CreateRoomRequest {
-            diagram_id: Uuid::new_v4(),
+            diagram_id: Some(Uuid::new_v4()),
             name: None,
             password: None,
             max_users: None,
@@ -459,7 +516,7 @@ mod tests {
         let room_id = Uuid::new_v4();
 
         let create_request = CreateRoomRequest {
-            diagram_id: Uuid::new_v4(),
+            diagram_id: Some(Uuid::new_v4()),
             name: Some("First Room".to_string()),
             password: None,
             max_users: None,
@@ -510,7 +567,7 @@ mod tests {
 
         // Create room first
         let create_request = CreateRoomRequest {
-            diagram_id: Uuid::new_v4(),
+            diagram_id: Some(Uuid::new_v4()),
             name: Some("Info Test Room".to_string()),
             password: None,
             max_users: Some(15),
@@ -564,7 +621,7 @@ mod tests {
 
         // Create room first
         let create_request = CreateRoomRequest {
-            diagram_id: Uuid::new_v4(),
+            diagram_id: Some(Uuid::new_v4()),
             name: Some("Delete Test Room".to_string()),
             password: None,
             max_users: None,
@@ -643,7 +700,7 @@ mod tests {
 
         // Create room first
         let create_request = CreateRoomRequest {
-            diagram_id: Uuid::new_v4(),
+            diagram_id: Some(Uuid::new_v4()),
             name: Some("Original Name".to_string()),
             password: None,
             max_users: Some(10),
@@ -723,7 +780,7 @@ mod tests {
         let room_id = Uuid::new_v4();
 
         let create_request = CreateRoomRequest {
-            diagram_id: Uuid::new_v4(),
+            diagram_id: Some(Uuid::new_v4()),
             name: Some("Password Test".to_string()),
             password: Some("secret123".to_string()),
             max_users: None,
@@ -761,7 +818,7 @@ mod tests {
         let user_id = Uuid::new_v4();
 
         let create_request = CreateRoomRequest {
-            diagram_id: Uuid::new_v4(),
+            diagram_id: Some(Uuid::new_v4()),
             name: Some("Header Test".to_string()),
             password: None,
             max_users: None,

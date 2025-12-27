@@ -19,6 +19,27 @@ use petgraph::graph::{EdgeIndex, NodeIndex};
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+/// Helper function to dispatch a save event to the parent component
+#[cfg(not(feature = "ssr"))]
+fn dispatch_save_event(reason: &str) {
+    use wasm_bindgen::JsValue;
+
+    if let Some(window) = web_sys::window() {
+        let init = web_sys::CustomEventInit::new();
+        init.set_detail(&JsValue::from_str(reason));
+        if let Ok(event) =
+            web_sys::CustomEvent::new_with_event_init_dict("diagram-save-requested", &init)
+        {
+            let _ = window.dispatch_event(&event);
+        }
+    }
+}
+#[cfg(feature = "ssr")]
+#[allow(dead_code)]
+fn dispatch_save_event(_reason: &str) {
+    // No-op on server
+}
+
 #[component]
 pub fn SchemaCanvas(
     graph: RwSignal<SchemaGraph>,
@@ -237,7 +258,7 @@ pub fn SchemaCanvas(
                     if let Some(detail) = e.detail().as_string() {
                         if let Ok(op) = serde_json::from_str::<GraphOperation>(&detail) {
                             leptos::logging::log!("Applying remote graph op: {:?}", op);
-                            // For MoveTable, use interpolation instead of direct update
+
                             if let GraphOperation::MoveTable { node_id, position } = &op {
                                 let now = js_sys::Date::now();
                                 targets
@@ -255,6 +276,7 @@ pub fn SchemaCanvas(
                                     graph_clone,
                                 );
                             } else {
+                                // For non-move operations, apply directly
                                 apply_remote_graph_op(graph_clone, op);
                             }
                         }
@@ -265,8 +287,137 @@ pub fn SchemaCanvas(
                 "liveshare-graph-op",
                 handler.as_ref().unchecked_ref(),
             );
-            // Intentionally leaked - global listener for app lifetime
             handler.forget();
+        });
+
+        // Handler for table drag start
+        Effect::new(move |_| {
+            let window = web_sys::window().expect("no window");
+
+            let handler = Closure::<dyn Fn(web_sys::CustomEvent)>::new(
+                move |e: web_sys::CustomEvent| {
+                    if let Some(detail) = e.detail().as_string() {
+                        if let Ok(data) = serde_json::from_str::<serde_json::Value>(&detail) {
+                            if let (Some(user_id_str), Some(node_id), Some(offset)) = (
+                                data["user_id"].as_str(),
+                                data["node_id"].as_u64(),
+                                data["offset"].as_array(),
+                            ) {
+                                if let (Some(offset_x), Some(offset_y)) = (
+                                    offset.get(0).and_then(|v| v.as_f64()),
+                                    offset.get(1).and_then(|v| v.as_f64()),
+                                ) {
+                                    leptos::logging::log!(
+                                        "Remote user {} started dragging table {} with offset ({}, {})",
+                                        user_id_str,
+                                        node_id,
+                                        offset_x,
+                                        offset_y
+                                    );
+                                    // Mark node as being remotely dragged
+                                    remote_dragging_nodes.update(|set| {
+                                        set.insert(node_id as u32);
+                                    });
+                                }
+                            }
+                        }
+                    }
+                },
+            );
+
+            let _ = window.add_event_listener_with_callback(
+                "liveshare-table-drag-start",
+                handler.as_ref().unchecked_ref(),
+            );
+            handler.forget();
+        });
+
+        // Handler for table drag end
+        let targets_for_drag_end = remote_drag_targets.clone();
+        let animation_running_for_drag_end = animation_running.clone();
+        Effect::new(move |_| {
+            let window = web_sys::window().expect("no window");
+
+            let graph_clone = graph;
+            let targets = targets_for_drag_end.clone();
+            let anim_running = animation_running_for_drag_end.clone();
+            let handler =
+                Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |e: web_sys::CustomEvent| {
+                    if let Some(detail) = e.detail().as_string() {
+                        if let Ok(data) = serde_json::from_str::<serde_json::Value>(&detail) {
+                            if let (Some(user_id_str), Some(node_id), Some(position)) = (
+                                data["user_id"].as_str(),
+                                data["node_id"].as_u64(),
+                                data["position"].as_array(),
+                            ) {
+                                if let (Some(pos_x), Some(pos_y)) = (
+                                    position.get(0).and_then(|v| v.as_f64()),
+                                    position.get(1).and_then(|v| v.as_f64()),
+                                ) {
+                                    leptos::logging::log!(
+                                        "Remote user {} finished dragging table {} to ({}, {})",
+                                        user_id_str,
+                                        node_id,
+                                        pos_x,
+                                        pos_y
+                                    );
+
+                                    let now = js_sys::Date::now();
+                                    targets
+                                        .borrow_mut()
+                                        .insert(node_id as u32, (pos_x, pos_y, now));
+
+                                    // Start animation loop to smoothly move to final position
+                                    start_animation_loop(
+                                        targets.clone(),
+                                        anim_running.clone(),
+                                        remote_dragging_nodes,
+                                        graph_clone,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                });
+
+            let _ = window.add_event_listener_with_callback(
+                "liveshare-table-drag-end",
+                handler.as_ref().unchecked_ref(),
+            );
+            handler.forget();
+        });
+
+        // Effect to update remote table positions based on remote user cursor positions
+        let targets_for_cursor = remote_drag_targets.clone();
+        let animation_running_for_cursor = animation_running.clone();
+        Effect::new(move |_| {
+            let remote_users = liveshare_ctx.remote_users.get();
+            let targets = targets_for_cursor.clone();
+            let anim_running = animation_running_for_cursor.clone();
+
+            // For each remote user that is dragging a table
+            for user in remote_users.iter() {
+                if let (Some(cursor), Some((node_id, offset_x, offset_y))) =
+                    (user.cursor, user.dragging_table)
+                {
+                    // Calculate table position from cursor position and offset
+                    let table_x = cursor.0 - offset_x;
+                    let table_y = cursor.1 - offset_y;
+
+                    let now = js_sys::Date::now();
+                    targets
+                        .borrow_mut()
+                        .insert(node_id, (table_x, table_y, now));
+
+                    // Ensure animation loop is running
+                    start_animation_loop(
+                        targets.clone(),
+                        anim_running.clone(),
+                        remote_dragging_nodes,
+                        graph,
+                    );
+                }
+            }
         });
 
         // Handler for full graph state (initial sync when joining room)
@@ -331,7 +482,7 @@ pub fn SchemaCanvas(
 
     // Helper function to send graph op when connected
     let send_graph_op = move |op: GraphOperation| {
-        if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected {
+        if liveshare_ctx.connection_state.with_untracked(|v| *v) == ConnectionState::Connected {
             liveshare_ctx.send_graph_op(op);
         }
     };
@@ -385,18 +536,14 @@ pub fn SchemaCanvas(
                 .document()
                 .expect("no document");
 
-            // Throttle for live sync during drag (send every 50ms)
-            let last_sync_time = std::rc::Rc::new(std::cell::RefCell::new(0.0_f64));
-            let last_sync_time_clone = last_sync_time.clone();
-
             // Обработчик перемещения - используем batch для группировки обновлений
             let move_closure = Closure::new(move |ev: web_sys::MouseEvent| {
                 ev.prevent_default();
 
                 // Учитываем трансформацию канваса при перетаскивании
-                let current_zoom = zoom.get_untracked();
-                let current_pan_x = pan_x.get_untracked();
-                let current_pan_y = pan_y.get_untracked();
+                let current_zoom = zoom.with_untracked(|v| *v);
+                let current_pan_x = pan_x.with_untracked(|v| *v);
+                let current_pan_y = pan_y.with_untracked(|v| *v);
 
                 let new_x = (ev.client_x() as f64 - offset_x - current_pan_x) / current_zoom;
                 let new_y = (ev.client_y() as f64 - offset_y - current_pan_y) / current_zoom;
@@ -413,36 +560,25 @@ pub fn SchemaCanvas(
                     });
                 });
 
-                // Send live sync update with throttling (every 50ms)
-                let now = js_sys::Date::now();
-                let last = *last_sync_time_clone.borrow();
-                if now - last >= 50.0 {
-                    *last_sync_time_clone.borrow_mut() = now;
-                    if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected
-                    {
-                        liveshare_ctx.send_graph_op(GraphOperation::MoveTable {
-                            node_id: node_idx.index() as u32,
-                            position: (new_x, new_y),
-                        });
-                    }
-                }
+                // No longer sending position updates here - cursor tracker handles it
             });
 
-            // Обработчик отпускания кнопки - отправляем sync при завершении перетаскивания
+            // Обработчик отпускания кнопки - отправляем TableDragEnd
             let up_closure = Closure::new(move |_: web_sys::MouseEvent| {
-                // Get final position and send sync op
+                // Get final position and send TableDragEnd
                 let final_pos =
                     graph.with_untracked(|g| g.node_weight(node_idx).map(|n| n.position));
                 if let Some(position) = final_pos {
-                    if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected
+                    if liveshare_ctx.connection_state.with_untracked(|v| *v)
+                        == ConnectionState::Connected
                     {
-                        liveshare_ctx.send_graph_op(GraphOperation::MoveTable {
-                            node_id: node_idx.index() as u32,
-                            position,
-                        });
+                        liveshare_ctx.send_table_drag_end(node_idx.index() as u32, position);
                     }
                 }
                 set_dragging_node.set(None);
+
+                // Trigger save after drag ends
+                dispatch_save_event("table_moved");
             });
 
             document
@@ -549,8 +685,8 @@ pub fn SchemaCanvas(
             }
 
             let (start_x, start_y) = panning_state.unwrap();
-            let initial_pan_x = pan_x.get_untracked();
-            let initial_pan_y = pan_y.get_untracked();
+            let initial_pan_x = pan_x.with_untracked(|v| *v);
+            let initial_pan_y = pan_y.with_untracked(|v| *v);
 
             // Обработчик перемещения мыши
             let move_closure = Closure::new(move |ev: web_sys::MouseEvent| {
@@ -637,26 +773,22 @@ pub fn SchemaCanvas(
             // Source Editor (показывается в режиме Source)
             <Show when=move || editor_mode.get() == EditorMode::Source>
                 <div class=move || {
-                    if sidebar_collapsed.get() {
-                        "flex-1 ml-14 transition-all duration-300"
+                    if editor_mode.get() == EditorMode::Source {
+                        "flex-1 transition-all duration-300"
                     } else {
-                        "flex-1 ml-96 transition-all duration-300"
+                        "hidden"
                     }
                 }>
                     <SourceEditor graph=graph readonly=false />
                 </div>
             </Show>
 
-            // Основной канвас (со смещением из-за сайдбара) - показывается в режиме Visual
+            // Основной канвас (полноразмерный, сайдбар накрывает его сверху) - показывается в режиме Visual
             <div
                 node_ref=canvas_ref
                 class=move || {
                     if editor_mode.get() == EditorMode::Visual {
-                        if sidebar_collapsed.get() {
-                            "flex-1 ml-14 relative bg-theme-canvas theme-transition transition-all duration-300"
-                        } else {
-                            "flex-1 ml-96 relative bg-theme-canvas theme-transition transition-all duration-300"
-                        }
+                        "flex-1 relative bg-theme-canvas theme-transition transition-all duration-300"
                     } else {
                         "hidden"
                     }
@@ -875,16 +1007,28 @@ pub fn SchemaCanvas(
                                                 graph.with_untracked(|g| {
                                                     if let Some(n) = g.node_weight(node_idx) {
                                                         let (x, y) = n.position;
-                                                        let current_zoom = zoom.get_untracked();
-                                                        let current_pan_x = pan_x.get_untracked();
-                                                        let current_pan_y = pan_y.get_untracked();
+                                                        let current_zoom = zoom.with_untracked(|v| *v);
+                                                        let current_pan_x = pan_x.with_untracked(|v| *v);
+                                                        let current_pan_y = pan_y.with_untracked(|v| *v);
 
-                                                        // Учитываем трансформацию канваса при расчете offset
-                                                        let transformed_x = x * current_zoom + current_pan_x;
-                                                        let transformed_y = y * current_zoom + current_pan_y;
-                                                        let offset_x = ev.client_x() as f64 - transformed_x;
-                                                        let offset_y = ev.client_y() as f64 - transformed_y;
+                                                        // Convert mouse position to canvas coordinates
+                                                        // Canvas is full-width, so no sidebar offset needed
+                                                        let canvas_mouse_x = (ev.client_x() as f64 - current_pan_x) / current_zoom;
+                                                        let canvas_mouse_y = (ev.client_y() as f64 - current_pan_y) / current_zoom;
+
+                                                        // Calculate offset in canvas space
+                                                        let offset_x = canvas_mouse_x - x;
+                                                        let offset_y = canvas_mouse_y - y;
+
                                                         set_dragging_node.set(Some((node_idx, offset_x, offset_y)));
+
+                                                        // Send TableDragStart to attach cursor to table
+                                                        if liveshare_ctx.connection_state.with_untracked(|v| *v) == ConnectionState::Connected {
+                                                            liveshare_ctx.send_table_drag_start(
+                                                                node_idx.index() as u32,
+                                                                (offset_x, offset_y)
+                                                            );
+                                                        }
                                                     }
                                                 });
                                             })
@@ -894,7 +1038,7 @@ pub fn SchemaCanvas(
                                                 }
                                                 ev.stop_propagation();
                                                 // Only select if we didn't drag
-                                                if !was_dragged.get_untracked() {
+                                                if !was_dragged.with_untracked(|v| *v) {
                                                     // Select this table and highlight all its edges
                                                     selected_table.set(Some(node_idx));
                                                     highlighted_edges.set(HashSet::new());
@@ -1096,7 +1240,7 @@ pub fn SchemaCanvas(
                             is_open=settings_open
                             initial_room_id=initial_room_id
                             graph=graph
-                            diagram_name=diagram_name.map(|s| s.get_untracked())
+                            diagram_name=diagram_name.map(|s| s.with_untracked(|v| v.clone()))
                             diagram_id=diagram_id
                             is_demo=is_demo
                             on_name_change=on_name_change
@@ -1111,7 +1255,7 @@ pub fn SchemaCanvas(
                                     auto_layout(g);
                                 });
                                 // Sync all table positions to LiveShare
-                                if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected {
+                                if liveshare_ctx.connection_state.with_untracked(|v| *v) == ConnectionState::Connected {
                                     graph.with_untracked(|g| {
                                         for node_idx in g.node_indices() {
                                             if let Some(node) = g.node_weight(node_idx) {
@@ -1136,10 +1280,10 @@ pub fn SchemaCanvas(
                 }
 
                 // Remote cursors overlay (показывает курсоры других пользователей)
-                <RemoteCursors zoom=Signal::from(zoom) pan_x=Signal::from(pan_x) pan_y=Signal::from(pan_y) sidebar_collapsed=Signal::from(sidebar_collapsed) />
+                <RemoteCursors zoom=Signal::from(zoom) pan_x=Signal::from(pan_x) pan_y=Signal::from(pan_y) />
 
                 // Cursor tracker (отслеживает и отправляет позицию локального курсора)
-                <CursorTracker zoom=Signal::from(zoom) pan_x=Signal::from(pan_x) pan_y=Signal::from(pan_y) sidebar_collapsed=Signal::from(sidebar_collapsed) />
+                <CursorTracker zoom=Signal::from(zoom) pan_x=Signal::from(pan_x) pan_y=Signal::from(pan_y) />
 
                 // Empty State - показывается когда нет таблиц
                 {move || {
@@ -1568,7 +1712,7 @@ fn apply_graph_state(graph: RwSignal<SchemaGraph>, state: GraphStateSnapshot) {
 /// Create a snapshot of the current graph state
 #[cfg(not(feature = "ssr"))]
 fn create_graph_snapshot(graph: RwSignal<SchemaGraph>) -> GraphStateSnapshot {
-    graph.with(|g| {
+    graph.with_untracked(|g| {
         let tables: Vec<TableSnapshot> = g
             .node_indices()
             .filter_map(|idx| {

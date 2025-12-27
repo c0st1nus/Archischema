@@ -20,7 +20,7 @@ fn DiagramNameEditor(
     #[prop(default = None)] on_name_change: Option<Callback<String>>,
 ) -> impl IntoView {
     let is_editing = RwSignal::new(false);
-    let edit_value = RwSignal::new(name_signal.get_untracked());
+    let edit_value = RwSignal::new(name_signal.with_untracked(|v| v.clone()));
 
     view! {
         {move || {
@@ -138,7 +138,7 @@ pub fn Sidebar(
 
     // Helper to send graph operation when connected
     let send_graph_op = move |op: GraphOperation| {
-        if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected {
+        if liveshare_ctx.connection_state.with_untracked(|v| *v) == ConnectionState::Connected {
             liveshare_ctx.send_graph_op(op);
         }
     };
@@ -675,7 +675,7 @@ pub fn Sidebar(
                                                 on:click=move |_| {
                                                     set_expanded_tables
                                                         .update(|expanded| {
-                                                            let g = graph.get_untracked();
+                                                            let g = graph.with_untracked(|v| v.clone());
                                                             if expanded.len() == g.node_count() {
                                                                 expanded.clear();
                                                             } else {

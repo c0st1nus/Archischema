@@ -158,7 +158,9 @@ pub fn SourceEditor(
 
             if result.success {
                 // Send graph operations through LiveShare
-                if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected {
+                if liveshare_ctx.connection_state.with_untracked(|v| *v)
+                    == ConnectionState::Connected
+                {
                     for op in &result.graph_ops {
                         liveshare_ctx.send_graph_op(op.clone());
                     }

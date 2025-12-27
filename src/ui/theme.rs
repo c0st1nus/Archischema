@@ -106,7 +106,7 @@ impl ThemeContext {
                 if let Some(document) = window.document() {
                     if let Some(html) = document.document_element() {
                         let class_list = html.class_list();
-                        if self.is_dark.get_untracked() {
+                        if self.is_dark.with_untracked(|v| *v) {
                             let _ = class_list.add_1("dark");
                         } else {
                             let _ = class_list.remove_1("dark");

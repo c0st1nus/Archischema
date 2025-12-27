@@ -6,7 +6,7 @@
 //! # Overview
 //!
 //! The `CursorBroadcaster` implements:
-//! - Automatic throttling at ~30fps (33ms intervals)
+//! - Automatic throttling at ~50fps (20ms intervals)
 //! - Deduplication of identical positions
 //! - Batching of cursor updates when needed
 //! - Protection against spam/rapid-fire updates

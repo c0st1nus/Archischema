@@ -34,8 +34,8 @@
 
 use std::time::{Duration, Instant};
 
-/// Default throttle interval for cursor updates (33ms = ~30fps)
-pub const DEFAULT_CURSOR_THROTTLE_MS: u64 = 33;
+/// Default throttle interval for cursor updates (20ms = ~50fps)
+pub const DEFAULT_CURSOR_THROTTLE_MS: u64 = 20;
 
 /// Default throttle interval for schema updates (150ms)
 pub const DEFAULT_SCHEMA_THROTTLE_MS: u64 = 150;
@@ -67,7 +67,7 @@ pub struct CursorThrottler {
 }
 
 impl CursorThrottler {
-    /// Create a new cursor throttler with default interval (33ms)
+    /// Create a new cursor throttler with default interval (20ms)
     pub fn new() -> Self {
         Self {
             last_sent: None,

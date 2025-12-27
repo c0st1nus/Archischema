@@ -195,7 +195,7 @@ impl NotificationManager {
         let next_id = self.next_id;
 
         Callback::new(move |notification: CanvasNotification| {
-            let id = next_id.get();
+            let id = next_id.get_untracked();
             next_id.set(id + 1);
 
             notifications.update(|n| {

@@ -65,21 +65,22 @@ pub struct AuthContext {
 impl AuthContext {
     /// Check if user is authenticated
     pub fn is_authenticated(&self) -> bool {
-        matches!(self.state.get(), AuthState::Authenticated(_))
+        matches!(self.state.get_untracked(), AuthState::Authenticated(_))
     }
 
     /// Get current user (if authenticated)
     pub fn user(&self) -> Option<User> {
-        match self.state.get() {
+        match self.state.get_untracked() {
             AuthState::Authenticated(user) => Some(user),
             _ => None,
         }
     }
 
     /// Get access token (if authenticated)
-    /// Uses get_untracked() since this is typically called outside reactive contexts
+    /// Uses with_untracked() since this is typically called outside reactive contexts
     pub fn access_token(&self) -> Option<String> {
-        self.tokens.get_untracked().map(|t| t.access_token)
+        self.tokens
+            .with_untracked(|tokens| tokens.as_ref().map(|t| t.access_token.clone()))
     }
 
     /// Clear error message
@@ -439,7 +440,7 @@ pub async fn logout() {
     let ctx = use_auth_context();
 
     // Try to call logout API if we have a refresh token
-    if let Some(tokens) = ctx.tokens.get() {
+    if let Some(tokens) = ctx.tokens.get_untracked() {
         let request = RefreshRequest {
             refresh_token: tokens.refresh_token,
         };

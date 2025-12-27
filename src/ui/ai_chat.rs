@@ -166,7 +166,7 @@ pub fn AiChatPanel(
                 // Build messages with system prompt
                 // Note: user message was already added to messages signal above
                 let mut api_messages = vec![ChatMessage::system(&current_config.system_prompt)];
-                api_messages.extend(messages.get_untracked().clone());
+                api_messages.extend(messages.with_untracked(|v| v.clone()));
 
                 // Build request
                 let tools = build_tool_definitions(current_config.mode);
@@ -276,7 +276,7 @@ pub fn AiChatPanel(
                                             // Send graph operations to LiveShare for sync
                                             if !response.graph_ops.is_empty() {
                                                 if let Some(liveshare_ctx) = try_use_liveshare_context() {
-                                                    if liveshare_ctx.connection_state.get_untracked() == ConnectionState::Connected {
+                                                    if liveshare_ctx.connection_state.with_untracked(|v| *v) == ConnectionState::Connected {
                                                         for op in &response.graph_ops {
                                                             liveshare_ctx.send_graph_op(op.clone());
                                                         }
@@ -381,8 +381,8 @@ pub fn AiChatPanel(
         use leptos::ev::keydown;
 
         let handle_keydown = window_event_listener(keydown, move |ev| {
-            if ev.key() == "Escape" && is_open.get_untracked() {
-                if show_settings.get_untracked() {
+            if ev.key() == "Escape" && is_open.with_untracked(|v| *v) {
+                if show_settings.with_untracked(|v| *v) {
                     set_show_settings.set(false);
                 } else {
                     is_open.set(false);

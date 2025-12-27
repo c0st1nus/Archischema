@@ -34,7 +34,7 @@ pub fn BaseModal(
         use leptos::ev::keydown;
 
         let handle_keydown = window_event_listener(keydown, move |ev| {
-            if ev.key() == "Escape" && is_open.get_untracked() {
+            if ev.key() == "Escape" && is_open.with_untracked(|v| *v) {
                 on_close.run(());
             }
         });

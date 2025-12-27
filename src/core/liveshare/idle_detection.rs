@@ -3,34 +3,8 @@
 //! This module provides functionality for detecting when users are idle, away, or active.
 //! It tracks activity events and page visibility to manage user presence status.
 
+use super::protocol::ActivityStatus;
 use std::time::{Duration, Instant};
-
-/// User activity status
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActivityStatus {
-    /// User is actively working
-    Active,
-    /// User has been idle for 30 seconds
-    Idle,
-    /// User's tab is not visible or they've been away for more than 30 seconds from idle
-    Away,
-}
-
-impl ActivityStatus {
-    /// Convert to boolean for protocol (is_active)
-    pub fn to_is_active(&self) -> bool {
-        matches!(self, ActivityStatus::Active)
-    }
-
-    /// Get display string
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            ActivityStatus::Active => "Active",
-            ActivityStatus::Idle => "Idle",
-            ActivityStatus::Away => "Away",
-        }
-    }
-}
 
 /// Idle detector for tracking user activity
 pub struct IdleDetector {

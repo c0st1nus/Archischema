@@ -7,6 +7,38 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 // ============================================================================
+// User Activity Status
+// ============================================================================
+
+/// User activity status
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityStatus {
+    /// User is actively working
+    Active,
+    /// User has been idle for 30 seconds
+    Idle,
+    /// User's tab is not visible or they've been away for more than 30 seconds from idle
+    Away,
+}
+
+impl ActivityStatus {
+    /// Convert to boolean for protocol (is_active)
+    pub fn to_is_active(&self) -> bool {
+        matches!(self, ActivityStatus::Active)
+    }
+
+    /// Get display string
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ActivityStatus::Active => "Active",
+            ActivityStatus::Idle => "Idle",
+            ActivityStatus::Away => "Away",
+        }
+    }
+}
+
+// ============================================================================
 // Type Aliases
 // ============================================================================
 
@@ -92,8 +124,9 @@ impl WsMessageType {
 /// Request to create a new room
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateRoomRequest {
-    /// The diagram ID for which this session is being created
-    pub diagram_id: Uuid,
+    /// The diagram ID for which this session is being created (optional for testing)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagram_id: Option<Uuid>,
     /// Optional room name (for display purposes)
     pub name: Option<String>,
     /// Optional password to protect the room
@@ -271,6 +304,22 @@ pub enum ClientMessage {
         zoom: f64,
     },
 
+    /// Start dragging a table (attaches cursor to table)
+    TableDragStart {
+        /// Node being dragged
+        node_id: u32,
+        /// Offset from cursor to table position (x, y)
+        offset: (f64, f64),
+    },
+
+    /// End dragging a table (detaches cursor from table)
+    TableDragEnd {
+        /// Node that was being dragged
+        node_id: u32,
+        /// Final position of the table
+        position: (f64, f64),
+    },
+
     /// Request full graph state (for initial sync)
     RequestGraphState,
 
@@ -329,6 +378,20 @@ pub enum ServerMessage {
         user_id: UserId,
         center: (f64, f64),
         zoom: f64,
+    },
+
+    /// Broadcast table drag start from another user
+    TableDragStart {
+        user_id: UserId,
+        node_id: u32,
+        offset: (f64, f64),
+    },
+
+    /// Broadcast table drag end from another user
+    TableDragEnd {
+        user_id: UserId,
+        node_id: u32,
+        position: (f64, f64),
     },
 
     /// Full graph state (response to RequestGraphState)
@@ -559,7 +622,9 @@ impl ServerMessage {
             Self::CursorMove { .. } => WsMessageType::CursorMove,
             Self::IdleStatus { .. } => WsMessageType::IdleStatus,
             Self::UserViewport { .. } => WsMessageType::UserViewport,
-            Self::Awareness { .. } | Self::Error { .. } | Self::Pong => WsMessageType::Update,
+            Self::TableDragStart { .. } | Self::TableDragEnd { .. } => WsMessageType::CursorMove,
+            Self::Awareness { .. } => WsMessageType::CursorMove, // Cursor updates are volatile
+            Self::Error { .. } | Self::Pong => WsMessageType::Update,
         }
     }
 
@@ -588,7 +653,9 @@ impl ClientMessage {
             Self::CursorMove { .. } => WsMessageType::CursorMove,
             Self::IdleStatus { .. } => WsMessageType::IdleStatus,
             Self::UserViewport { .. } => WsMessageType::UserViewport,
-            Self::Awareness { .. } | Self::Ping => WsMessageType::Update,
+            Self::TableDragStart { .. } | Self::TableDragEnd { .. } => WsMessageType::CursorMove,
+            Self::Awareness { .. } => WsMessageType::CursorMove, // Cursor updates are volatile
+            Self::Ping => WsMessageType::Update,
         }
     }
 
@@ -1414,7 +1481,7 @@ mod tests {
     #[test]
     fn test_create_room_request_full() {
         let request = CreateRoomRequest {
-            diagram_id: Uuid::new_v4(),
+            diagram_id: Some(Uuid::new_v4()),
             name: Some("Test Room".to_string()),
             password: Some("secret123".to_string()),
             max_users: Some(25),
@@ -1431,7 +1498,7 @@ mod tests {
     #[test]
     fn test_create_room_request_minimal() {
         let request = CreateRoomRequest {
-            diagram_id: Uuid::new_v4(),
+            diagram_id: Some(Uuid::new_v4()),
             name: None,
             password: None,
             max_users: None,

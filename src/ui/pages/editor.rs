@@ -94,7 +94,7 @@ pub fn EditorPage() -> impl IntoView {
 
     // Handle diagram name change
     let on_name_change = Callback::new(move |new_name: String| {
-        let id = diagram_id.get();
+        let id = diagram_id.get_untracked();
         if id.is_empty() || id == "demo" {
             return;
         }
@@ -166,53 +166,127 @@ pub fn EditorPage() -> impl IntoView {
         }
     });
 
-    // Autosave effect
-    Effect::new(move |prev_graph: Option<String>| {
-        let id = diagram_id.get();
+    // Explicit save function
+    #[allow(unused_variables)]
+    let perform_save = {
+        Callback::new(move |reason: String| {
+            let id = diagram_id.get_untracked();
 
-        // Don't autosave demo or empty ID
-        if id == "demo" || id.is_empty() {
-            return "".to_string();
-        }
+            // Don't save demo or empty ID
+            if id == "demo" || id.is_empty() {
+                return;
+            }
 
-        // Don't autosave if not authenticated
-        if !matches!(auth.state.get(), AuthState::Authenticated(_)) {
-            return "".to_string();
-        }
+            // Don't save if not authenticated
+            if !matches!(auth.state.get_untracked(), AuthState::Authenticated(_)) {
+                return;
+            }
 
-        let current_graph = serde_json::to_string(&graph.get()).unwrap_or_default();
-
-        // Skip first render and unchanged graphs
-        if let Some(prev) = prev_graph
-            && prev != current_graph
-            && !prev.is_empty()
-        {
-            // Graph changed, trigger autosave
             save_status.set(SaveStatus::Saving);
 
             let id_clone = id.clone();
-            let graph_clone = current_graph.clone();
+            let graph_clone = serde_json::to_string(&graph.get_untracked()).unwrap_or_default();
+
+            leptos::logging::log!("Saving diagram: {}", reason);
 
             spawn_local(async move {
-                // Debounce - wait 2 seconds
-                #[cfg(not(feature = "ssr"))]
-                {
-                    gloo_timers::future::TimeoutFuture::new(2000).await;
-                }
-
                 match autosave_diagram(&id_clone, &graph_clone).await {
                     Ok(_) => {
                         save_status.set(SaveStatus::Saved);
+                        leptos::logging::log!("Diagram saved successfully");
                     }
-                    Err(_) => {
+                    Err(e) => {
                         save_status.set(SaveStatus::Error);
+                        leptos::logging::error!("Failed to save diagram: {}", e);
                     }
                 }
             });
-        }
+        })
+    };
 
-        current_graph
-    });
+    // Periodic autosave (every 1 minute)
+    #[cfg(not(feature = "ssr"))]
+    {
+        use gloo_timers::callback::Interval;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let save_callback = perform_save.clone();
+        let last_save_state = Rc::new(RefCell::new(String::new()));
+
+        Effect::new(move |_| {
+            let save_callback = save_callback.clone();
+            let last_state = last_save_state.clone();
+            let graph_signal = graph;
+
+            // Setup interval for 1 minute (60000ms)
+            let interval = Interval::new(60_000, move || {
+                let current_state =
+                    serde_json::to_string(&graph_signal.get_untracked()).unwrap_or_default();
+
+                // Only save if graph has changed since last save
+                if *last_state.borrow() != current_state {
+                    save_callback.run("periodic_autosave".to_string());
+                    *last_state.borrow_mut() = current_state;
+                }
+            });
+
+            // Store interval in Rc<RefCell> so we can drop it on cleanup
+            let interval_holder = Rc::new(RefCell::new(Some(interval)));
+            let interval_clone = interval_holder.clone();
+
+            // Return cleanup function
+            move || {
+                // Cancel the interval when effect re-runs or component unmounts
+                interval_clone.borrow_mut().take();
+            }
+        });
+    }
+
+    // Listen for save events from canvas
+    #[cfg(not(feature = "ssr"))]
+    {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let save_callback = perform_save.clone();
+        Effect::new(move |_| {
+            use wasm_bindgen::JsCast;
+            use wasm_bindgen::closure::Closure;
+
+            let save_cb = save_callback.clone();
+            let handler = Rc::new(RefCell::new(None::<Closure<dyn Fn(web_sys::CustomEvent)>>));
+            let handler_clone = handler.clone();
+
+            if let Some(window) = web_sys::window() {
+                let closure =
+                    Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |e: web_sys::CustomEvent| {
+                        if let Some(reason) = e.detail().as_string() {
+                            save_cb.run(reason);
+                        }
+                    });
+
+                let _ = window.add_event_listener_with_callback(
+                    "diagram-save-requested",
+                    closure.as_ref().unchecked_ref(),
+                );
+
+                *handler_clone.borrow_mut() = Some(closure);
+            }
+
+            // Return cleanup function
+            move || {
+                if let Some(window) = web_sys::window() {
+                    if let Some(closure) = handler.borrow_mut().take() {
+                        let _ = window.remove_event_listener_with_callback(
+                            "diagram-save-requested",
+                            closure.as_ref().unchecked_ref(),
+                        );
+                    }
+                }
+            }
+        });
+    }
 
     view! {
         <div class="w-full h-screen bg-theme-primary relative">

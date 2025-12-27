@@ -15,6 +15,9 @@ use leptos::task::spawn_local;
 use leptos_router::hooks::use_navigate;
 
 #[cfg(not(feature = "ssr"))]
+use crate::ui::auth_utils;
+
+#[cfg(not(feature = "ssr"))]
 use leptos::wasm_bindgen::{self, JsCast};
 #[cfg(not(feature = "ssr"))]
 use leptos::web_sys;
@@ -59,22 +62,9 @@ fn LiveShareDisconnectedView(
     connection_state: RwSignal<ConnectionState>,
     error: RwSignal<Option<String>>,
 ) -> impl IntoView {
-    let generate_room_id = move |_| {
-        let id = uuid::Uuid::new_v4().to_string();
-        room_id_input.set(id);
-    };
-
     // Create room handler
     let ctx_create = ctx;
     let create_room = move |_| {
-        let room_id_val = room_id_input.get();
-        if room_id_val.is_empty() {
-            ctx_create
-                .error
-                .set(Some("Please enter or generate a Room ID".to_string()));
-            return;
-        }
-
         ctx_create.error.set(None);
 
         #[cfg(not(feature = "ssr"))]
@@ -82,7 +72,6 @@ fn LiveShareDisconnectedView(
             use leptos::task::spawn_local;
 
             let ctx_inner = ctx_create.clone();
-            let room_id = room_id_val.clone();
             let room_name_val = room_name.get();
             let password_val = password.get();
 
@@ -91,7 +80,8 @@ fn LiveShareDisconnectedView(
                 let location = window.location();
                 let origin = location.origin().unwrap_or_default();
 
-                let create_url = format!("{}/room/{}", origin, room_id);
+                // Use new endpoint without UUID in URL
+                let create_url = format!("{}/room", origin);
 
                 let body = serde_json::json!({
                     "name": if room_name_val.is_empty() { None } else { Some(room_name_val) },
@@ -101,6 +91,7 @@ fn LiveShareDisconnectedView(
 
                 let opts = web_sys::RequestInit::new();
                 opts.set_method("POST");
+                opts.set_credentials(web_sys::RequestCredentials::Include);
                 opts.set_body(&wasm_bindgen::JsValue::from_str(
                     &serde_json::to_string(&body).unwrap(),
                 ));
@@ -110,14 +101,9 @@ fn LiveShareDisconnectedView(
                     .headers()
                     .set("Content-Type", "application/json")
                     .unwrap();
-                request
-                    .headers()
-                    .set("X-User-ID", &ctx_inner.user_id.get_untracked().to_string())
-                    .unwrap();
-                request
-                    .headers()
-                    .set("X-Username", &ctx_inner.username.get_untracked())
-                    .unwrap();
+
+                // Add Authorization header with JWT token from localStorage
+                let _ = auth_utils::add_auth_header(&request);
 
                 let window = web_sys::window().unwrap();
                 match wasm_bindgen_futures::JsFuture::from(window.fetch_with_request(&request))
@@ -126,12 +112,43 @@ fn LiveShareDisconnectedView(
                     Ok(resp) => {
                         let resp: web_sys::Response = resp.into();
                         if resp.ok() {
-                            let pwd = if password_val.is_empty() {
-                                None
-                            } else {
-                                Some(password_val)
-                            };
-                            ctx_inner.connect(room_id, pwd);
+                            // Parse response to get the generated room ID
+                            match wasm_bindgen_futures::JsFuture::from(resp.json().unwrap()).await {
+                                Ok(json_value) => {
+                                    let json_obj = js_sys::Object::from(json_value);
+                                    if let Some(room_id_js) = js_sys::Reflect::get(
+                                        &json_obj,
+                                        &wasm_bindgen::JsValue::from_str("id"),
+                                    )
+                                    .ok()
+                                    {
+                                        if let Some(room_id) = room_id_js.as_string() {
+                                            let pwd = if password_val.is_empty() {
+                                                None
+                                            } else {
+                                                Some(password_val)
+                                            };
+                                            ctx_inner.connect(room_id, pwd);
+                                        } else {
+                                            ctx_inner.error.set(Some(
+                                                "Invalid room ID in response".to_string(),
+                                            ));
+                                            ctx_inner.connection_state.set(ConnectionState::Error);
+                                        }
+                                    } else {
+                                        ctx_inner
+                                            .error
+                                            .set(Some("Room ID not found in response".to_string()));
+                                        ctx_inner.connection_state.set(ConnectionState::Error);
+                                    }
+                                }
+                                Err(e) => {
+                                    ctx_inner
+                                        .error
+                                        .set(Some(format!("Failed to parse response: {:?}", e)));
+                                    ctx_inner.connection_state.set(ConnectionState::Error);
+                                }
+                            }
                         } else {
                             ctx_inner
                                 .error
@@ -198,36 +215,26 @@ fn LiveShareDisconnectedView(
                 </div>
             })}
 
-            // Room ID input
-            <div>
-                <label class="text-theme-secondary" style="display: block; font-size: 14px; font-weight: 500; margin-bottom: 8px;">
-                    "Room ID"
-                </label>
-                <div class="flex" style="gap: 8px;">
-                    <input
-                        type="text"
-                        class="input-theme"
-                        style="flex: 1; padding: 10px 12px; border-radius: 12px; font-size: 14px;"
-                        placeholder="Enter room ID or UUID"
-                        prop:value=move || room_id_input.get()
-                        on:input=move |ev| room_id_input.set(event_target_value(&ev))
-                    />
-                    {move || if mode.get() == "create" {
-                        view! {
-                            <button
-                                class="bg-theme-tertiary text-theme-secondary theme-transition"
-                                style="padding: 10px 12px; border-radius: 12px;"
-                                on:click=generate_room_id
-                                title="Generate random ID"
-                            >
-                                <Icon name=icons::DICES class="w-5 h-5"/>
-                            </button>
-                        }.into_any()
-                    } else {
-                        view! { <span></span> }.into_any()
-                    }}
-                </div>
-            </div>
+            // Room ID input (only in join mode)
+            {move || if mode.get() == "join" {
+                view! {
+                    <div>
+                        <label class="text-theme-secondary" style="display: block; font-size: 14px; font-weight: 500; margin-bottom: 8px;">
+                            "Room ID"
+                        </label>
+                        <input
+                            type="text"
+                            class="input-theme"
+                            style="width: 100%; padding: 10px 12px; border-radius: 12px; font-size: 14px; box-sizing: border-box;"
+                            placeholder="Enter room ID or UUID"
+                            prop:value=move || room_id_input.get()
+                            on:input=move |ev| room_id_input.set(event_target_value(&ev))
+                        />
+                    </div>
+                }.into_any()
+            } else {
+                view! { <div></div> }.into_any()
+            }}
 
             // Room name (create mode only)
             {move || if mode.get() == "create" {
@@ -296,7 +303,7 @@ fn LiveShareDisconnectedView(
             // Help text
             <p class="text-theme-tertiary" style="font-size: 12px; text-align: center;">
                 {move || if mode.get() == "create" {
-                    "Share the Room ID to collaborate"
+                    "Room ID will be generated automatically for sharing"
                 } else {
                     "Enter the Room ID shared by the creator"
                 }}
@@ -733,7 +740,7 @@ fn DiagramTab(
 
     // Rename state
     let is_editing_name = RwSignal::new(false);
-    let name_input = RwSignal::new(original_name.get_untracked());
+    let name_input = RwSignal::new(original_name.with_untracked(|v| v.clone()));
     let renaming = RwSignal::new(false);
     let rename_error = RwSignal::new(None::<String>);
 
@@ -758,7 +765,7 @@ fn DiagramTab(
     // Rename handler
     let diagram_id_for_rename = diagram_id.clone();
     let handle_rename = Callback::new(move |_: ()| {
-        let new_name = name_input.get();
+        let new_name = name_input.get_untracked();
         if new_name.trim().is_empty() {
             rename_error.set(Some("Name cannot be empty".to_string()));
             return;
@@ -1272,7 +1279,7 @@ pub fn SettingsModal(
         use leptos::ev::keydown;
 
         let handle_keydown = window_event_listener(keydown, move |ev| {
-            if ev.key() == "Escape" && is_open.get_untracked() {
+            if ev.key() == "Escape" && is_open.with_untracked(|v| *v) {
                 is_open.set(false);
             }
         });

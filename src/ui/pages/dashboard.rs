@@ -169,11 +169,9 @@ pub fn DashboardPage() -> impl IntoView {
 
                 // Fetch folders, diagrams, and current folder info in parallel
                 let folder_id_clone = folder_id.clone();
-                let (folders_result, diagrams_result, current_folder_info) = futures::join!(
-                    fetch_folders(folder_id.clone()),
-                    fetch_diagrams(folder_id.clone()),
-                    fetch_folder_info(folder_id_clone)
-                );
+                let folders_result = fetch_folders(folder_id.clone()).await;
+                let diagrams_result = fetch_diagrams(folder_id.clone()).await;
+                let current_folder_info = fetch_folder_info(folder_id_clone).await;
 
                 match (folders_result, diagrams_result) {
                     (Ok(f), Ok(d)) => {
@@ -198,7 +196,7 @@ pub fn DashboardPage() -> impl IntoView {
                 }
 
                 // Fetch folder path for breadcrumbs
-                if let Some(ref folder_id) = current_folder.get() {
+                if let Some(ref folder_id) = current_folder.get_untracked() {
                     if let Ok(path) = fetch_folder_path(folder_id.clone()).await {
                         folder_path.set(path);
                     }
@@ -273,7 +271,7 @@ pub fn DashboardPage() -> impl IntoView {
                 match delete_diagram(&diagram_id).await {
                     Ok(_) => {
                         // Refresh diagrams
-                        let folder_id = current_folder.get();
+                        let folder_id = current_folder.get_untracked();
                         if let Ok(d) = fetch_diagrams(folder_id).await {
                             diagrams.set(d);
                         }
@@ -297,7 +295,7 @@ pub fn DashboardPage() -> impl IntoView {
                 match rename_diagram(&diagram_id, &new_name).await {
                     Ok(_) => {
                         // Refresh diagrams
-                        let folder_id = current_folder.get();
+                        let folder_id = current_folder.get_untracked();
                         if let Ok(d) = fetch_diagrams(folder_id).await {
                             diagrams.set(d);
                         }
@@ -321,7 +319,7 @@ pub fn DashboardPage() -> impl IntoView {
                 match delete_folder(&folder_id).await {
                     Ok(_) => {
                         // Refresh folders
-                        let current = current_folder.get();
+                        let current = current_folder.get_untracked();
                         if let Ok(f) = fetch_folders(current).await {
                             folders.set(f);
                         }
@@ -345,7 +343,7 @@ pub fn DashboardPage() -> impl IntoView {
                 match rename_folder(&folder_id, &new_name).await {
                     Ok(_) => {
                         // Refresh folders
-                        let current = current_folder.get();
+                        let current = current_folder.get_untracked();
                         if let Ok(f) = fetch_folders(current).await {
                             folders.set(f);
                         }
@@ -411,8 +409,8 @@ pub fn DashboardPage() -> impl IntoView {
                 Ok(_) => {
                     // Refresh the current folder
                     let folder_id = current_folder.get();
-                    let (folders_result, diagrams_result) =
-                        futures::join!(fetch_folders(folder_id.clone()), fetch_diagrams(folder_id));
+                    let folders_result = fetch_folders(folder_id.clone()).await;
+                    let diagrams_result = fetch_diagrams(folder_id).await;
 
                     if let Ok(f) = folders_result {
                         folders.set(f);

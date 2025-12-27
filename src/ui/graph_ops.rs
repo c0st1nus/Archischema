@@ -3,7 +3,7 @@
 //! This module provides a centralized way to send graph operations through LiveShare,
 //! reducing boilerplate code across components.
 
-use leptos::prelude::GetUntracked;
+use leptos::prelude::WithUntracked;
 
 use crate::ui::liveshare_client::{
     ColumnData, ConnectionState, GraphOperation, LiveShareContext, RelationshipData,
@@ -27,7 +27,7 @@ impl GraphOpsSender {
     /// Check if connected and send the operation
     #[inline]
     fn send(&self, op: GraphOperation) {
-        if self.ctx.connection_state.get_untracked() == ConnectionState::Connected {
+        if self.ctx.connection_state.with_untracked(|v| *v) == ConnectionState::Connected {
             self.ctx.send_graph_op(op);
         }
     }
@@ -115,7 +115,7 @@ impl GraphOpsSender {
     /// Check if currently connected to a LiveShare room
     #[inline]
     pub fn is_connected(&self) -> bool {
-        self.ctx.connection_state.get_untracked() == ConnectionState::Connected
+        self.ctx.connection_state.with_untracked(|v| *v) == ConnectionState::Connected
     }
 }
 
