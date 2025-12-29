@@ -93,6 +93,10 @@ impl RemoteUser {
         if let Some(color) = &state.color {
             self.color = color.clone();
         }
+        // Update username if provided in awareness state
+        if let Some(username) = &state.username {
+            self.username = username.clone();
+        }
     }
 }
 
@@ -312,6 +316,20 @@ impl LiveShareContext {
         use leptos::wasm_bindgen::{JsCast, closure::Closure};
         use leptos::web_sys::{CloseEvent, ErrorEvent, MessageEvent, WebSocket};
 
+        // Sync username from auth context before connecting
+        let auth_ctx = use_auth_context();
+        if let Some(user) = auth_ctx.user() {
+            let current_username = self.username.with_untracked(|v| v.clone());
+            if current_username != user.username {
+                leptos::logging::log!(
+                    "Syncing username before connect: '{}' -> '{}'",
+                    current_username,
+                    user.username
+                );
+                self.username.set(user.username);
+            }
+        }
+
         self.connection_state.set(ConnectionState::Connecting);
         self.error.set(None);
 
@@ -349,9 +367,12 @@ impl LiveShareContext {
         let ws_clone = ws.clone();
         let onopen = Closure::wrap(Box::new(move |_: leptos::web_sys::Event| {
             // Send auth message
+            let username = ctx.username.with_untracked(|v| v.clone());
+            leptos::logging::log!("Sending auth with username: {}", username);
+
             let auth_msg = ClientMessage::Auth {
                 user_id: ctx.user_id.with_untracked(|v| *v),
-                username: ctx.username.with_untracked(|v| v.clone()),
+                username,
                 password: password_clone.clone(),
             };
 
@@ -433,6 +454,7 @@ impl LiveShareContext {
 
         let msg = ClientMessage::Awareness {
             state: AwarenessState {
+                username: Some(self.username.with_untracked(|v| v.clone())),
                 cursor,
                 selected_nodes,
                 color: Some(generate_user_color(&self.user_id.with_untracked(|v| *v))),
@@ -713,10 +735,17 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
                         user.update_awareness(&state);
                     } else {
                         // User not found - they might have joined before we got the UserJoined message
-                        // Add them now with a generic name
-                        leptos::logging::log!("Adding unknown user from awareness: {:?}", user_id);
-                        let mut new_user =
-                            RemoteUser::new(user_id, format!("User_{}", &user_id.to_string()[..6]));
+                        // Add them now with username from awareness state or a generic name
+                        let username = state
+                            .username
+                            .clone()
+                            .unwrap_or_else(|| format!("User_{}", &user_id.to_string()[..6]));
+                        leptos::logging::log!(
+                            "Adding unknown user from awareness: {:?} ({})",
+                            user_id,
+                            username
+                        );
+                        let mut new_user = RemoteUser::new(user_id, username);
                         new_user.update_awareness(&state);
                         users.push(new_user);
                     }
@@ -986,7 +1015,19 @@ pub fn provide_liveshare_context() -> LiveShareContext {
     let auth_ctx = use_auth_context();
 
     // Try to get username from auth context if user is authenticated
-    let username = auth_ctx.user().map(|user| user.username);
+    let username = auth_ctx.user().map(|user| {
+        leptos::logging::log!(
+            "Initializing LiveShare with authenticated user: {}",
+            user.username
+        );
+        user.username
+    });
+
+    if username.is_none() {
+        leptos::logging::log!(
+            "Initializing LiveShare without authenticated user (will use generated ID)"
+        );
+    }
 
     let ctx = LiveShareContext::new(username);
     provide_context(ctx);
@@ -1003,7 +1044,13 @@ pub fn provide_liveshare_context() -> LiveShareContext {
             });
 
         // Only update if username actually changed
-        if ctx_for_effect.username.with_untracked(|v| v.clone()) != new_username {
+        let old_username = ctx_for_effect.username.with_untracked(|v| v.clone());
+        if old_username != new_username {
+            leptos::logging::log!(
+                "Updating username from '{}' to '{}'",
+                old_username,
+                new_username
+            );
             ctx_for_effect.username.set(new_username);
         }
     });

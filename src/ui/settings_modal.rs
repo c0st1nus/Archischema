@@ -832,7 +832,7 @@ fn DiagramTab(
                         let protocol = location.protocol().unwrap_or_default();
                         let host = location.host().unwrap_or_default();
                         let link = format!(
-                            "{}//{}editor/{}?room={}",
+                            "{}//{}/editor/{}?room={}",
                             protocol, host, diagram_id_val, rid
                         );
                         let js_code = format!("navigator.clipboard.writeText('{}')", link);
@@ -1000,7 +1000,7 @@ fn DiagramTab(
                                                                     let location = window.location();
                                                                     let protocol = location.protocol().unwrap_or_default();
                                                                     let host = location.host().unwrap_or_default();
-                                                                    format!("{}//{}editor/{}?room={}", protocol, host, diagram_id_val, id)
+                                                                    format!("{}//{}/editor/{}?room={}", protocol, host, diagram_id_val, id)
                                                                 } else {
                                                                     id
                                                                 }

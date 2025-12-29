@@ -159,7 +159,16 @@ pub fn EditorPage() -> impl IntoView {
     });
 
     // Auto-connect to LiveShare room if room parameter is present
+    // Wait for auth to finish loading to ensure username is set correctly
     Effect::new(move |_| {
+        // Track auth state to ensure we wait for it to load
+        let auth_state = auth.state.get();
+
+        // Only connect when auth is done loading (either Authenticated or Unauthenticated)
+        if matches!(auth_state, AuthState::Loading) {
+            return;
+        }
+
         if let Some(room_id) = room_id_from_url.get() {
             // Connect to the room without password (shared links don't use passwords)
             liveshare_ctx.connect(room_id, None);

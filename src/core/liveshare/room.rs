@@ -1093,6 +1093,7 @@ mod tests {
         room.add_user(user_id, "User".to_string()).unwrap();
 
         let awareness = AwarenessState {
+            username: None,
             cursor: Some((100.0, 200.0)),
             selected_nodes: vec!["node1".to_string()],
             color: Some("#00ff00".to_string()),

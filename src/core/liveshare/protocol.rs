@@ -546,6 +546,10 @@ pub struct RelationshipSnapshot {
 /// Awareness state for a user (cursor position, selection, etc.)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AwarenessState {
+    /// Username of the user
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+
     /// Cursor position on canvas (x, y)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<(f64, f64)>,
@@ -778,6 +782,7 @@ mod tests {
     #[test]
     fn test_client_message_awareness() {
         let state = AwarenessState {
+            username: Some("testuser".to_string()),
             cursor: Some((100.0, 200.0)),
             selected_nodes: vec!["node1".to_string(), "node2".to_string()],
             color: Some("#ff5733".to_string()),
@@ -792,6 +797,7 @@ mod tests {
 
         match parsed {
             ClientMessage::Awareness { state: s } => {
+                assert_eq!(s.username, Some("testuser".to_string()));
                 assert_eq!(s.cursor, Some((100.0, 200.0)));
                 assert_eq!(s.selected_nodes.len(), 2);
                 assert_eq!(s.color, Some("#ff5733".to_string()));
@@ -973,6 +979,7 @@ mod tests {
     #[test]
     fn test_awareness_state_full() {
         let state = AwarenessState {
+            username: Some("testuser".to_string()),
             cursor: Some((50.5, 100.5)),
             selected_nodes: vec!["a".to_string(), "b".to_string()],
             color: Some("#00ff00".to_string()),
@@ -982,6 +989,7 @@ mod tests {
         let json = serde_json::to_string(&state).unwrap();
         let parsed: AwarenessState = serde_json::from_str(&json).unwrap();
 
+        assert_eq!(parsed.username, Some("testuser".to_string()));
         assert_eq!(parsed.cursor, Some((50.5, 100.5)));
         assert_eq!(parsed.selected_nodes, vec!["a", "b"]);
         assert_eq!(parsed.color, Some("#00ff00".to_string()));
@@ -991,6 +999,7 @@ mod tests {
     #[test]
     fn test_awareness_state_skip_empty_fields() {
         let state = AwarenessState {
+            username: None,
             cursor: None,
             selected_nodes: vec![],
             color: None,

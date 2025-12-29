@@ -515,6 +515,11 @@ impl ConnectionSession {
         }
 
         // Add user to room
+        tracing::debug!(
+            "Adding user to room: user_id={:?}, username={}",
+            user_id,
+            username
+        );
         if let Err(e) = room.add_user(user_id, username.clone()) {
             let _ = self
                 .tx
