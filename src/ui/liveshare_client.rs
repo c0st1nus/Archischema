@@ -179,6 +179,8 @@ pub struct LiveShareContext {
     pub activity_status: RwSignal<ActivityStatus>,
     /// Last time activity was detected locally (timestamp in milliseconds)
     pub last_activity_time: RwSignal<f64>,
+    /// Whether initial sync from room has been completed
+    pub initial_sync_done: RwSignal<bool>,
 }
 
 impl LiveShareContext {
@@ -206,6 +208,7 @@ impl LiveShareContext {
             last_snapshot_time: RwSignal::new(None),
             activity_status: RwSignal::new(ActivityStatus::Active),
             last_activity_time: RwSignal::new(now_ms()),
+            initial_sync_done: RwSignal::new(false),
         }
     }
 
@@ -398,6 +401,7 @@ impl LiveShareContext {
             ctx.room_id.set(None);
             ctx.room_info.set(None);
             ctx.remote_users.set(vec![]);
+            ctx.initial_sync_done.set(false);
         }) as Box<dyn FnMut(CloseEvent)>);
         ws.set_onclose(Some(onclose.as_ref().unchecked_ref()));
         onclose.forget();
@@ -431,6 +435,7 @@ impl LiveShareContext {
         self.room_info.set(None);
         self.remote_users.set(vec![]);
         self.error.set(None);
+        self.initial_sync_done.set(false);
     }
 
     /// Disconnect stub for SSR
@@ -440,7 +445,7 @@ impl LiveShareContext {
         self.room_id.set(None);
         self.room_info.set(None);
         self.remote_users.set(vec![]);
-        self.error.set(None);
+        self.initial_sync_done.set(false);
     }
 
     /// Send awareness update (cursor position, etc.)
@@ -793,7 +798,19 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
                 return;
             }
 
+            // Only apply GraphState if we haven't done initial sync yet
+            // This prevents constant re-syncing between clients
+            if ctx.initial_sync_done.get_untracked() {
+                leptos::logging::log!(
+                    "Ignoring GraphState (already synced): {} tables",
+                    state.tables.len()
+                );
+                return;
+            }
+
             leptos::logging::log!("Received GraphState: {} tables", state.tables.len());
+            ctx.initial_sync_done.set(true);
+
             // Dispatch custom event for initial state sync
             #[cfg(not(feature = "ssr"))]
             {

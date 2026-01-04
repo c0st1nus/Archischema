@@ -438,25 +438,43 @@ pub enum GraphOperation {
     /// Create a new table
     CreateTable {
         node_id: u32,
+        table_uuid: Uuid,
         name: String,
         position: (f64, f64),
     },
     /// Delete a table
-    DeleteTable { node_id: u32 },
+    DeleteTable { node_id: u32, table_uuid: Uuid },
     /// Rename a table
-    RenameTable { node_id: u32, new_name: String },
+    RenameTable {
+        node_id: u32,
+        table_uuid: Uuid,
+        new_name: String,
+    },
     /// Move a table (change position)
-    MoveTable { node_id: u32, position: (f64, f64) },
+    MoveTable {
+        node_id: u32,
+        table_uuid: Uuid,
+        position: (f64, f64),
+    },
     /// Add a column to a table
-    AddColumn { node_id: u32, column: ColumnData },
+    AddColumn {
+        node_id: u32,
+        table_uuid: Uuid,
+        column: ColumnData,
+    },
     /// Update a column
     UpdateColumn {
         node_id: u32,
+        table_uuid: Uuid,
         column_index: usize,
         column: ColumnData,
     },
     /// Delete a column
-    DeleteColumn { node_id: u32, column_index: usize },
+    DeleteColumn {
+        node_id: u32,
+        table_uuid: Uuid,
+        column_index: usize,
+    },
     /// Create a relationship between tables
     CreateRelationship {
         edge_id: u32,
@@ -507,6 +525,7 @@ pub struct GraphStateSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TableSnapshot {
     pub node_id: u32,
+    pub table_uuid: Uuid,
     pub name: String,
     pub position: (f64, f64),
     pub columns: Vec<ColumnData>,
@@ -820,9 +839,11 @@ mod tests {
 
     #[test]
     fn test_client_message_graph_op_create_table() {
+        let test_uuid = Uuid::new_v4();
         let msg = ClientMessage::GraphOp {
             op: GraphOperation::CreateTable {
                 node_id: 1,
+                table_uuid: test_uuid,
                 name: "users".to_string(),
                 position: (100.0, 200.0),
             },
@@ -835,6 +856,7 @@ mod tests {
             ClientMessage::GraphOp { op } => match op {
                 GraphOperation::CreateTable {
                     node_id,
+                    table_uuid: _,
                     name,
                     position,
                 } => {
@@ -944,6 +966,7 @@ mod tests {
         let state = GraphStateSnapshot {
             tables: vec![TableSnapshot {
                 node_id: 1,
+                table_uuid: Uuid::new_v4(),
                 name: "users".to_string(),
                 position: (0.0, 0.0),
                 columns: vec![],
@@ -1085,8 +1108,10 @@ mod tests {
 
     #[test]
     fn test_graph_operation_create_table() {
+        let test_uuid = Uuid::new_v4();
         let op = GraphOperation::CreateTable {
             node_id: 42,
+            table_uuid: test_uuid,
             name: "products".to_string(),
             position: (150.0, 250.0),
         };
@@ -1097,10 +1122,12 @@ mod tests {
         match parsed {
             GraphOperation::CreateTable {
                 node_id,
+                table_uuid,
                 name,
                 position,
             } => {
                 assert_eq!(node_id, 42);
+                assert_eq!(table_uuid, test_uuid);
                 assert_eq!(name, "products");
                 assert_eq!(position, (150.0, 250.0));
             }
@@ -1110,14 +1137,22 @@ mod tests {
 
     #[test]
     fn test_graph_operation_delete_table() {
-        let op = GraphOperation::DeleteTable { node_id: 5 };
+        let test_uuid = Uuid::new_v4();
+        let op = GraphOperation::DeleteTable {
+            node_id: 5,
+            table_uuid: test_uuid,
+        };
 
         let json = serde_json::to_string(&op).unwrap();
         let parsed: GraphOperation = serde_json::from_str(&json).unwrap();
 
         match parsed {
-            GraphOperation::DeleteTable { node_id } => {
+            GraphOperation::DeleteTable {
+                node_id,
+                table_uuid,
+            } => {
                 assert_eq!(node_id, 5);
+                assert_eq!(table_uuid, test_uuid);
             }
             _ => panic!("Wrong operation type"),
         }
@@ -1125,8 +1160,10 @@ mod tests {
 
     #[test]
     fn test_graph_operation_rename_table() {
+        let test_uuid = Uuid::new_v4();
         let op = GraphOperation::RenameTable {
             node_id: 10,
+            table_uuid: test_uuid,
             new_name: "customers".to_string(),
         };
 
@@ -1134,8 +1171,13 @@ mod tests {
         let parsed: GraphOperation = serde_json::from_str(&json).unwrap();
 
         match parsed {
-            GraphOperation::RenameTable { node_id, new_name } => {
+            GraphOperation::RenameTable {
+                node_id,
+                table_uuid,
+                new_name,
+            } => {
                 assert_eq!(node_id, 10);
+                assert_eq!(table_uuid, test_uuid);
                 assert_eq!(new_name, "customers");
             }
             _ => panic!("Wrong operation type"),
@@ -1144,8 +1186,10 @@ mod tests {
 
     #[test]
     fn test_graph_operation_move_table() {
+        let test_uuid = Uuid::new_v4();
         let op = GraphOperation::MoveTable {
             node_id: 3,
+            table_uuid: test_uuid,
             position: (500.0, 300.0),
         };
 
@@ -1153,8 +1197,13 @@ mod tests {
         let parsed: GraphOperation = serde_json::from_str(&json).unwrap();
 
         match parsed {
-            GraphOperation::MoveTable { node_id, position } => {
+            GraphOperation::MoveTable {
+                node_id,
+                table_uuid,
+                position,
+            } => {
                 assert_eq!(node_id, 3);
+                assert_eq!(table_uuid, test_uuid);
                 assert_eq!(position, (500.0, 300.0));
             }
             _ => panic!("Wrong operation type"),
@@ -1163,6 +1212,7 @@ mod tests {
 
     #[test]
     fn test_graph_operation_add_column() {
+        let test_uuid = Uuid::new_v4();
         let column = ColumnData {
             name: "email".to_string(),
             data_type: "VARCHAR(255)".to_string(),
@@ -1175,6 +1225,7 @@ mod tests {
 
         let op = GraphOperation::AddColumn {
             node_id: 1,
+            table_uuid: test_uuid,
             column: column.clone(),
         };
 
@@ -1182,8 +1233,13 @@ mod tests {
         let parsed: GraphOperation = serde_json::from_str(&json).unwrap();
 
         match parsed {
-            GraphOperation::AddColumn { node_id, column: c } => {
+            GraphOperation::AddColumn {
+                node_id,
+                table_uuid,
+                column: c,
+            } => {
                 assert_eq!(node_id, 1);
+                assert_eq!(table_uuid, test_uuid);
                 assert_eq!(c.name, "email");
                 assert!(c.is_unique);
             }
@@ -1193,20 +1249,22 @@ mod tests {
 
     #[test]
     fn test_graph_operation_update_column() {
+        let test_uuid = Uuid::new_v4();
         let column = ColumnData {
             name: "username".to_string(),
             data_type: "VARCHAR(100)".to_string(),
             is_primary_key: false,
-            is_nullable: true,
-            is_unique: false,
+            is_nullable: false,
+            is_unique: true,
             default_value: Some("guest".to_string()),
             foreign_key: None,
         };
 
         let op = GraphOperation::UpdateColumn {
             node_id: 2,
+            table_uuid: test_uuid,
             column_index: 3,
-            column,
+            column: column.clone(),
         };
 
         let json = serde_json::to_string(&op).unwrap();
@@ -1215,10 +1273,12 @@ mod tests {
         match parsed {
             GraphOperation::UpdateColumn {
                 node_id,
+                table_uuid,
                 column_index,
                 column: c,
             } => {
                 assert_eq!(node_id, 2);
+                assert_eq!(table_uuid, test_uuid);
                 assert_eq!(column_index, 3);
                 assert_eq!(c.default_value, Some("guest".to_string()));
             }
@@ -1228,8 +1288,10 @@ mod tests {
 
     #[test]
     fn test_graph_operation_delete_column() {
+        let test_uuid = Uuid::new_v4();
         let op = GraphOperation::DeleteColumn {
             node_id: 7,
+            table_uuid: test_uuid,
             column_index: 2,
         };
 
@@ -1239,9 +1301,11 @@ mod tests {
         match parsed {
             GraphOperation::DeleteColumn {
                 node_id,
+                table_uuid,
                 column_index,
             } => {
                 assert_eq!(node_id, 7);
+                assert_eq!(table_uuid, test_uuid);
                 assert_eq!(column_index, 2);
             }
             _ => panic!("Wrong operation type"),
@@ -1369,6 +1433,7 @@ mod tests {
             tables: vec![
                 TableSnapshot {
                     node_id: 1,
+                    table_uuid: Uuid::new_v4(),
                     name: "users".to_string(),
                     position: (100.0, 200.0),
                     columns: vec![ColumnData {
@@ -1381,16 +1446,17 @@ mod tests {
                         foreign_key: None,
                     }],
                     version: 1,
-                    last_modified_at: 0,
+                    last_modified_at: 1234567890,
                     is_deleted: false,
                 },
                 TableSnapshot {
                     node_id: 2,
+                    table_uuid: Uuid::new_v4(),
                     name: "posts".to_string(),
                     position: (300.0, 400.0),
                     columns: vec![],
-                    version: 1,
-                    last_modified_at: 0,
+                    version: 2,
+                    last_modified_at: 1234567900,
                     is_deleted: false,
                 },
             ],
@@ -1738,7 +1804,10 @@ mod tests {
         assert_eq!(auth_msg.priority(), MessagePriority::Critical);
 
         let graph_op_msg = ClientMessage::GraphOp {
-            op: GraphOperation::DeleteTable { node_id: 1 },
+            op: GraphOperation::DeleteTable {
+                node_id: 1,
+                table_uuid: Uuid::new_v4(),
+            },
         };
         assert_eq!(graph_op_msg.priority(), MessagePriority::Critical);
 
@@ -1777,6 +1846,7 @@ mod tests {
             user_id,
             op: GraphOperation::CreateTable {
                 node_id: 1,
+                table_uuid: Uuid::new_v4(),
                 name: "test".to_string(),
                 position: (0.0, 0.0),
             },

@@ -289,8 +289,12 @@ pub fn Sidebar(
                                                                     }
                                                                 });
                                                             // Send sync op
+                                                            let table_uuid = graph.with(|g| {
+                                                                g.node_weight(node_idx).map(|n| n.uuid).unwrap_or_else(uuid::Uuid::new_v4)
+                                                            });
                                                             send_graph_op(GraphOperation::DeleteColumn {
                                                                 node_id: node_idx.index() as u32,
+                                                                table_uuid,
                                                                 column_index: idx,
                                                             });
                                                         }
@@ -338,8 +342,12 @@ pub fn Sidebar(
                                                             let _ = g.delete_table(node_idx);
                                                         });
                                                         // Send sync op
+                                                        let table_uuid = graph.with(|g| {
+                                                            g.node_weight(node_idx).map(|n| n.uuid).unwrap_or_else(uuid::Uuid::new_v4)
+                                                        });
                                                         send_graph_op(GraphOperation::DeleteTable {
                                                             node_id: node_idx.index() as u32,
+                                                            table_uuid,
                                                         });
                                                         set_editing_mode.set(EditingMode::None);
                                                     }
@@ -395,8 +403,12 @@ pub fn Sidebar(
                                                                 });
 
                                                                 // Отправляем операцию создания таблицы
+                                                                let table_uuid = graph.with(|g| {
+                                                                    g.node_weight(new_node_idx).map(|n| n.uuid).unwrap_or_else(uuid::Uuid::new_v4)
+                                                                });
                                                                 send_graph_op(GraphOperation::CreateTable {
                                                                     node_id: new_node_idx.index() as u32,
+                                                                    table_uuid,
                                                                     name: table_name,
                                                                     position,
                                                                 });
@@ -404,6 +416,7 @@ pub fn Sidebar(
                                                                 // Отправляем операцию добавления первичного ключа
                                                                 send_graph_op(GraphOperation::AddColumn {
                                                                     node_id: new_node_idx.index() as u32,
+                                                                    table_uuid,
                                                                     column: ColumnData {
                                                                         name: pk_name,
                                                                         data_type: pk_type,

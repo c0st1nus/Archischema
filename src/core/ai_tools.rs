@@ -798,8 +798,13 @@ impl ToolExecutor {
                 let mut ops = Vec::new();
 
                 // Add CreateTable operation
+                let table_uuid = graph
+                    .node_weight(idx)
+                    .map(|n| n.uuid)
+                    .unwrap_or_else(uuid::Uuid::new_v4);
                 ops.push(GraphOperation::CreateTable {
                     node_id: idx.index() as u32,
+                    table_uuid,
                     name: input.name.clone(),
                     position,
                 });
@@ -817,6 +822,7 @@ impl ToolExecutor {
                         // Add AddColumn operation for each column
                         ops.push(GraphOperation::AddColumn {
                             node_id: idx.index() as u32,
+                            table_uuid,
                             column: ColumnData {
                                 name: col_input.name.clone(),
                                 data_type: col_input.data_type.clone(),
@@ -907,13 +913,20 @@ impl ToolExecutor {
         };
 
         match graph.rename_table(idx, new_name) {
-            Ok(_) => ToolResponse::success_with_ops(
-                format!("Table renamed from '{}' to '{}'", old_name, new_name),
-                vec![GraphOperation::RenameTable {
-                    node_id: idx.index() as u32,
-                    new_name: new_name.to_string(),
-                }],
-            ),
+            Ok(_) => {
+                let table_uuid = graph
+                    .node_weight(idx)
+                    .map(|n| n.uuid)
+                    .unwrap_or_else(uuid::Uuid::new_v4);
+                ToolResponse::success_with_ops(
+                    format!("Table renamed from '{}' to '{}'", old_name, new_name),
+                    vec![GraphOperation::RenameTable {
+                        node_id: idx.index() as u32,
+                        table_uuid,
+                        new_name: new_name.to_string(),
+                    }],
+                )
+            }
             Err(e) => ToolResponse::error(e),
         }
     }
@@ -931,10 +944,19 @@ impl ToolExecutor {
 
         let node_id = idx.index() as u32;
         match graph.delete_table(idx) {
-            Ok(_) => ToolResponse::success_with_ops(
-                format!("Table '{}' deleted successfully", table_name),
-                vec![GraphOperation::DeleteTable { node_id }],
-            ),
+            Ok(_) => {
+                let table_uuid = graph
+                    .node_weight(idx)
+                    .map(|n| n.uuid)
+                    .unwrap_or_else(uuid::Uuid::new_v4);
+                ToolResponse::success_with_ops(
+                    format!("Table '{}' deleted successfully", table_name),
+                    vec![GraphOperation::DeleteTable {
+                        node_id,
+                        table_uuid,
+                    }],
+                )
+            }
             Err(e) => ToolResponse::error(e),
         }
     }
@@ -970,6 +992,10 @@ impl ToolExecutor {
             col.default_value = input.default_value.clone();
             table.columns.push(col);
 
+            let table_uuid = graph
+                .node_weight(idx)
+                .map(|n| n.uuid)
+                .unwrap_or_else(uuid::Uuid::new_v4);
             ToolResponse::success_with_ops(
                 format!(
                     "Column '{}' added to table '{}'",
@@ -977,6 +1003,7 @@ impl ToolExecutor {
                 ),
                 vec![GraphOperation::AddColumn {
                     node_id: idx.index() as u32,
+                    table_uuid,
                     column: ColumnData {
                         name: input.column_name,
                         data_type: input.data_type,
@@ -1050,6 +1077,10 @@ impl ToolExecutor {
                     foreign_key: None,
                 };
 
+                let table_uuid = graph
+                    .node_weight(idx)
+                    .map(|n| n.uuid)
+                    .unwrap_or_else(uuid::Uuid::new_v4);
                 ToolResponse::success_with_ops(
                     format!(
                         "Column '{}' in table '{}' modified successfully",
@@ -1057,6 +1088,7 @@ impl ToolExecutor {
                     ),
                     vec![GraphOperation::UpdateColumn {
                         node_id: idx.index() as u32,
+                        table_uuid,
                         column_index: col_idx,
                         column: column_data,
                     }],
@@ -1100,16 +1132,23 @@ impl ToolExecutor {
             };
 
             match table.delete_column(col_idx) {
-                Ok(_) => ToolResponse::success_with_ops(
-                    format!(
-                        "Column '{}' deleted from table '{}'",
-                        column_name, table_name
-                    ),
-                    vec![GraphOperation::DeleteColumn {
-                        node_id: idx.index() as u32,
-                        column_index: col_idx,
-                    }],
-                ),
+                Ok(_) => {
+                    let table_uuid = graph
+                        .node_weight(idx)
+                        .map(|n| n.uuid)
+                        .unwrap_or_else(uuid::Uuid::new_v4);
+                    ToolResponse::success_with_ops(
+                        format!(
+                            "Column '{}' deleted from table '{}'",
+                            column_name, table_name
+                        ),
+                        vec![GraphOperation::DeleteColumn {
+                            node_id: idx.index() as u32,
+                            table_uuid,
+                            column_index: col_idx,
+                        }],
+                    )
+                }
                 Err(e) => ToolResponse::error(e),
             }
         } else {

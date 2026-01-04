@@ -153,6 +153,7 @@ mod tests {
     fn create_test_table(id: u32, version: u64, ts: i64) -> TableSnapshot {
         TableSnapshot {
             node_id: id,
+            table_uuid: uuid::Uuid::new_v4(),
             name: format!("table_{}", id),
             position: (0.0, 0.0),
             columns: vec![],

@@ -6,6 +6,7 @@ use crate::ui::liveshare_client::{
     ColumnData, GraphStateSnapshot, RelationshipData, RelationshipSnapshot, TableSnapshot,
 };
 use crate::ui::liveshare_client::{ConnectionState, GraphOperation, use_liveshare_context};
+use crate::ui::notifications::{NotificationManager, NotificationsContainer};
 use crate::ui::remote_cursors::{CursorTracker, RemoteCursors};
 use crate::ui::settings_modal::{SettingsButton, SettingsModal};
 use crate::ui::sidebar::Sidebar;
@@ -58,6 +59,9 @@ pub fn SchemaCanvas(
 ) -> impl IntoView {
     // Get LiveShare context for sync
     let liveshare_ctx = use_liveshare_context();
+
+    // Notification manager for canvas notifications
+    let notification_manager = NotificationManager::new();
 
     // Состояние для drag & drop
     let (_dragging_node, set_dragging_node) = signal::<Option<(NodeIndex, f64, f64)>>(None);
@@ -259,7 +263,12 @@ pub fn SchemaCanvas(
                         if let Ok(op) = serde_json::from_str::<GraphOperation>(&detail) {
                             leptos::logging::log!("Applying remote graph op: {:?}", op);
 
-                            if let GraphOperation::MoveTable { node_id, position } = &op {
+                            if let GraphOperation::MoveTable {
+                                node_id,
+                                table_uuid: _,
+                                position,
+                            } = &op
+                            {
                                 let now = js_sys::Date::now();
                                 targets
                                     .borrow_mut()
@@ -425,19 +434,33 @@ pub fn SchemaCanvas(
             let window = web_sys::window().expect("no window");
 
             let graph_clone = graph;
-            let handler =
-                Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |e: web_sys::CustomEvent| {
+            let notif_manager = notification_manager;
+            let handler = Closure::<dyn Fn(web_sys::CustomEvent)>::new(
+                move |e: web_sys::CustomEvent| {
                     if let Some(detail) = e.detail().as_string() {
                         if let Ok(state) = serde_json::from_str::<GraphStateSnapshot>(&detail) {
+                            // Check if user has local data before replacing
+                            let had_local_data = graph_clone.with_untracked(|g| g.node_count() > 0);
+
                             leptos::logging::log!(
                                 "Applying graph state: {} tables, {} relationships",
                                 state.tables.len(),
                                 state.relationships.len()
                             );
+
                             apply_graph_state(graph_clone, state);
+
+                            // Show notification if local data was replaced
+                            if had_local_data {
+                                notif_manager.warning(
+                                    "Session Joined",
+                                    "Your local tables were replaced with the LiveShare session state"
+                                );
+                            }
                         }
                     }
-                });
+                },
+            );
 
             let _ = window.add_event_listener_with_callback(
                 "liveshare-graph-state",
@@ -759,6 +782,9 @@ pub fn SchemaCanvas(
 
     view! {
         <div class="relative w-full h-screen bg-theme-canvas overflow-hidden flex theme-transition">
+            // Notification container
+            <NotificationsContainer notifications=notification_manager.notifications() />
+
             // Сайдбар
             <Sidebar
                 graph=graph
@@ -1261,6 +1287,7 @@ pub fn SchemaCanvas(
                                             if let Some(node) = g.node_weight(node_idx) {
                                                 liveshare_ctx.send_graph_op(GraphOperation::MoveTable {
                                                     node_id: node_idx.index() as u32,
+                                                    table_uuid: node.uuid,
                                                     position: node.position,
                                                 });
                                             }
@@ -1306,11 +1333,12 @@ pub fn SchemaCanvas(
                                             class="w-full px-6 py-3 btn-theme-primary rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2"
                                             on:click=move |_| {
                                                 let node_idx = graph.write().create_table_auto((400.0, 300.0));
-                                                let name = graph.with(|g| {
-                                                    g.node_weight(node_idx).map(|n| n.name.clone()).unwrap_or_default()
+                                                let (name, uuid) = graph.with(|g| {
+                                                    g.node_weight(node_idx).map(|n| (n.name.clone(), n.uuid)).unwrap_or_default()
                                                 });
                                                 send_graph_op(GraphOperation::CreateTable {
                                                     node_id: node_idx.index() as u32,
+                                                    table_uuid: uuid,
                                                     name,
                                                     position: (400.0, 300.0),
                                                 });
@@ -1485,77 +1513,116 @@ fn calculate_edge_path(
 fn apply_remote_graph_op(graph: RwSignal<SchemaGraph>, op: GraphOperation) {
     use crate::core::TableNode;
 
+    // Helper function to find node by UUID
+    let find_node_by_uuid = |g: &SchemaGraph, table_uuid: uuid::Uuid| -> Option<NodeIndex> {
+        g.node_indices().find(|&idx| {
+            g.node_weight(idx)
+                .map(|n| n.uuid == table_uuid)
+                .unwrap_or(false)
+        })
+    };
+
     match op {
         GraphOperation::CreateTable {
             node_id: _,
+            table_uuid,
             name,
             position,
         } => {
             graph.update(|g| {
-                // Check if table with this name already exists
-                let exists = g
-                    .node_indices()
-                    .any(|idx| g.node_weight(idx).map(|n| n.name == name).unwrap_or(false));
+                // Check if table with this UUID already exists
+                let exists = find_node_by_uuid(g, table_uuid).is_some();
                 if !exists {
-                    g.add_node(TableNode::new(&name).with_position(position.0, position.1));
+                    let mut table = TableNode::new(&name).with_position(position.0, position.1);
+                    table.uuid = table_uuid; // Use the UUID from the operation
+                    g.add_node(table);
                 }
             });
         }
-        GraphOperation::DeleteTable { node_id } => {
+        GraphOperation::DeleteTable {
+            node_id,
+            table_uuid,
+        } => {
             graph.update(|g| {
-                let idx = NodeIndex::new(node_id as usize);
-                if g.node_weight(idx).is_some() {
+                // Try to find by UUID first, then fall back to node_id
+                let idx = find_node_by_uuid(g, table_uuid).or_else(|| {
+                    let idx = NodeIndex::new(node_id as usize);
+                    if g.node_weight(idx).is_some() {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(idx) = idx {
                     g.remove_node(idx);
                 }
             });
         }
-        GraphOperation::RenameTable { node_id, new_name } => {
-            graph.update(|g| {
-                let idx = NodeIndex::new(node_id as usize);
-                if let Some(node) = g.node_weight_mut(idx) {
-                    node.name = new_name;
-                }
-            });
-        }
-        GraphOperation::MoveTable { node_id, position } => {
-            graph.update(|g| {
-                let idx = NodeIndex::new(node_id as usize);
-                if let Some(node) = g.node_weight_mut(idx) {
-                    node.position = position;
-                }
-            });
-        }
-        GraphOperation::AddColumn { node_id, column } => {
-            graph.update(|g| {
-                let idx = NodeIndex::new(node_id as usize);
-                if let Some(node) = g.node_weight_mut(idx) {
-                    use crate::core::Column;
-                    let mut col = Column::new(&column.name, &column.data_type);
-                    if column.is_primary_key {
-                        col = col.primary_key();
-                    }
-                    if !column.is_nullable {
-                        col = col.not_null();
-                    }
-                    if column.is_unique {
-                        col = col.unique();
-                    }
-                    if let Some(default) = column.default_value {
-                        col = col.with_default(&default);
-                    }
-                    node.columns.push(col);
-                }
-            });
-        }
-        GraphOperation::UpdateColumn {
+        GraphOperation::RenameTable {
             node_id,
-            column_index,
+            table_uuid,
+            new_name,
+        } => {
+            graph.update(|g| {
+                // Try to find by UUID first, then fall back to node_id
+                let idx = find_node_by_uuid(g, table_uuid).or_else(|| {
+                    let idx = NodeIndex::new(node_id as usize);
+                    if g.node_weight(idx).is_some() {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(idx) = idx {
+                    if let Some(node) = g.node_weight_mut(idx) {
+                        node.name = new_name;
+                    }
+                }
+            });
+        }
+        GraphOperation::MoveTable {
+            node_id,
+            table_uuid,
+            position,
+        } => {
+            graph.update(|g| {
+                // Try to find by UUID first, then fall back to node_id
+                let idx = find_node_by_uuid(g, table_uuid).or_else(|| {
+                    let idx = NodeIndex::new(node_id as usize);
+                    if g.node_weight(idx).is_some() {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(idx) = idx {
+                    if let Some(node) = g.node_weight_mut(idx) {
+                        node.position = position;
+                    }
+                }
+            });
+        }
+        GraphOperation::AddColumn {
+            node_id,
+            table_uuid,
             column,
         } => {
             graph.update(|g| {
-                let idx = NodeIndex::new(node_id as usize);
-                if let Some(node) = g.node_weight_mut(idx) {
-                    if column_index < node.columns.len() {
+                // Try to find by UUID first, then fall back to node_id
+                let idx = find_node_by_uuid(g, table_uuid).or_else(|| {
+                    let idx = NodeIndex::new(node_id as usize);
+                    if g.node_weight(idx).is_some() {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(idx) = idx {
+                    if let Some(node) = g.node_weight_mut(idx) {
                         use crate::core::Column;
                         let mut col = Column::new(&column.name, &column.data_type);
                         if column.is_primary_key {
@@ -1570,20 +1637,72 @@ fn apply_remote_graph_op(graph: RwSignal<SchemaGraph>, op: GraphOperation) {
                         if let Some(default) = column.default_value {
                             col = col.with_default(&default);
                         }
-                        node.columns[column_index] = col;
+                        node.columns.push(col);
+                    }
+                }
+            });
+        }
+        GraphOperation::UpdateColumn {
+            node_id,
+            table_uuid,
+            column_index,
+            column,
+        } => {
+            graph.update(|g| {
+                // Try to find by UUID first, then fall back to node_id
+                let idx = find_node_by_uuid(g, table_uuid).or_else(|| {
+                    let idx = NodeIndex::new(node_id as usize);
+                    if g.node_weight(idx).is_some() {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(idx) = idx {
+                    if let Some(node) = g.node_weight_mut(idx) {
+                        if column_index < node.columns.len() {
+                            use crate::core::Column;
+                            let mut col = Column::new(&column.name, &column.data_type);
+                            if column.is_primary_key {
+                                col = col.primary_key();
+                            }
+                            if !column.is_nullable {
+                                col = col.not_null();
+                            }
+                            if column.is_unique {
+                                col = col.unique();
+                            }
+                            if let Some(default) = column.default_value {
+                                col = col.with_default(&default);
+                            }
+                            node.columns[column_index] = col;
+                        }
                     }
                 }
             });
         }
         GraphOperation::DeleteColumn {
             node_id,
+            table_uuid,
             column_index,
         } => {
             graph.update(|g| {
-                let idx = NodeIndex::new(node_id as usize);
-                if let Some(node) = g.node_weight_mut(idx) {
-                    if column_index < node.columns.len() {
-                        node.columns.remove(column_index);
+                // Try to find by UUID first, then fall back to node_id
+                let idx = find_node_by_uuid(g, table_uuid).or_else(|| {
+                    let idx = NodeIndex::new(node_id as usize);
+                    if g.node_weight(idx).is_some() {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(idx) = idx {
+                    if let Some(node) = g.node_weight_mut(idx) {
+                        if column_index < node.columns.len() {
+                            node.columns.remove(column_index);
+                        }
                     }
                 }
             });
@@ -1648,63 +1767,88 @@ fn apply_graph_state(graph: RwSignal<SchemaGraph>, state: GraphStateSnapshot) {
     use crate::core::TableNode;
 
     graph.update(|g| {
-        // Clear existing graph if we're receiving state from another user
-        // Only apply if we have no tables (we're the new user)
-        if g.node_count() == 0 && !state.tables.is_empty() {
-            // Apply tables from snapshot
-            for table in state.tables {
-                let mut node =
-                    TableNode::new(&table.name).with_position(table.position.0, table.position.1);
+        // When receiving graph state from a LiveShare session, we should:
+        // 1. Clear ALL local tables and relationships
+        // 2. Apply the state from the session
+        // This ensures that joining a session replaces local work with session state
 
-                // Add columns
-                for col_data in table.columns {
-                    use crate::core::Column;
-                    let mut col = Column::new(&col_data.name, &col_data.data_type);
-                    if col_data.is_primary_key {
-                        col = col.primary_key();
-                    }
-                    if !col_data.is_nullable {
-                        col = col.not_null();
-                    }
-                    if col_data.is_unique {
-                        col = col.unique();
-                    }
-                    if let Some(default) = col_data.default_value {
-                        col = col.with_default(&default);
-                    }
-                    node.columns.push(col);
+        let had_local_data = g.node_count() > 0;
+
+        if had_local_data {
+            leptos::logging::log!(
+                "Replacing {} local tables with {} tables from LiveShare session",
+                g.node_count(),
+                state.tables.len()
+            );
+        }
+
+        // Clear the entire graph
+        *g = SchemaGraph::new();
+
+        // Apply tables from snapshot
+        for table in state.tables {
+            let mut node =
+                TableNode::new(&table.name).with_position(table.position.0, table.position.1);
+
+            // Preserve the UUID from the snapshot
+            node.uuid = table.table_uuid;
+
+            // Add columns
+            for col_data in table.columns {
+                use crate::core::Column;
+                let mut col = Column::new(&col_data.name, &col_data.data_type);
+                if col_data.is_primary_key {
+                    col = col.primary_key();
                 }
-
-                g.add_node(node);
+                if !col_data.is_nullable {
+                    col = col.not_null();
+                }
+                if col_data.is_unique {
+                    col = col.unique();
+                }
+                if let Some(default) = col_data.default_value {
+                    col = col.with_default(&default);
+                }
+                node.columns.push(col);
             }
 
-            // Apply relationships from snapshot
-            for rel_snap in state.relationships {
-                use crate::core::{Relationship, RelationshipType};
+            g.add_node(node);
+        }
 
-                let from_idx = NodeIndex::new(rel_snap.from_node as usize);
-                let to_idx = NodeIndex::new(rel_snap.to_node as usize);
+        // Apply relationships from snapshot
+        for rel_snap in state.relationships {
+            use crate::core::{Relationship, RelationshipType};
 
-                // Only add if both nodes exist
-                if g.node_weight(from_idx).is_some() && g.node_weight(to_idx).is_some() {
-                    let rel_type = match rel_snap.data.relationship_type.as_str() {
-                        "1:1" => RelationshipType::OneToOne,
-                        "1:N" => RelationshipType::OneToMany,
-                        "N:1" => RelationshipType::ManyToOne,
-                        "N:M" => RelationshipType::ManyToMany,
-                        _ => RelationshipType::ManyToOne, // Default to M:1 as most common FK type
-                    };
+            let from_idx = NodeIndex::new(rel_snap.from_node as usize);
+            let to_idx = NodeIndex::new(rel_snap.to_node as usize);
 
-                    let rel = Relationship::new(
-                        &rel_snap.data.name,
-                        rel_type,
-                        &rel_snap.data.from_column,
-                        &rel_snap.data.to_column,
-                    );
+            // Only add if both nodes exist
+            if g.node_weight(from_idx).is_some() && g.node_weight(to_idx).is_some() {
+                let rel_type = match rel_snap.data.relationship_type.as_str() {
+                    "1:1" => RelationshipType::OneToOne,
+                    "1:N" => RelationshipType::OneToMany,
+                    "N:1" => RelationshipType::ManyToOne,
+                    "N:M" => RelationshipType::ManyToMany,
+                    _ => RelationshipType::ManyToOne, // Default to M:1 as most common FK type
+                };
 
-                    g.add_edge(from_idx, to_idx, rel);
-                }
+                let rel = Relationship::new(
+                    &rel_snap.data.name,
+                    rel_type,
+                    &rel_snap.data.from_column,
+                    &rel_snap.data.to_column,
+                );
+
+                g.add_edge(from_idx, to_idx, rel);
             }
+        }
+
+        if had_local_data {
+            leptos::logging::log!(
+                "Successfully replaced local state with LiveShare session state: {} tables, {} relationships",
+                g.node_count(),
+                g.edge_count()
+            );
         }
     });
 }
@@ -1733,6 +1877,7 @@ fn create_graph_snapshot(graph: RwSignal<SchemaGraph>) -> GraphStateSnapshot {
 
                     TableSnapshot {
                         node_id: idx.index() as u32,
+                        table_uuid: node.uuid,
                         name: node.name.clone(),
                         position: node.position,
                         columns,

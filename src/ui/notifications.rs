@@ -151,7 +151,7 @@ impl NotificationManager {
 
     /// Add a notification
     pub fn notify(&self, notification: CanvasNotification) {
-        let id = self.next_id.get();
+        let id = self.next_id.get_untracked();
         self.next_id.set(id + 1);
 
         self.notifications.update(|n| {

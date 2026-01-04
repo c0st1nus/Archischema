@@ -1594,8 +1594,15 @@ pub fn apply_sql_to_graph(
                     })
                     .collect();
 
+                // Get the UUID from the newly created table node
+                let table_uuid = graph
+                    .node_weight(node_idx)
+                    .map(|n| n.uuid)
+                    .unwrap_or_else(uuid::Uuid::new_v4);
+
                 graph_ops.push(GraphOperation::CreateTable {
                     node_id: node_idx.index() as u32,
+                    table_uuid,
                     name: table_name.clone(),
                     position,
                 });
@@ -1604,6 +1611,7 @@ pub fn apply_sql_to_graph(
                 for col in columns_data {
                     graph_ops.push(GraphOperation::AddColumn {
                         node_id: node_idx.index() as u32,
+                        table_uuid,
                         column: col,
                     });
                 }

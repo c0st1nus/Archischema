@@ -3,6 +3,7 @@ use petgraph::stable_graph::StableGraph;
 use petgraph::visit::EdgeRef;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use uuid::Uuid;
 
 use super::validation;
 
@@ -123,6 +124,8 @@ impl MySqlDataType {
 /// Узел графа - таблица базы данных
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct TableNode {
+    /// Stable UUID for identifying tables across LiveShare clients
+    pub uuid: Uuid,
     pub name: String,
     pub columns: Vec<Column>,
     /// Позиция на канвасе (x, y)
@@ -132,6 +135,7 @@ pub struct TableNode {
 impl TableNode {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
+            uuid: Uuid::new_v4(),
             name: name.into(),
             columns: Vec::new(),
             position: (0.0, 0.0),

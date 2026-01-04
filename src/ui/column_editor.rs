@@ -263,17 +263,27 @@ pub fn ColumnEditor(
                     foreign_key: None,
                 };
 
-                if let Some(idx) = column_index {
-                    liveshare_ctx.send_graph_op(GraphOperation::UpdateColumn {
-                        node_id: current_node.index() as u32,
-                        column_index: idx,
-                        column: col_data,
+                if let (Some(g), Some(current_node)) = (graph, current_table) {
+                    let table_uuid = g.with(|g| {
+                        g.node_weight(current_node)
+                            .map(|n| n.uuid)
+                            .unwrap_or_else(uuid::Uuid::new_v4)
                     });
-                } else {
-                    liveshare_ctx.send_graph_op(GraphOperation::AddColumn {
-                        node_id: current_node.index() as u32,
-                        column: col_data,
-                    });
+
+                    if let Some(idx) = column_index {
+                        liveshare_ctx.send_graph_op(GraphOperation::UpdateColumn {
+                            node_id: current_node.index() as u32,
+                            table_uuid,
+                            column_index: idx,
+                            column: col_data,
+                        });
+                    } else {
+                        liveshare_ctx.send_graph_op(GraphOperation::AddColumn {
+                            node_id: current_node.index() as u32,
+                            table_uuid,
+                            column: col_data,
+                        });
+                    }
                 }
             }
         }

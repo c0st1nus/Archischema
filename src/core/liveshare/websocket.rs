@@ -921,6 +921,7 @@ mod tests {
                 ClientMessage::GraphOp {
                     op: GraphOperation::CreateTable {
                         node_id: 1,
+                        table_uuid: Uuid::new_v4(),
                         name: "test".to_string(),
                         position: (0.0, 0.0),
                     },

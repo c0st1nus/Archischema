@@ -76,8 +76,14 @@ pub fn TableEditor(
                 if liveshare_ctx.connection_state.with_untracked(|v| *v)
                     == ConnectionState::Connected
                 {
+                    let table_uuid = graph.with(|g| {
+                        g.node_weight(node_idx)
+                            .map(|n| n.uuid)
+                            .unwrap_or_else(uuid::Uuid::new_v4)
+                    });
                     liveshare_ctx.send_graph_op(GraphOperation::RenameTable {
                         node_id: node_idx.index() as u32,
+                        table_uuid,
                         new_name: name,
                     });
                 }

@@ -33,58 +33,77 @@ impl GraphOpsSender {
     }
 
     /// Send a CreateTable operation
-    pub fn create_table(&self, node_idx: NodeIndex, name: String, position: (f64, f64)) {
+    pub fn create_table(
+        &self,
+        node_idx: NodeIndex,
+        table_uuid: uuid::Uuid,
+        name: String,
+        position: (f64, f64),
+    ) {
         self.send(GraphOperation::CreateTable {
             node_id: node_idx.index() as u32,
+            table_uuid,
             name,
             position,
         });
     }
 
     /// Send a DeleteTable operation
-    pub fn delete_table(&self, node_idx: NodeIndex) {
+    pub fn delete_table(&self, node_idx: NodeIndex, table_uuid: uuid::Uuid) {
         self.send(GraphOperation::DeleteTable {
             node_id: node_idx.index() as u32,
+            table_uuid,
         });
     }
 
     /// Send a RenameTable operation
-    pub fn rename_table(&self, node_idx: NodeIndex, new_name: String) {
+    pub fn rename_table(&self, node_idx: NodeIndex, table_uuid: uuid::Uuid, new_name: String) {
         self.send(GraphOperation::RenameTable {
             node_id: node_idx.index() as u32,
+            table_uuid,
             new_name,
         });
     }
 
     /// Send a MoveTable operation
-    pub fn move_table(&self, node_idx: NodeIndex, position: (f64, f64)) {
+    pub fn move_table(&self, node_idx: NodeIndex, table_uuid: uuid::Uuid, position: (f64, f64)) {
         self.send(GraphOperation::MoveTable {
             node_id: node_idx.index() as u32,
+            table_uuid,
             position,
         });
     }
 
     /// Send an AddColumn operation
-    pub fn add_column(&self, node_idx: NodeIndex, column: ColumnData) {
+    pub fn add_column(&self, node_idx: NodeIndex, table_uuid: uuid::Uuid, column: ColumnData) {
         self.send(GraphOperation::AddColumn {
             node_id: node_idx.index() as u32,
+            table_uuid,
             column,
         });
     }
 
     /// Send an UpdateColumn operation
-    pub fn update_column(&self, node_idx: NodeIndex, column_index: usize, column: ColumnData) {
+    pub fn update_column(
+        &self,
+        node_idx: NodeIndex,
+        table_uuid: uuid::Uuid,
+        column_index: usize,
+        column: ColumnData,
+    ) {
         self.send(GraphOperation::UpdateColumn {
             node_id: node_idx.index() as u32,
+            table_uuid,
             column_index,
             column,
         });
     }
 
     /// Send a DeleteColumn operation
-    pub fn delete_column(&self, node_idx: NodeIndex, column_index: usize) {
+    pub fn delete_column(&self, node_idx: NodeIndex, table_uuid: uuid::Uuid, column_index: usize) {
         self.send(GraphOperation::DeleteColumn {
             node_id: node_idx.index() as u32,
+            table_uuid,
             column_index,
         });
     }
@@ -177,8 +196,10 @@ mod tests {
 
     #[test]
     fn test_graph_operation_create_table_fields() {
+        let test_uuid = uuid::Uuid::new_v4();
         let op = GraphOperation::CreateTable {
             node_id: 5,
+            table_uuid: test_uuid,
             name: "users".to_string(),
             position: (100.0, 200.0),
         };
@@ -186,10 +207,12 @@ mod tests {
         match op {
             GraphOperation::CreateTable {
                 node_id,
+                table_uuid,
                 name,
                 position,
             } => {
                 assert_eq!(node_id, 5);
+                assert_eq!(table_uuid, test_uuid);
                 assert_eq!(name, "users");
                 assert_eq!(position, (100.0, 200.0));
             }
@@ -199,11 +222,19 @@ mod tests {
 
     #[test]
     fn test_graph_operation_delete_table_fields() {
-        let op = GraphOperation::DeleteTable { node_id: 10 };
+        let test_uuid = uuid::Uuid::new_v4();
+        let op = GraphOperation::DeleteTable {
+            node_id: 10,
+            table_uuid: test_uuid,
+        };
 
         match op {
-            GraphOperation::DeleteTable { node_id } => {
+            GraphOperation::DeleteTable {
+                node_id,
+                table_uuid,
+            } => {
                 assert_eq!(node_id, 10);
+                assert_eq!(table_uuid, test_uuid);
             }
             _ => panic!("Wrong operation type"),
         }
@@ -211,14 +242,21 @@ mod tests {
 
     #[test]
     fn test_graph_operation_rename_table_fields() {
+        let test_uuid = uuid::Uuid::new_v4();
         let op = GraphOperation::RenameTable {
             node_id: 3,
+            table_uuid: test_uuid,
             new_name: "customers".to_string(),
         };
 
         match op {
-            GraphOperation::RenameTable { node_id, new_name } => {
+            GraphOperation::RenameTable {
+                node_id,
+                table_uuid,
+                new_name,
+            } => {
                 assert_eq!(node_id, 3);
+                assert_eq!(table_uuid, test_uuid);
                 assert_eq!(new_name, "customers");
             }
             _ => panic!("Wrong operation type"),
@@ -227,14 +265,21 @@ mod tests {
 
     #[test]
     fn test_graph_operation_move_table_fields() {
+        let test_uuid = uuid::Uuid::new_v4();
         let op = GraphOperation::MoveTable {
             node_id: 7,
+            table_uuid: test_uuid,
             position: (500.5, 300.5),
         };
 
         match op {
-            GraphOperation::MoveTable { node_id, position } => {
+            GraphOperation::MoveTable {
+                node_id,
+                table_uuid,
+                position,
+            } => {
                 assert_eq!(node_id, 7);
+                assert_eq!(table_uuid, test_uuid);
                 assert_eq!(position, (500.5, 300.5));
             }
             _ => panic!("Wrong operation type"),
@@ -243,6 +288,7 @@ mod tests {
 
     #[test]
     fn test_graph_operation_add_column_fields() {
+        let test_uuid = uuid::Uuid::new_v4();
         let column = ColumnData {
             name: "email".to_string(),
             data_type: "VARCHAR(255)".to_string(),
@@ -255,12 +301,18 @@ mod tests {
 
         let op = GraphOperation::AddColumn {
             node_id: 1,
+            table_uuid: test_uuid,
             column: column.clone(),
         };
 
         match op {
-            GraphOperation::AddColumn { node_id, column: c } => {
+            GraphOperation::AddColumn {
+                node_id,
+                table_uuid,
+                column: c,
+            } => {
                 assert_eq!(node_id, 1);
+                assert_eq!(table_uuid, test_uuid);
                 assert_eq!(c.name, "email");
                 assert!(c.is_unique);
             }
@@ -270,6 +322,7 @@ mod tests {
 
     #[test]
     fn test_graph_operation_update_column_fields() {
+        let test_uuid = uuid::Uuid::new_v4();
         let column = ColumnData {
             name: "username".to_string(),
             data_type: "VARCHAR(100)".to_string(),
@@ -282,6 +335,7 @@ mod tests {
 
         let op = GraphOperation::UpdateColumn {
             node_id: 2,
+            table_uuid: test_uuid,
             column_index: 3,
             column,
         };
@@ -289,10 +343,12 @@ mod tests {
         match op {
             GraphOperation::UpdateColumn {
                 node_id,
+                table_uuid,
                 column_index,
                 column: c,
             } => {
                 assert_eq!(node_id, 2);
+                assert_eq!(table_uuid, test_uuid);
                 assert_eq!(column_index, 3);
                 assert_eq!(c.default_value, Some("guest".to_string()));
             }
@@ -302,17 +358,21 @@ mod tests {
 
     #[test]
     fn test_graph_operation_delete_column_fields() {
+        let test_uuid = uuid::Uuid::new_v4();
         let op = GraphOperation::DeleteColumn {
             node_id: 4,
+            table_uuid: test_uuid,
             column_index: 2,
         };
 
         match op {
             GraphOperation::DeleteColumn {
                 node_id,
+                table_uuid,
                 column_index,
             } => {
                 assert_eq!(node_id, 4);
+                assert_eq!(table_uuid, test_uuid);
                 assert_eq!(column_index, 2);
             }
             _ => panic!("Wrong operation type"),
