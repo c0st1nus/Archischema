@@ -167,6 +167,11 @@ pub struct RoomResponse {
     pub created_at: String,
     /// List of currently connected users
     pub users: Vec<UserInfo>,
+    /// Diagram ID this room is for
+    pub diagram_id: uuid::Uuid,
+    /// Diagram name (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagram_name: Option<String>,
 }
 
 /// Basic user information
@@ -903,6 +908,8 @@ mod tests {
             owner_id: Uuid::new_v4(),
             created_at: "2024-01-01T00:00:00Z".to_string(),
             users: vec![],
+            diagram_id: Uuid::new_v4(),
+            diagram_name: Some("Test Diagram".to_string()),
         };
 
         let msg = ServerMessage::auth_success(room_info);
@@ -1538,6 +1545,8 @@ mod tests {
                 username: "user1".to_string(),
                 color: None,
             }],
+            diagram_id: Uuid::new_v4(),
+            diagram_name: Some("Test Diagram".to_string()),
         };
 
         let json = serde_json::to_string(&response).unwrap();

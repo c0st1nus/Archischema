@@ -176,6 +176,15 @@ pub fn EditorPage() -> impl IntoView {
         }
     });
 
+    // Update diagram name when connected to LiveShare
+    Effect::new(move |_| {
+        if let Some(room_info) = liveshare_ctx.room_info.get() {
+            if let Some(name) = room_info.diagram_name {
+                diagram_name.set(name);
+            }
+        }
+    });
+
     // Explicit save function
     #[allow(unused_variables)]
     let perform_save = {
@@ -351,14 +360,27 @@ fn ErrorBanner(error: RwSignal<Option<String>>) -> impl IntoView {
 
 #[component]
 fn DemoBanner() -> impl IntoView {
+    let is_visible = RwSignal::new(true);
+
     view! {
-        <div class="absolute top-4 left-1/2 -translate-x-1/2 z-40 px-4 py-2 bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded-lg">
-            <p class="text-sm text-yellow-700 dark:text-yellow-300">
-                "Demo mode — changes will not be saved. "
-                <a href="/register" class="underline hover:no-underline">"Sign up"</a>
-                " to save your diagrams."
-            </p>
-        </div>
+        <Show when=move || is_visible.get()>
+            <div class="absolute top-4 left-1/2 -translate-x-1/2 z-40 px-4 py-2 bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded-lg flex items-center gap-3">
+                <p class="text-sm text-yellow-700 dark:text-yellow-300">
+                    "Demo mode — changes will not be saved. "
+                    <a href="/register" class="underline hover:no-underline">"Sign up"</a>
+                    " to save your diagrams."
+                </p>
+                <button
+                    on:click=move |_| is_visible.set(false)
+                    class="text-yellow-700 dark:text-yellow-300 hover:text-yellow-900 dark:hover:text-yellow-100 transition-colors"
+                    title="Dismiss"
+                >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+        </Show>
     }
 }
 

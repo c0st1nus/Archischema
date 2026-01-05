@@ -100,9 +100,19 @@ async fn main() {
     // Generate the list of routes in your Leptos App
     let routes = generate_route_list(App);
 
+    // Create diagram repository if database is available (for LiveShare to fetch diagram metadata)
+    let diagram_repo_for_liveshare = if let Some(ref pool) = db_pool {
+        Some(DiagramRepository::new(pool.clone()))
+    } else {
+        None
+    };
+
     // Create LiveShare state
     // Use the server address for WebSocket URLs
-    let liveshare_state = LiveshareState::with_host(addr.to_string(), false);
+    let mut liveshare_state = LiveshareState::with_host(addr.to_string(), false);
+    if let Some(repo) = diagram_repo_for_liveshare {
+        liveshare_state = liveshare_state.with_diagram_repo(repo);
+    }
 
     // Create ServeDir for pkg with pre-compressed file support
     // This serves .br (brotli) and .gz (gzip) files automatically when available

@@ -127,6 +127,8 @@ pub struct RoomInfo {
     pub user_count: usize,
     pub max_users: usize,
     pub owner_id: UserId,
+    pub diagram_id: uuid::Uuid,
+    pub diagram_name: Option<String>,
 }
 
 impl From<RoomResponse> for RoomInfo {
@@ -138,6 +140,8 @@ impl From<RoomResponse> for RoomInfo {
             user_count: resp.user_count,
             max_users: resp.max_users,
             owner_id: resp.owner_id,
+            diagram_id: resp.diagram_id,
+            diagram_name: resp.diagram_name,
         }
     }
 }

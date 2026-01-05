@@ -24,6 +24,7 @@ use uuid::Uuid;
 use super::auth::{AuthenticatedUser, can_delete_room, can_modify_room};
 use super::protocol::*;
 use super::room::RoomManager;
+use crate::core::db::DiagramRepository;
 
 // ============================================================================
 // Application State
@@ -34,6 +35,8 @@ use super::room::RoomManager;
 pub struct LiveshareState {
     /// Room manager instance
     pub room_manager: Arc<RoomManager>,
+    /// Diagram repository for fetching diagram metadata
+    pub diagram_repo: Option<DiagramRepository>,
 }
 
 impl LiveshareState {
@@ -41,6 +44,7 @@ impl LiveshareState {
     pub fn new() -> Self {
         Self {
             room_manager: Arc::new(RoomManager::default()),
+            diagram_repo: None,
         }
     }
 
@@ -48,7 +52,14 @@ impl LiveshareState {
     pub fn with_host(host: impl Into<String>, secure: bool) -> Self {
         Self {
             room_manager: Arc::new(RoomManager::new(host, secure)),
+            diagram_repo: None,
         }
+    }
+
+    /// Set the diagram repository
+    pub fn with_diagram_repo(mut self, diagram_repo: DiagramRepository) -> Self {
+        self.diagram_repo = Some(diagram_repo);
+        self
     }
 }
 
@@ -129,8 +140,21 @@ async fn create_room_auto(
         .create_room_with_id(room_id, &user, create_request)
     {
         Ok(room) => {
-            let response =
-                room.to_response(state.room_manager.host(), state.room_manager.is_secure());
+            // Fetch diagram name if available
+            let diagram_name = if let Some(ref repo) = state.diagram_repo {
+                match repo.find_by_id(room.diagram_id).await {
+                    Ok(Some(diagram)) => Some(diagram.name),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
+            let response = room.to_response(
+                state.room_manager.host(),
+                state.room_manager.is_secure(),
+                diagram_name,
+            );
             (StatusCode::CREATED, Json(response)).into_response()
         }
         Err(e) => (
@@ -199,8 +223,21 @@ async fn create_room(
         .create_room_with_id(room_id, &user, create_request)
     {
         Ok(room) => {
-            let response =
-                room.to_response(state.room_manager.host(), state.room_manager.is_secure());
+            // Fetch diagram name if available
+            let diagram_name = if let Some(ref repo) = state.diagram_repo {
+                match repo.find_by_id(room.diagram_id).await {
+                    Ok(Some(diagram)) => Some(diagram.name),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
+            let response = room.to_response(
+                state.room_manager.host(),
+                state.room_manager.is_secure(),
+                diagram_name,
+            );
             (StatusCode::CREATED, Json(response)).into_response()
         }
         Err(e) => (
@@ -226,8 +263,21 @@ async fn get_room(
 ) -> impl IntoResponse {
     match state.room_manager.get_room(&room_id) {
         Some(room) => {
-            let response =
-                room.to_response(state.room_manager.host(), state.room_manager.is_secure());
+            // Fetch diagram name if available
+            let diagram_name = if let Some(ref repo) = state.diagram_repo {
+                match repo.find_by_id(room.diagram_id).await {
+                    Ok(Some(diagram)) => Some(diagram.name),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
+            let response = room.to_response(
+                state.room_manager.host(),
+                state.room_manager.is_secure(),
+                diagram_name,
+            );
             (StatusCode::OK, Json(response)).into_response()
         }
         None => (StatusCode::NOT_FOUND, Json(ApiError::room_not_found())).into_response(),
@@ -293,7 +343,22 @@ async fn update_room(
     // For now, return success with current state
     // In a real implementation, you'd use RwLock or similar for the Room
     // to allow mutable updates
-    let response = room.to_response(state.room_manager.host(), state.room_manager.is_secure());
+
+    // Fetch diagram name if available
+    let diagram_name = if let Some(ref repo) = state.diagram_repo {
+        match repo.find_by_id(room.diagram_id).await {
+            Ok(Some(diagram)) => Some(diagram.name),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    let response = room.to_response(
+        state.room_manager.host(),
+        state.room_manager.is_secure(),
+        diagram_name,
+    );
 
     tracing::info!(
         room_id = %room_id,

@@ -554,7 +554,21 @@ impl ConnectionSession {
         }));
 
         // Send success response with room info
-        let room_info = room.to_response(state.room_manager.host(), state.room_manager.is_secure());
+        // Fetch diagram name if available
+        let diagram_name = if let Some(ref repo) = state.diagram_repo {
+            match repo.find_by_id(room.diagram_id).await {
+                Ok(Some(diagram)) => Some(diagram.name),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        let room_info = room.to_response(
+            state.room_manager.host(),
+            state.room_manager.is_secure(),
+            diagram_name,
+        );
         let _ = self.tx.send(ServerMessage::auth_success(room_info)).await;
 
         // Phase 7: Attempt to restore state from latest snapshot

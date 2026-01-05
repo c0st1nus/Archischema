@@ -356,7 +356,12 @@ impl Room {
     }
 
     /// Convert to RoomResponse for API
-    pub fn to_response(&self, host: &str, secure: bool) -> RoomResponse {
+    pub fn to_response(
+        &self,
+        host: &str,
+        secure: bool,
+        diagram_name: Option<String>,
+    ) -> RoomResponse {
         RoomResponse {
             id: self.id,
             name: self.config.name.clone(),
@@ -367,6 +372,8 @@ impl Room {
             owner_id: self.owner_id,
             created_at: self.created_at.to_rfc3339(),
             users: self.get_users(),
+            diagram_id: self.diagram_id,
+            diagram_name,
         }
     }
 
@@ -783,7 +790,7 @@ impl RoomManager {
     pub fn list_rooms(&self) -> Vec<RoomResponse> {
         self.rooms
             .iter()
-            .map(|entry| entry.to_response(&self.default_host, self.use_secure))
+            .map(|entry| entry.to_response(&self.default_host, self.use_secure, None))
             .collect()
     }
 }
@@ -1137,7 +1144,7 @@ mod tests {
         let room = create_test_room();
         room.add_user(Uuid::new_v4(), "User1".to_string()).unwrap();
 
-        let response = room.to_response("localhost:3000", false);
+        let response = room.to_response("localhost:3000", false, None);
 
         assert_eq!(response.id, room.id);
         assert_eq!(response.owner_id, room.owner_id);
@@ -1150,7 +1157,7 @@ mod tests {
     #[test]
     fn test_room_to_response_secure() {
         let room = create_test_room();
-        let response = room.to_response("example.com", true);
+        let response = room.to_response("example.com", true, None);
 
         assert!(response.websocket_url.starts_with("wss://"));
     }
