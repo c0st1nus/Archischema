@@ -430,96 +430,135 @@ pub fn SchemaCanvas(
         });
 
         // Handler for full graph state (initial sync when joining room)
-        Effect::new(move |_| {
-            let window = web_sys::window().expect("no window");
+        // Use thread_local static to ensure listeners are only set up once
+        {
+            use std::cell::Cell;
+            use wasm_bindgen::JsCast;
+            use wasm_bindgen::closure::Closure;
 
-            let graph_clone = graph;
-            let notif_manager = notification_manager;
-            let handler = Closure::<dyn Fn(web_sys::CustomEvent)>::new(
-                move |e: web_sys::CustomEvent| {
-                    if let Some(detail) = e.detail().as_string() {
-                        if let Ok(state) = serde_json::from_str::<GraphStateSnapshot>(&detail) {
-                            // Check if signal is still valid before accessing
-                            let had_local_data = graph_clone
-                                .try_with_untracked(|g| g.node_count() > 0)
-                                .unwrap_or(false);
+            thread_local! {
+                static GRAPH_STATE_LISTENER_SETUP: Cell<bool> = Cell::new(false);
+            }
 
-                            leptos::logging::log!(
-                                "Applying graph state: {} tables, {} relationships",
-                                state.tables.len(),
-                                state.relationships.len()
-                            );
+            let already_setup = GRAPH_STATE_LISTENER_SETUP.with(|v| {
+                let was_setup = v.get();
+                if !was_setup {
+                    v.set(true);
+                }
+                was_setup
+            });
 
-                            // Only apply if signal is still valid
-                            if graph_clone
-                                .try_update_untracked(|g| {
-                                    apply_graph_state_internal(g, state.clone());
-                                })
-                                .is_some()
-                            {
-                                // Show notification if local data was replaced
-                                if had_local_data {
-                                    notif_manager.warning(
-                                        "Session Joined",
-                                        "Your local tables were replaced with the LiveShare session state"
+            if !already_setup {
+                let window = web_sys::window().expect("no window");
+                let graph_clone = graph;
+                let notif_manager = notification_manager;
+
+                let closure = Closure::<dyn Fn(web_sys::CustomEvent)>::new(
+                    move |e: web_sys::CustomEvent| {
+                        if let Some(detail) = e.detail().as_string() {
+                            if let Ok(state) = serde_json::from_str::<GraphStateSnapshot>(&detail) {
+                                // Check if signal is still valid before accessing
+                                let had_local_data = graph_clone
+                                    .try_with_untracked(|g| g.node_count() > 0)
+                                    .unwrap_or(false);
+
+                                leptos::logging::log!(
+                                    "Applying graph state: {} tables, {} relationships",
+                                    state.tables.len(),
+                                    state.relationships.len()
+                                );
+
+                                // Only apply if signal is still valid
+                                if graph_clone
+                                    .try_update_untracked(|g| {
+                                        apply_graph_state_internal(g, state.clone());
+                                    })
+                                    .is_some()
+                                {
+                                    // Show notification if local data was replaced
+                                    if had_local_data {
+                                        notif_manager.warning(
+                                            "Session Joined",
+                                            "Your local tables were replaced with the LiveShare session state"
+                                        );
+                                    }
+                                } else {
+                                    leptos::logging::log!(
+                                        "Ignoring graph state: component has been disposed"
                                     );
                                 }
-                            } else {
-                                leptos::logging::log!(
-                                    "Ignoring graph state: component has been disposed"
-                                );
                             }
                         }
-                    }
-                },
-            );
+                    },
+                );
 
-            let _ = window.add_event_listener_with_callback(
-                "liveshare-graph-state",
-                handler.as_ref().unchecked_ref(),
-            );
-            // Intentionally leaked - global listener for app lifetime
-            handler.forget();
-        });
+                let _ = window.add_event_listener_with_callback(
+                    "liveshare-graph-state",
+                    closure.as_ref().unchecked_ref(),
+                );
+
+                // Intentionally leak - global listener for app lifetime
+                closure.forget();
+            }
+        }
 
         // Handler for graph state requests from other users
-        Effect::new(move |_| {
-            let window = web_sys::window().expect("no window");
+        {
+            use std::cell::Cell;
+            use wasm_bindgen::JsCast;
+            use wasm_bindgen::closure::Closure;
 
-            let graph_clone = graph;
-            let ctx_clone = liveshare_ctx;
-            let handler =
-                Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |e: web_sys::CustomEvent| {
-                    if let Some(detail) = e.detail().as_string() {
-                        // Parse requester_id from the detail
-                        if let Ok(requester_id) = uuid::Uuid::parse_str(&detail) {
-                            // Check if signal is still valid before creating snapshot
-                            if let Some(state) = graph_clone
-                                .try_with_untracked(|g| create_graph_snapshot_internal(g))
-                            {
-                                leptos::logging::log!(
-                                    "Sending graph state to {:?}: {} tables",
-                                    requester_id,
-                                    state.tables.len()
-                                );
-                                // Send it to the requester
-                                ctx_clone.send_graph_state_response(requester_id, state);
-                            } else {
-                                leptos::logging::log!(
-                                    "Cannot send graph state: component has been disposed"
-                                );
+            thread_local! {
+                static REQUEST_GRAPH_STATE_LISTENER_SETUP: Cell<bool> = Cell::new(false);
+            }
+
+            let already_setup = REQUEST_GRAPH_STATE_LISTENER_SETUP.with(|v| {
+                let was_setup = v.get();
+                if !was_setup {
+                    v.set(true);
+                }
+                was_setup
+            });
+
+            if !already_setup {
+                let window = web_sys::window().expect("no window");
+                let graph_clone = graph;
+                let ctx_clone = liveshare_ctx;
+
+                let closure =
+                    Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |e: web_sys::CustomEvent| {
+                        if let Some(detail) = e.detail().as_string() {
+                            // Parse requester_id from the detail
+                            if let Ok(requester_id) = uuid::Uuid::parse_str(&detail) {
+                                // Check if signal is still valid before creating snapshot
+                                if let Some(state) = graph_clone
+                                    .try_with_untracked(|g| create_graph_snapshot_internal(g))
+                                {
+                                    leptos::logging::log!(
+                                        "Sending graph state to {:?}: {} tables",
+                                        requester_id,
+                                        state.tables.len()
+                                    );
+                                    // Send it to the requester
+                                    ctx_clone.send_graph_state_response(requester_id, state);
+                                } else {
+                                    leptos::logging::log!(
+                                        "Cannot send graph state: component has been disposed"
+                                    );
+                                }
                             }
                         }
-                    }
-                });
+                    });
 
-            let _ = window.add_event_listener_with_callback(
-                "liveshare-request-graph-state",
-                handler.as_ref().unchecked_ref(),
-            );
-            // Intentionally leaked - global listener for app lifetime
-            handler.forget();
-        });
+                let _ = window.add_event_listener_with_callback(
+                    "liveshare-request-graph-state",
+                    closure.as_ref().unchecked_ref(),
+                );
+
+                // Intentionally leak - global listener for app lifetime
+                closure.forget();
+            }
+        }
     }
 
     // Helper function to send graph op when connected
