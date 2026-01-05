@@ -253,7 +253,7 @@ pub fn SourceEditor(
                                             }.into_any()
                                         } else {
                                             view! {
-                                                <Icon name=icons::ARROW_DOWN_TO_LINE class="w-3.5 h-3.5" />
+                                                <Icon name=icons::SAVE class="w-3.5 h-3.5" />
                                             }.into_any()
                                         }
                                     }}

@@ -88,4 +88,5 @@ pub mod icons {
     pub const ARROW_LEFT: &str = "arrow-left";
     pub const PANEL_LEFT_CLOSE: &str = "panel-left-close";
     pub const PANEL_LEFT_OPEN: &str = "panel-left-open";
+    pub const SAVE: &str = "save";
 }
