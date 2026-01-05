@@ -466,7 +466,7 @@ pub fn Sidebar(
                                                 </div>
                                                 <input
                                                     type="text"
-                                                    class="input-base input-sm"
+                                                    class="input-base input-sm pl-10"
                                                     placeholder="Search tables and columns..."
                                                     prop:value=move || search_query.get()
                                                     on:input=move |ev| {
