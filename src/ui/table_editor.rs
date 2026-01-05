@@ -1,6 +1,6 @@
 use crate::core::{SchemaGraph, TableOps};
 use crate::ui::liveshare_client::{ConnectionState, GraphOperation, use_liveshare_context};
-use crate::ui::{ErrorMessage, Icon, SaveCancelHints, icons};
+use crate::ui::{Dialog, ErrorMessage, Icon, SaveCancelHints, icons};
 use leptos::prelude::*;
 use leptos::web_sys;
 use petgraph::graph::NodeIndex;
@@ -27,6 +27,8 @@ fn dispatch_save_event(_reason: &str) {
 
 #[component]
 pub fn TableEditor(
+    /// Whether dialog is open
+    is_open: Signal<bool>,
     graph: RwSignal<SchemaGraph>,
     node_idx: NodeIndex,
     #[prop(into)] on_save: Callback<()>,
@@ -43,17 +45,28 @@ pub fn TableEditor(
             .unwrap_or_default()
     });
 
-    let (table_name, set_table_name) = signal(initial_name);
+    let (table_name, set_table_name) = signal(initial_name.clone());
     let (error, set_error) = signal::<Option<String>>(None);
     let (is_saving, set_is_saving) = signal(false);
 
     let input_ref = NodeRef::<leptos::html::Input>::new();
 
-    // Auto-focus на input при монтировании
+    // Auto-focus на input при открытии диалога
     Effect::new(move || {
-        if let Some(input) = input_ref.get() {
-            let _ = input.focus();
-            input.select();
+        if is_open.get() {
+            // Reset form when dialog opens
+            set_table_name.set(graph.with(|g| {
+                g.node_weight(node_idx)
+                    .map(|n| n.name.clone())
+                    .unwrap_or_default()
+            }));
+            set_error.set(None);
+            set_is_saving.set(false);
+
+            if let Some(input) = input_ref.get() {
+                let _ = input.focus();
+                input.select();
+            }
         }
     });
 
@@ -103,6 +116,7 @@ pub fn TableEditor(
 
     let handle_cancel = move || {
         set_error.set(None);
+        set_is_saving.set(false);
         on_cancel.run(());
     };
 
@@ -115,129 +129,136 @@ pub fn TableEditor(
             ev.prevent_default();
             handle_save();
         }
-        "Escape" => {
-            ev.prevent_default();
-            handle_cancel();
-        }
         _ => {}
     };
 
     view! {
-        <div class="space-y-4">
-            // Заголовок
-            <div>
-                <h3 class="title-lg">"Edit Table"</h3>
-                <p class="subtitle">
-                    "Rename your table or manage its properties"
-                </p>
-            </div>
-
-            // Форма
-            <div class="space-y-4">
-                // Поле имени таблицы
-                <div>
-                    <label class="label">
-                        "Table Name"
-                        <span class="text-red-500">"*"</span>
-                    </label>
-                    <input
-                        node_ref=input_ref
-                        type="text"
-                        class="input-base"
-                        placeholder="Enter table name"
-                        prop:value=move || table_name.get()
-                        on:input=move |ev| {
-                            set_table_name.set(event_target_value(&ev));
-                            set_error.set(None);
-                        }
-                        on:keydown=handle_keydown
-                        disabled=move || is_saving.get()
-                    />
-
-                    <ErrorMessage error=error/>
+        <Dialog
+            is_open=is_open
+            on_close=Callback::new(move |_| handle_cancel())
+            max_width="max-w-lg"
+            close_on_backdrop=true
+        >
+            <div class="p-6">
+                // Заголовок
+                <div class="mb-6">
+                    <h3 class="text-2xl font-bold text-theme-primary mb-2">"Edit Table"</h3>
+                    <p class="text-sm text-theme-muted">
+                        "Rename your table or manage its properties"
+                    </p>
                 </div>
 
-                // Информация о таблице
-                <div class="card-info space-y-2">
-                    <div class="flex items-center justify-between text-sm">
-                        <span class="text-theme-tertiary">"Columns:"</span>
-                        <span class="font-medium text-theme-primary">
-                            {move || {
-                                graph
-                                    .with(|g| {
-                                        g.node_weight(node_idx).map(|n| n.columns.len()).unwrap_or(0)
-                                    })
-                            }}
-
-                        </span>
-                    </div>
-                    <div class="flex items-center justify-between text-sm">
-                        <span class="text-theme-tertiary">"Relationships:"</span>
-                        <span class="font-medium text-theme-primary">
-                            {move || {
-                                graph
-                                    .with(|g| {
-                                        g.edges(node_idx).count() + g.edges_directed(node_idx, petgraph::Direction::Incoming).count()
-                                    })
-                            }}
-
-                        </span>
-                    </div>
-                </div>
-            </div>
-
-            // Кнопки действий
-            <div class="flex items-center justify-between divider-top pt-4">
-                <button
-                    class="btn-danger"
-                    on:click=move |_| handle_delete()
-                    disabled=move || is_saving.get()
-                >
-                    <Icon name=icons::TRASH class="icon-btn"/>
-                    "Delete Table"
-                </button>
-
-                <div class="flex items-center space-x-2">
-                    <button
-                        class="btn-secondary"
-                        on:click=move |_| handle_cancel()
-                        disabled=move || is_saving.get()
-                    >
-                        "Cancel"
-                    </button>
-                    <button
-                        class="btn-primary px-6"
-                        on:click=move |_| handle_save()
-                        disabled=move || is_saving.get() || table_name.get().trim().is_empty()
-                    >
-                        {move || {
-                            if is_saving.get() {
-                                view! {
-                                    <>
-                                        <Icon name=icons::LOADER class="icon-btn spinner"/>
-                                        "Saving..."
-                                    </>
-                                }
-                                    .into_any()
-                            } else {
-                                view! {
-                                    <>
-                                        <Icon name=icons::CHECK class="icon-btn"/>
-                                        "Save Changes"
-                                    </>
-                                }
-                                    .into_any()
+                // Форма
+                <div class="space-y-5">
+                    // Поле имени таблицы
+                    <div>
+                        <label class="block text-sm font-medium text-theme-primary mb-2">
+                            "Table Name"
+                            <span class="text-red-500 ml-1">"*"</span>
+                        </label>
+                        <input
+                            node_ref=input_ref
+                            type="text"
+                            class="w-full px-4 py-2.5 bg-theme-surface border border-theme-primary rounded-lg text-theme-primary placeholder-theme-muted focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent transition-all"
+                            placeholder="Enter table name"
+                            prop:value=move || table_name.get()
+                            on:input=move |ev| {
+                                set_table_name.set(event_target_value(&ev));
+                                set_error.set(None);
                             }
-                        }}
+                            on:keydown=handle_keydown
+                            disabled=move || is_saving.get()
+                        />
 
+                        <ErrorMessage error=error/>
+                    </div>
+
+                    // Информация о таблице
+                    <div class="bg-theme-tertiary border border-theme-primary rounded-lg p-4 space-y-3">
+                        <div class="flex items-center text-sm font-semibold text-theme-primary mb-2">
+                            <Icon name=icons::INFORMATION_CIRCLE class="w-4 h-4 mr-2 text-blue-500"/>
+                            "Table Information"
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-theme-muted">"Columns:"</span>
+                            <span class="font-medium text-theme-primary">
+                                {move || {
+                                    graph
+                                        .with(|g| {
+                                            g.node_weight(node_idx).map(|n| n.columns.len()).unwrap_or(0)
+                                        })
+                                }}
+
+                            </span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-theme-muted">"Relationships:"</span>
+                            <span class="font-medium text-theme-primary">
+                                {move || {
+                                    graph
+                                        .with(|g| {
+                                            g.edges(node_idx).count() + g.edges_directed(node_idx, petgraph::Direction::Incoming).count()
+                                        })
+                                }}
+
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                // Кнопки действий
+                <div class="flex items-center justify-between mt-6 pt-5 border-t border-theme-primary">
+                    <button
+                        class="px-4 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-red-500 flex items-center"
+                        on:click=move |_| handle_delete()
+                        disabled=move || is_saving.get()
+                    >
+                        <Icon name=icons::TRASH class="w-4 h-4 mr-2"/>
+                        "Delete Table"
                     </button>
+
+                    <div class="flex items-center space-x-3">
+                        <button
+                            class="px-5 py-2.5 text-sm font-medium text-theme-secondary bg-theme-secondary hover:bg-theme-tertiary border border-theme-primary rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-theme-accent"
+                            on:click=move |_| handle_cancel()
+                            disabled=move || is_saving.get()
+                        >
+                            "Cancel"
+                        </button>
+                        <button
+                            class="px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-accent-primary to-accent-secondary hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-accent-primary flex items-center"
+                            on:click=move |_| handle_save()
+                            disabled=move || is_saving.get() || table_name.get().trim().is_empty()
+                        >
+                            {move || {
+                                if is_saving.get() {
+                                    view! {
+                                        <>
+                                            <Icon name=icons::LOADER class="w-4 h-4 mr-2 animate-spin"/>
+                                            "Saving..."
+                                        </>
+                                    }
+                                        .into_any()
+                                } else {
+                                    view! {
+                                        <>
+                                            <Icon name=icons::CHECK class="w-4 h-4 mr-2"/>
+                                            "Save Changes"
+                                        </>
+                                    }
+                                        .into_any()
+                                }
+                            }}
+
+                        </button>
+                    </div>
+                </div>
+
+                // Подсказка по горячим клавишам
+                <div class="mt-4 pt-4 border-t border-theme-primary/50">
+                    <SaveCancelHints/>
                 </div>
             </div>
-
-            // Подсказка по горячим клавишам
-            <div class="divider-top pt-2">
-                <SaveCancelHints/>
-            </div>
-        </div>
+        </Dialog>
     }
 }

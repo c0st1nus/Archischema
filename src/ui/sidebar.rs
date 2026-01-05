@@ -306,52 +306,58 @@ pub fn Sidebar(
                                     }
                                         .into_any()
                                 }
-                                EditingMode::EditingTable(node_idx) => {
-                                    // Режим редактирования таблицы
+                                EditingMode::EditingTable(_node_idx) => {
+                                    // Режим редактирования таблицы - показываем обычный список таблиц
+                                    // Сам диалог отрисовывается модально в конце компонента
                                     view! {
-                                        <div class="flex-1 flex flex-col overflow-hidden">
-                                            // Хлебные крошки
-                                            <div class="px-6 py-3 divider-bottom bg-theme-secondary theme-transition">
-                                                <button
-                                                    class="nav-back"
-                                                    on:click=move |_| set_editing_mode.set(EditingMode::None)
-                                                >
-                                                    <Icon name=icons::CHEVRON_LEFT class="icon-text"/>
-                                                    "Back to tables"
-                                                </button>
-                                                <div class="mt-1 breadcrumb">
-                                                    "Edit Table"
+                                        <div class="flex-1 flex flex-col overflow-hidden bg-theme-surface theme-transition">
+                                            // Поиск
+                                            <div class="px-6 py-4 border-b border-theme-primary">
+                                                <div class="relative flex items-center">
+                                                    <div class="absolute left-3 pointer-events-none flex items-center justify-center">
+                                                        <Icon name=icons::SEARCH class="icon-text text-theme-muted"/>
+                                                    </div>
+                                                    <input
+                                                        type="text"
+                                                        class="input-base input-sm pl-10"
+                                                        placeholder="Search tables and columns..."
+                                                        prop:value=move || search_query.get()
+                                                        on:input=move |ev| {
+                                                            set_search_query.set(event_target_value(&ev));
+                                                        }
+                                                    />
                                                 </div>
                                             </div>
 
-                                            // Редактор таблицы в сайдбаре
-                                            <div class="flex-1 overflow-y-auto px-6 py-4 bg-theme-surface theme-transition">
-                                                <TableEditor
-                                                    graph=graph
-                                                    node_idx=node_idx
-                                                    on_save=move || {
-                                                        set_editing_mode.set(EditingMode::None);
-                                                    }
+                                            // Статистика
+                                            <div class="px-6 py-3 bg-theme-secondary border-b border-theme-primary theme-transition">
+                                                <div class="grid grid-cols-3 gap-3">
+                                                    <div class="text-center">
+                                                        <div class="text-2xl font-bold text-blue-500">
+                                                            {move || total_tables.get()}
+                                                        </div>
+                                                        <div class="text-xs text-theme-muted mt-0.5">"Tables"</div>
+                                                    </div>
+                                                    <div class="text-center">
+                                                        <div class="text-2xl font-bold text-purple-500">
+                                                            {move || total_columns.get()}
+                                                        </div>
+                                                        <div class="text-xs text-theme-muted mt-0.5">"Columns"</div>
+                                                    </div>
+                                                    <div class="text-center">
+                                                        <div class="text-2xl font-bold text-green-500">
+                                                            {move || total_relations.get()}
+                                                        </div>
+                                                        <div class="text-xs text-theme-muted mt-0.5">"Relations"</div>
+                                                    </div>
+                                                </div>
+                                            </div>
 
-                                                    on_cancel=move || {
-                                                        set_editing_mode.set(EditingMode::None);
-                                                    }
-
-                                                    on_delete=move || {
-                                                        graph.update(|g| {
-                                                            let _ = g.delete_table(node_idx);
-                                                        });
-                                                        // Send sync op
-                                                        let table_uuid = graph.with(|g| {
-                                                            g.node_weight(node_idx).map(|n| n.uuid).unwrap_or_else(uuid::Uuid::new_v4)
-                                                        });
-                                                        send_graph_op(GraphOperation::DeleteTable {
-                                                            node_id: node_idx.index() as u32,
-                                                            table_uuid,
-                                                        });
-                                                        set_editing_mode.set(EditingMode::None);
-                                                    }
-                                                />
+                                            // Список таблиц (просмотр в фоне, диалог модальный)
+                                            <div class="flex-1 overflow-y-auto px-3 py-3 opacity-50">
+                                                <div class="text-center py-8 text-theme-muted">
+                                                    "Editing table..."
+                                                </div>
                                             </div>
                                         </div>
                                     }
@@ -763,6 +769,41 @@ pub fn Sidebar(
                     set_editing_mode.set(EditingMode::None);
                 }
             />
+
+            // TableEditor как модальное окно поверх всего
+            {move || {
+                if let EditingMode::EditingTable(node_idx) = editing_mode.get() {
+                    view! {
+                        <TableEditor
+                            is_open=Signal::derive(move || matches!(editing_mode.get(), EditingMode::EditingTable(_)))
+                            graph=graph
+                            node_idx=node_idx
+                            on_save=move || {
+                                set_editing_mode.set(EditingMode::None);
+                            }
+                            on_cancel=move || {
+                                set_editing_mode.set(EditingMode::None);
+                            }
+                            on_delete=move || {
+                                graph.update(|g| {
+                                    let _ = g.delete_table(node_idx);
+                                });
+                                // Send sync op
+                                let table_uuid = graph.with(|g| {
+                                    g.node_weight(node_idx).map(|n| n.uuid).unwrap_or_else(uuid::Uuid::new_v4)
+                                });
+                                send_graph_op(GraphOperation::DeleteTable {
+                                    node_id: node_idx.index() as u32,
+                                    table_uuid,
+                                });
+                                set_editing_mode.set(EditingMode::None);
+                            }
+                        />
+                    }.into_any()
+                } else {
+                    view! { <div></div> }.into_any()
+                }
+            }}
         </div>
     }
 }

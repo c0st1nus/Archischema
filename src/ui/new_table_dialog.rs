@@ -180,30 +180,30 @@ pub fn NewTableDialog(
         <Dialog
             is_open=is_open
             on_close=Callback::new(move |_| handle_cancel())
-            max_width="max-w-md"
+            max_width="max-w-lg"
             close_on_backdrop=true
         >
-            <div class="h-full flex flex-col space-y-4">
+            <div class="p-6">
                 // Заголовок
-                <div>
-                    <h3 class="title-lg">"New Table"</h3>
-                    <p class="subtitle">
+                <div class="mb-6">
+                    <h3 class="text-2xl font-bold text-theme-primary mb-2">"New Table"</h3>
+                    <p class="text-sm text-theme-muted">
                         "Create a new table with a primary key"
                     </p>
                 </div>
 
                 // Форма
-                <div class="space-y-4">
+                <div class="space-y-5">
                     // Поле имени таблицы
                     <div>
-                        <label class="label">
+                        <label class="block text-sm font-medium text-theme-primary mb-2">
                             "Table Name"
-                            <span class="text-red-500">"*"</span>
+                            <span class="text-red-500 ml-1">"*"</span>
                         </label>
                         <input
                             node_ref=table_input_ref
                             type="text"
-                            class="input-base"
+                            class="w-full px-4 py-2.5 bg-theme-surface border border-theme-primary rounded-lg text-theme-primary placeholder-theme-muted focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent transition-all"
                             placeholder="e.g., users, orders, products"
                             prop:value=move || table_name.get()
                             on:input=move |ev| {
@@ -216,21 +216,21 @@ pub fn NewTableDialog(
                     </div>
 
                     // Секция первичного ключа
-                    <div class="card-info space-y-3">
-                        <div class="flex items-center text-sm font-medium text-theme-primary">
-                            <Icon name=icons::KEY class="icon-text text-yellow-500"/>
+                    <div class="bg-theme-tertiary border border-theme-primary rounded-lg p-4 space-y-4">
+                        <div class="flex items-center text-sm font-semibold text-theme-primary">
+                            <Icon name=icons::KEY class="w-4 h-4 mr-2 text-yellow-500"/>
                             "Primary Key"
                         </div>
 
                         // Имя первичного ключа
                         <div>
-                            <label class="label-sm">
+                            <label class="block text-sm font-medium text-theme-secondary mb-2">
                                 "Column Name"
-                                <span class="text-red-500">"*"</span>
+                                <span class="text-red-500 ml-1">"*"</span>
                             </label>
                             <input
                                 type="text"
-                                class="input-base input-sm"
+                                class="w-full px-3 py-2 bg-theme-surface border border-theme-primary rounded-lg text-theme-primary placeholder-theme-muted focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent transition-all text-sm"
                                 placeholder="e.g., id, user_id"
                                 prop:value=move || pk_name.get()
                                 on:input=move |ev| {
@@ -244,11 +244,11 @@ pub fn NewTableDialog(
 
                         // Тип данных первичного ключа
                         <div>
-                            <label class="label-sm">
+                            <label class="block text-sm font-medium text-theme-secondary mb-2">
                                 "Data Type"
                             </label>
                             <select
-                                class="select-base"
+                                class="w-full px-3 py-2 bg-theme-surface border border-theme-primary rounded-lg text-theme-primary focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent transition-all text-sm"
                                 prop:value=move || pk_type.get()
                                 on:change=move |ev| {
                                     set_pk_type.set(event_target_value(&ev));
@@ -269,8 +269,8 @@ pub fn NewTableDialog(
                         </div>
 
                         // Информация о PK
-                        <div class="text-xs text-theme-muted flex items-start">
-                            <Icon name=icons::KEY class="w-3 h-3 mr-1 mt-0.5 flex-shrink-0 text-yellow-500"/>
+                        <div class="flex items-start text-xs text-theme-muted bg-theme-surface rounded-md p-2.5 border border-theme-primary/50">
+                            <Icon name=icons::INFORMATION_CIRCLE class="w-3.5 h-3.5 mr-2 mt-0.5 flex-shrink-0 text-blue-500"/>
                             <span>"Primary key will be NOT NULL and auto-indexed"</span>
                         </div>
                     </div>
@@ -279,17 +279,17 @@ pub fn NewTableDialog(
                     <ErrorMessage error=error/>
                 </div>
 
-                // Кнопки действий - центрированы
-                <div class="flex items-center justify-center space-x-3 divider-top pt-4">
+                // Кнопки действий
+                <div class="flex items-center justify-end space-x-3 mt-6 pt-5 border-t border-theme-primary">
                     <button
-                        class="btn-secondary px-5 py-2.5"
+                        class="px-5 py-2.5 text-sm font-medium text-theme-secondary bg-theme-secondary hover:bg-theme-tertiary border border-theme-primary rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-theme-accent"
                         on:click=move |_| handle_cancel()
                         disabled=move || is_creating.get()
                     >
                         "Cancel"
                     </button>
                     <button
-                        class="btn-primary px-6 py-2.5"
+                        class="px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-accent-primary to-accent-secondary hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-accent-primary flex items-center"
                         on:click=move |_| handle_create()
                         disabled=move || {
                             is_creating.get()
@@ -301,7 +301,7 @@ pub fn NewTableDialog(
                             if is_creating.get() {
                                 view! {
                                     <>
-                                        <Icon name=icons::LOADER class="icon-btn spinner"/>
+                                        <Icon name=icons::LOADER class="w-4 h-4 mr-2 animate-spin"/>
                                         "Creating..."
                                     </>
                                 }
@@ -309,7 +309,7 @@ pub fn NewTableDialog(
                             } else {
                                 view! {
                                     <>
-                                        <Icon name=icons::PLUS class="icon-btn"/>
+                                        <Icon name=icons::PLUS class="w-4 h-4 mr-2"/>
                                         "Create Table"
                                     </>
                                 }
@@ -319,8 +319,8 @@ pub fn NewTableDialog(
                     </button>
                 </div>
 
-                // Подсказка по горячим клавишам - внизу с margin
-                <div class="mt-auto pt-4 pb-2">
+                // Подсказка по горячим клавишам
+                <div class="mt-4 pt-4 border-t border-theme-primary/50">
                     <CreateCancelHints/>
                 </div>
             </div>
