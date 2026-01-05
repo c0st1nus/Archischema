@@ -32,7 +32,7 @@ pub use message::{
     ErrorMessage, ErrorMessageStatic, InfoMessage, SuccessMessage, SuccessMessageStatic,
     WarningMessage, WarningMessageStatic,
 };
-pub use modal::{AlertDialog, BaseModal, ConfirmDialog};
+pub use modal::{AlertDialog, BaseModal, ConfirmDialog, Dialog, DialogWithHeader};
 pub use spinner::{
     InlineSpinner, LoadingButton, LoadingOverlay, LoadingSpinner, LoadingWrapper, Skeleton,
     SkeletonGroup, Spinner, SpinnerSize, SpinnerStyle,

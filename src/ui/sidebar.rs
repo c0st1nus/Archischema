@@ -358,97 +358,57 @@ pub fn Sidebar(
                                         .into_any()
                                 }
                                 EditingMode::CreatingTable => {
-                                    // Режим создания новой таблицы
+                                    // Режим создания новой таблицы - показываем обычный список таблиц
+                                    // Сам диалог отрисовывается модально в конце компонента
                                     view! {
-                                        <div class="flex-1 flex flex-col overflow-hidden">
-                                            // Хлебные крошки - вся панель кликабельна
-                                            <button
-                                                class="w-full px-6 py-3 border-b border-theme-primary bg-theme-secondary hover:bg-theme-tertiary theme-transition text-left cursor-pointer"
-                                                on:click=move |_| set_editing_mode.set(EditingMode::None)
-                                            >
-                                                <div class="flex items-center text-sm text-theme-accent font-medium">
-                                                    <Icon name=icons::CHEVRON_LEFT class="w-4 h-4 mr-1"/>
-                                                    "Back to tables"
-                                                </div>
-                                                <div class="mt-1 text-xs text-theme-muted">
-                                                    "Create New Table"
-                                                </div>
-                                            </button>
-
-                                            // Диалог создания таблицы
-                                            <div class="flex-1 overflow-y-auto px-6 py-4 bg-theme-surface theme-transition">
-                                                <NewTableDialog
-                                                    table_exists=Callback::new(move |name: String| {
-                                                        graph.with(|g| g.table_exists(&name))
-                                                    })
-                                                    on_create=Callback::new(move |data: NewTableData| {
-                                                        // Создаём таблицу с указанным именем
-                                                        let position = (300.0, 300.0);
-                                                        let table_name = data.table_name.clone();
-                                                        let pk_name = data.pk_name.clone();
-                                                        let pk_type = data.pk_type.clone();
-
-                                                        // Создаём таблицу
-                                                        let result = graph.write().create_table(&table_name, position);
-
-                                                        match result {
-                                                            Ok(new_node_idx) => {
-                                                                // Добавляем первичный ключ
-                                                                graph.update(|g| {
-                                                                    if let Some(node) = g.node_weight_mut(new_node_idx) {
-                                                                        node.columns.push(
-                                                                            Column::new(&pk_name, &pk_type).primary_key()
-                                                                        );
-                                                                    }
-                                                                });
-
-                                                                // Отправляем операцию создания таблицы
-                                                                let table_uuid = graph.with(|g| {
-                                                                    g.node_weight(new_node_idx).map(|n| n.uuid).unwrap_or_else(uuid::Uuid::new_v4)
-                                                                });
-                                                                send_graph_op(GraphOperation::CreateTable {
-                                                                    node_id: new_node_idx.index() as u32,
-                                                                    table_uuid,
-                                                                    name: table_name,
-                                                                    position,
-                                                                });
-
-                                                                // Отправляем операцию добавления первичного ключа
-                                                                send_graph_op(GraphOperation::AddColumn {
-                                                                    node_id: new_node_idx.index() as u32,
-                                                                    table_uuid,
-                                                                    column: ColumnData {
-                                                                        name: pk_name,
-                                                                        data_type: pk_type,
-                                                                        is_primary_key: true,
-                                                                        is_nullable: false,
-                                                                        is_unique: false,
-                                                                        default_value: None,
-                                                                        foreign_key: None,
-                                                                    },
-                                                                });
-
-                                                                // Раскрываем таблицу в списке
-                                                                set_expanded_tables.update(|expanded| {
-                                                                    if !expanded.contains(&new_node_idx) {
-                                                                        expanded.push(new_node_idx);
-                                                                    }
-                                                                });
-
-                                                                // Возвращаемся к списку таблиц
-                                                                set_editing_mode.set(EditingMode::None);
-
-                                                                CreateTableResult::Success
-                                                            }
-                                                            Err(err) => {
-                                                                CreateTableResult::Error(err)
-                                                            }
+                                        <div class="flex-1 flex flex-col overflow-hidden bg-theme-surface theme-transition">
+                                            // Поиск
+                                            <div class="px-6 py-4 border-b border-theme-primary">
+                                                <div class="relative flex items-center">
+                                                    <div class="absolute left-3 pointer-events-none flex items-center justify-center">
+                                                        <Icon name=icons::SEARCH class="icon-text text-theme-muted"/>
+                                                    </div>
+                                                    <input
+                                                        type="text"
+                                                        class="input-base input-sm pl-10"
+                                                        placeholder="Search tables and columns..."
+                                                        prop:value=move || search_query.get()
+                                                        on:input=move |ev| {
+                                                            set_search_query.set(event_target_value(&ev));
                                                         }
-                                                    })
-                                                    on_cancel=move || {
-                                                        set_editing_mode.set(EditingMode::None);
-                                                    }
-                                                />
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            // Статистика
+                                            <div class="px-6 py-3 bg-theme-secondary border-b border-theme-primary theme-transition">
+                                                <div class="grid grid-cols-3 gap-3">
+                                                    <div class="text-center">
+                                                        <div class="text-2xl font-bold text-blue-500">
+                                                            {move || total_tables.get()}
+                                                        </div>
+                                                        <div class="text-xs text-theme-muted mt-0.5">"Tables"</div>
+                                                    </div>
+                                                    <div class="text-center">
+                                                        <div class="text-2xl font-bold text-purple-500">
+                                                            {move || total_columns.get()}
+                                                        </div>
+                                                        <div class="text-xs text-theme-muted mt-0.5">"Columns"</div>
+                                                    </div>
+                                                    <div class="text-center">
+                                                        <div class="text-2xl font-bold text-green-500">
+                                                            {move || total_relations.get()}
+                                                        </div>
+                                                        <div class="text-xs text-theme-muted mt-0.5">"Relations"</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            // Список таблиц (просмотр в фоне, диалог модальный)
+                                            <div class="flex-1 overflow-y-auto px-3 py-3 opacity-50">
+                                                <div class="text-center py-8 text-theme-muted">
+                                                    "Creating new table..."
+                                                </div>
                                             </div>
                                         </div>
                                     }
@@ -505,7 +465,7 @@ pub fn Sidebar(
                                             <button
                                                 class="w-full px-4 py-3 btn-theme-primary rounded-lg text-sm font-semibold flex items-center justify-center shadow-sm transition-all"
                                                 on:click=move |_| {
-                                                    // Открываем диалог создания новой таблицы
+                                                    // Открываем модальный диалог создания новой таблицы
                                                     set_editing_mode.set(EditingMode::CreatingTable);
                                                 }
                                             >
@@ -729,7 +689,80 @@ pub fn Sidebar(
             }
         }}
 
+            // NewTableDialog как модальное окно поверх всего
+            <NewTableDialog
+                is_open=Signal::derive(move || editing_mode.get() == EditingMode::CreatingTable)
+                table_exists=Callback::new(move |name: String| {
+                    graph.with(|g| g.table_exists(&name))
+                })
+                on_create=Callback::new(move |data: NewTableData| {
+                    // Создаём таблицу с указанным именем
+                    let position = (300.0, 300.0);
+                    let table_name = data.table_name.clone();
+                    let pk_name = data.pk_name.clone();
+                    let pk_type = data.pk_type.clone();
 
+                    // Создаём таблицу
+                    let result = graph.write().create_table(&table_name, position);
+
+                    match result {
+                        Ok(new_node_idx) => {
+                            // Добавляем первичный ключ
+                            graph.update(|g| {
+                                if let Some(node) = g.node_weight_mut(new_node_idx) {
+                                    node.columns.push(
+                                        Column::new(&pk_name, &pk_type).primary_key()
+                                    );
+                                }
+                            });
+
+                            // Отправляем операцию создания таблицы
+                            let table_uuid = graph.with(|g| {
+                                g.node_weight(new_node_idx).map(|n| n.uuid).unwrap_or_else(uuid::Uuid::new_v4)
+                            });
+                            send_graph_op(GraphOperation::CreateTable {
+                                node_id: new_node_idx.index() as u32,
+                                table_uuid,
+                                name: table_name,
+                                position,
+                            });
+
+                            // Отправляем операцию добавления первичного ключа
+                            send_graph_op(GraphOperation::AddColumn {
+                                node_id: new_node_idx.index() as u32,
+                                table_uuid,
+                                column: ColumnData {
+                                    name: pk_name,
+                                    data_type: pk_type,
+                                    is_primary_key: true,
+                                    is_nullable: false,
+                                    is_unique: false,
+                                    default_value: None,
+                                    foreign_key: None,
+                                },
+                            });
+
+                            // Раскрываем таблицу в списке
+                            set_expanded_tables.update(|expanded| {
+                                if !expanded.contains(&new_node_idx) {
+                                    expanded.push(new_node_idx);
+                                }
+                            });
+
+                            // Возвращаемся к списку таблиц
+                            set_editing_mode.set(EditingMode::None);
+
+                            CreateTableResult::Success
+                        }
+                        Err(err) => {
+                            CreateTableResult::Error(err)
+                        }
+                    }
+                })
+                on_cancel=move || {
+                    set_editing_mode.set(EditingMode::None);
+                }
+            />
         </div>
     }
 }

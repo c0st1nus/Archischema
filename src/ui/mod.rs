@@ -32,10 +32,10 @@ pub use canvas::SchemaCanvas;
 pub use column_editor::ColumnEditor;
 pub use common::{
     AlertDialog, BaseModal, Button, ButtonGroup, ButtonSize, ButtonVariant, CheckboxField,
-    ConfirmDialog, CreateCancelHints, ErrorMessage, ErrorMessageStatic, FormField, IconButton,
-    InfoMessage, Kbd, KeyboardHint, KeyboardHintWithIcon, KeyboardHints, SaveCancelHints,
-    SelectField, SubmitCancelButtons, SubmitCancelHints, SuccessMessage, SuccessMessageStatic,
-    TextAreaField, WarningMessage, WarningMessageStatic,
+    ConfirmDialog, CreateCancelHints, Dialog, DialogWithHeader, ErrorMessage, ErrorMessageStatic,
+    FormField, IconButton, InfoMessage, Kbd, KeyboardHint, KeyboardHintWithIcon, KeyboardHints,
+    SaveCancelHints, SelectField, SubmitCancelButtons, SubmitCancelHints, SuccessMessage,
+    SuccessMessageStatic, TextAreaField, WarningMessage, WarningMessageStatic,
 };
 pub use graph_ops::{GraphOpsSender, use_graph_ops};
 pub use icon::{Icon, icons};

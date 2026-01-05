@@ -1,5 +1,6 @@
 use crate::ui::icon::{Icon, icons};
 use leptos::prelude::*;
+use leptos::web_sys;
 
 #[cfg(not(feature = "ssr"))]
 use leptos::wasm_bindgen::JsCast;
@@ -188,5 +189,148 @@ pub fn AlertDialog(
                 </div>
             </div>
         </BaseModal>
+    }
+}
+
+/// HTML `<dialog>` based modal component
+/// This uses the native HTML dialog element with `.showModal()` and `.close()`
+#[component]
+pub fn Dialog(
+    /// Whether dialog is open
+    is_open: Signal<bool>,
+    /// Callback to close dialog
+    on_close: Callback<()>,
+    /// Dialog content
+    children: Children,
+    /// Maximum width class (default: max-w-2xl)
+    #[prop(default = "max-w-2xl")]
+    max_width: &'static str,
+    /// Whether clicking backdrop closes dialog
+    #[prop(default = true)]
+    close_on_backdrop: bool,
+) -> impl IntoView {
+    let dialog_ref = NodeRef::<leptos::html::Dialog>::new();
+
+    // Handle opening/closing the dialog
+    #[cfg(not(feature = "ssr"))]
+    Effect::new(move || {
+        if let Some(dialog_el) = dialog_ref.get() {
+            let is_open_val = is_open.get();
+
+            // Check if dialog is already open
+            let is_currently_open = dialog_el.get_attribute("open").is_some();
+
+            if is_open_val && !is_currently_open {
+                let _ = dialog_el.show_modal();
+            } else if !is_open_val && is_currently_open {
+                dialog_el.close();
+            }
+        }
+    });
+
+    // Handle Escape key (automatically handled by dialog element, but we need to sync state)
+    #[cfg(not(feature = "ssr"))]
+    {
+        Effect::new(move || {
+            if let Some(dialog_el) = dialog_ref.get() {
+                let closure = leptos::wasm_bindgen::closure::Closure::wrap(Box::new(
+                    move |_: web_sys::Event| {
+                        on_close.run(());
+                    },
+                )
+                    as Box<dyn Fn(web_sys::Event)>);
+
+                let _ = dialog_el
+                    .add_event_listener_with_callback("close", closure.as_ref().unchecked_ref());
+
+                // Keep closure alive
+                closure.forget();
+            }
+        });
+    }
+
+    // Handle backdrop click
+    #[cfg(not(feature = "ssr"))]
+    let handle_backdrop_click = move |e: web_sys::MouseEvent| {
+        if close_on_backdrop {
+            if let Some(target) = e.target() {
+                // Check if the click target is the dialog itself (backdrop)
+                // and not a child element
+                if let Some(dialog_el) = dialog_ref.get() {
+                    if let Some(target_el) = target.dyn_ref::<web_sys::HtmlElement>() {
+                        if target_el == &dialog_el as &web_sys::HtmlElement {
+                            on_close.run(());
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    #[cfg(feature = "ssr")]
+    let handle_backdrop_click = move |_: web_sys::MouseEvent| {};
+
+    view! {
+        <dialog
+            node_ref=dialog_ref
+            class=format!("w-full {} card theme-transition backdrop:bg-black/50 backdrop:backdrop-blur-sm", max_width)
+            on:click=handle_backdrop_click
+        >
+            {children()}
+        </dialog>
+    }
+}
+
+/// Dialog with header component
+#[component]
+pub fn DialogWithHeader(
+    /// Dialog title
+    title: String,
+    /// Optional subtitle/description
+    #[prop(optional)]
+    subtitle: Option<String>,
+    /// Whether dialog is open
+    is_open: Signal<bool>,
+    /// Callback to close dialog
+    on_close: Callback<()>,
+    /// Dialog content
+    children: Children,
+    /// Maximum width class (default: max-w-2xl)
+    #[prop(default = "max-w-2xl")]
+    max_width: &'static str,
+    /// Whether clicking backdrop closes dialog
+    #[prop(default = true)]
+    close_on_backdrop: bool,
+    /// Whether to show close button in header
+    #[prop(default = true)]
+    show_close_button: bool,
+) -> impl IntoView {
+    view! {
+        <Dialog
+            is_open=is_open
+            on_close=on_close
+            max_width=max_width
+            close_on_backdrop=close_on_backdrop
+        >
+            <div class="card-header">
+                <div>
+                    <h3 class="title-lg">{title}</h3>
+                    {subtitle.map(|s| view! { <p class="subtitle">{s}</p> })}
+                </div>
+                {show_close_button.then(|| view! {
+                    <button
+                        class="btn-icon"
+                        on:click=move |_| on_close.run(())
+                        title="Close"
+                        aria-label="Close modal"
+                    >
+                        <Icon name=icons::X class="icon-standalone"/>
+                    </button>
+                })}
+            </div>
+            <div class="p-6">
+                {children()}
+            </div>
+        </Dialog>
     }
 }

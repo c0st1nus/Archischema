@@ -1,4 +1,4 @@
-use crate::ui::{CreateCancelHints, ErrorMessage, Icon, icons};
+use crate::ui::{CreateCancelHints, Dialog, ErrorMessage, Icon, icons};
 use leptos::prelude::*;
 use leptos::web_sys;
 
@@ -32,6 +32,8 @@ pub enum CreateTableResult {
 /// Диалог создания новой таблицы с настройкой первичного ключа
 #[component]
 pub fn NewTableDialog(
+    /// Whether dialog is open
+    is_open: Signal<bool>,
     /// Callback при создании таблицы (передаёт данные таблицы), возвращает результат
     #[prop(into)]
     on_create: Callback<NewTableData, CreateTableResult>,
@@ -53,11 +55,13 @@ pub fn NewTableDialog(
 
     let table_input_ref = NodeRef::<leptos::html::Input>::new();
 
-    // Auto-focus на input имени таблицы при монтировании
+    // Auto-focus на input имени таблицы при открытии диалога
     Effect::new(move || {
-        if let Some(input) = table_input_ref.get() {
-            let _ = input.focus();
-            input.select();
+        if is_open.get() {
+            if let Some(input) = table_input_ref.get() {
+                let _ = input.focus();
+                input.select();
+            }
         }
     });
 
@@ -148,7 +152,8 @@ pub fn NewTableDialog(
 
         match result {
             CreateTableResult::Success => {
-                // Успех - диалог закроется через on_create callback
+                // Успех - диалог закроется через on_cancel callback
+                set_is_creating.set(false);
             }
             CreateTableResult::Error(err) => {
                 set_is_creating.set(false);
@@ -159,6 +164,7 @@ pub fn NewTableDialog(
 
     let handle_cancel = move || {
         set_error.set(None);
+        set_is_creating.set(false);
         on_cancel.run(());
     };
 
@@ -167,66 +173,41 @@ pub fn NewTableDialog(
             ev.prevent_default();
             handle_create();
         }
-        "Escape" => {
-            ev.prevent_default();
-            handle_cancel();
-        }
         _ => {}
     };
 
     view! {
-        <div class="h-full flex flex-col space-y-4">
-            // Заголовок
-            <div>
-                <h3 class="title-lg">"New Table"</h3>
-                <p class="subtitle">
-                    "Create a new table with a primary key"
-                </p>
-            </div>
-
-            // Форма
-            <div class="space-y-4">
-                // Поле имени таблицы
+        <Dialog
+            is_open=is_open
+            on_close=Callback::new(move |_| handle_cancel())
+            max_width="max-w-md"
+            close_on_backdrop=true
+        >
+            <div class="h-full flex flex-col space-y-4">
+                // Заголовок
                 <div>
-                    <label class="label">
-                        "Table Name"
-                        <span class="text-red-500">"*"</span>
-                    </label>
-                    <input
-                        node_ref=table_input_ref
-                        type="text"
-                        class="input-base"
-                        placeholder="e.g., users, orders, products"
-                        prop:value=move || table_name.get()
-                        on:input=move |ev| {
-                            set_table_name.set(event_target_value(&ev));
-                            set_error.set(None);
-                        }
-                        on:keydown=handle_keydown
-                        disabled=move || is_creating.get()
-                    />
+                    <h3 class="title-lg">"New Table"</h3>
+                    <p class="subtitle">
+                        "Create a new table with a primary key"
+                    </p>
                 </div>
 
-                // Секция первичного ключа
-                <div class="card-info space-y-3">
-                    <div class="flex items-center text-sm font-medium text-theme-primary">
-                        <Icon name=icons::KEY class="icon-text text-yellow-500"/>
-                        "Primary Key"
-                    </div>
-
-                    // Имя первичного ключа
+                // Форма
+                <div class="space-y-4">
+                    // Поле имени таблицы
                     <div>
-                        <label class="label-sm">
-                            "Column Name"
+                        <label class="label">
+                            "Table Name"
                             <span class="text-red-500">"*"</span>
                         </label>
                         <input
+                            node_ref=table_input_ref
                             type="text"
-                            class="input-base input-sm"
-                            placeholder="e.g., id, user_id"
-                            prop:value=move || pk_name.get()
+                            class="input-base"
+                            placeholder="e.g., users, orders, products"
+                            prop:value=move || table_name.get()
                             on:input=move |ev| {
-                                set_pk_name.set(event_target_value(&ev));
+                                set_table_name.set(event_target_value(&ev));
                                 set_error.set(None);
                             }
                             on:keydown=handle_keydown
@@ -234,87 +215,115 @@ pub fn NewTableDialog(
                         />
                     </div>
 
-                    // Тип данных первичного ключа
-                    <div>
-                        <label class="label-sm">
-                            "Data Type"
-                        </label>
-                        <select
-                            class="select-base"
-                            prop:value=move || pk_type.get()
-                            on:change=move |ev| {
-                                set_pk_type.set(event_target_value(&ev));
-                            }
-                            disabled=move || is_creating.get()
-                        >
-                            {pk_types
-                                .iter()
-                                .map(|&dt| {
-                                    view! {
-                                        <option value=dt selected=move || pk_type.get() == dt>
-                                            {dt}
-                                        </option>
-                                    }
-                                })
-                                .collect_view()}
-                        </select>
+                    // Секция первичного ключа
+                    <div class="card-info space-y-3">
+                        <div class="flex items-center text-sm font-medium text-theme-primary">
+                            <Icon name=icons::KEY class="icon-text text-yellow-500"/>
+                            "Primary Key"
+                        </div>
+
+                        // Имя первичного ключа
+                        <div>
+                            <label class="label-sm">
+                                "Column Name"
+                                <span class="text-red-500">"*"</span>
+                            </label>
+                            <input
+                                type="text"
+                                class="input-base input-sm"
+                                placeholder="e.g., id, user_id"
+                                prop:value=move || pk_name.get()
+                                on:input=move |ev| {
+                                    set_pk_name.set(event_target_value(&ev));
+                                    set_error.set(None);
+                                }
+                                on:keydown=handle_keydown
+                                disabled=move || is_creating.get()
+                            />
+                        </div>
+
+                        // Тип данных первичного ключа
+                        <div>
+                            <label class="label-sm">
+                                "Data Type"
+                            </label>
+                            <select
+                                class="select-base"
+                                prop:value=move || pk_type.get()
+                                on:change=move |ev| {
+                                    set_pk_type.set(event_target_value(&ev));
+                                }
+                                disabled=move || is_creating.get()
+                            >
+                                {pk_types
+                                    .iter()
+                                    .map(|&dt| {
+                                        view! {
+                                            <option value=dt selected=move || pk_type.get() == dt>
+                                                {dt}
+                                            </option>
+                                        }
+                                    })
+                                    .collect_view()}
+                            </select>
+                        </div>
+
+                        // Информация о PK
+                        <div class="text-xs text-theme-muted flex items-start">
+                            <Icon name=icons::KEY class="w-3 h-3 mr-1 mt-0.5 flex-shrink-0 text-yellow-500"/>
+                            <span>"Primary key will be NOT NULL and auto-indexed"</span>
+                        </div>
                     </div>
 
-                    // Информация о PK
-                    <div class="text-xs text-theme-muted flex items-start">
-                        <Icon name=icons::KEY class="w-3 h-3 mr-1 mt-0.5 flex-shrink-0 text-yellow-500"/>
-                        <span>"Primary key will be NOT NULL and auto-indexed"</span>
-                    </div>
+                    // Ошибка
+                    <ErrorMessage error=error/>
                 </div>
 
-                // Ошибка
-                <ErrorMessage error=error/>
-            </div>
-
-            // Кнопки действий - центрированы
-            <div class="flex items-center justify-center space-x-3 divider-top pt-4">
-                <button
-                    class="btn-secondary px-5 py-2.5"
-                    on:click=move |_| handle_cancel()
-                    disabled=move || is_creating.get()
-                >
-                    "Cancel"
-                </button>
-                <button
-                    class="btn-primary px-6 py-2.5"
-                    on:click=move |_| handle_create()
-                    disabled=move || {
-                        is_creating.get()
-                            || table_name.get().trim().is_empty()
-                            || pk_name.get().trim().is_empty()
-                    }
-                >
-                    {move || {
-                        if is_creating.get() {
-                            view! {
-                                <>
-                                    <Icon name=icons::LOADER class="icon-btn spinner"/>
-                                    "Creating..."
-                                </>
-                            }
-                                .into_any()
-                        } else {
-                            view! {
-                                <>
-                                    <Icon name=icons::PLUS class="icon-btn"/>
-                                    "Create Table"
-                                </>
-                            }
-                                .into_any()
+                // Кнопки действий - центрированы
+                <div class="flex items-center justify-center space-x-3 divider-top pt-4">
+                    <button
+                        class="btn-secondary px-5 py-2.5"
+                        on:click=move |_| handle_cancel()
+                        disabled=move || is_creating.get()
+                    >
+                        "Cancel"
+                    </button>
+                    <button
+                        class="btn-primary px-6 py-2.5"
+                        on:click=move |_| handle_create()
+                        disabled=move || {
+                            is_creating.get()
+                                || table_name.get().trim().is_empty()
+                                || pk_name.get().trim().is_empty()
                         }
-                    }}
-                </button>
-            </div>
+                    >
+                        {move || {
+                            if is_creating.get() {
+                                view! {
+                                    <>
+                                        <Icon name=icons::LOADER class="icon-btn spinner"/>
+                                        "Creating..."
+                                    </>
+                                }
+                                    .into_any()
+                            } else {
+                                view! {
+                                    <>
+                                        <Icon name=icons::PLUS class="icon-btn"/>
+                                        "Create Table"
+                                    </>
+                                }
+                                    .into_any()
+                            }
+                        }}
+                    </button>
+                </div>
 
-            // Подсказка по горячим клавишам - внизу с margin
-            <div class="mt-auto pt-4 pb-2">
-                <CreateCancelHints/>
+                // Подсказка по горячим клавишам - внизу с margin
+                <div class="mt-auto pt-4 pb-2">
+                    <CreateCancelHints/>
+                </div>
             </div>
-        </div>
+        </Dialog>
     }
 }
