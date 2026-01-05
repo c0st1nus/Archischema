@@ -967,13 +967,48 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
             element_count,
             created_at: _,
         } => {
-            // TODO: Handle snapshot recovery
             leptos::logging::log!(
                 "Received snapshot recovery: id={}, {} elements, {} bytes",
                 snapshot_id,
                 element_count,
                 snapshot_data.len()
             );
+
+            // Deserialize and apply the snapshot to restore session state
+            use crate::core::liveshare::GraphStateSnapshot;
+            match serde_json::from_slice::<GraphStateSnapshot>(&snapshot_data) {
+                Ok(state) => {
+                    leptos::logging::log!(
+                        "Applying snapshot: {} tables, {} relationships",
+                        state.tables.len(),
+                        state.relationships.len()
+                    );
+
+                    // Mark as synced to prevent RequestGraphState
+                    ctx.initial_sync_done.set(true);
+
+                    // Dispatch custom event to apply the state
+                    #[cfg(not(feature = "ssr"))]
+                    {
+                        use leptos::wasm_bindgen::JsValue;
+                        if let Some(window) = web_sys::window() {
+                            let init = web_sys::CustomEventInit::new();
+                            init.set_detail(&JsValue::from_str(
+                                &serde_json::to_string(&state).unwrap_or_default(),
+                            ));
+                            if let Ok(event) = web_sys::CustomEvent::new_with_event_init_dict(
+                                "liveshare-graph-state",
+                                &init,
+                            ) {
+                                let _ = window.dispatch_event(&event);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    leptos::logging::error!("Failed to deserialize snapshot: {}", e);
+                }
+            }
         }
     }
 }

@@ -90,7 +90,8 @@ pub fn EditorPage() -> impl IntoView {
     let loading = RwSignal::new(true);
     let error = RwSignal::new(None::<String>);
     let save_status = RwSignal::new(SaveStatus::Saved);
-    let is_demo = Memo::new(move |_| diagram_id.get() == "demo");
+    // Demo mode should only be active if diagram_id is "demo" AND not connected to LiveShare
+    let is_demo = Memo::new(move |_| diagram_id.get() == "demo" && !liveshare_ctx.is_connected());
 
     // Handle diagram name change
     let on_name_change = Callback::new(move |new_name: String| {
