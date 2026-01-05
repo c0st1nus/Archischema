@@ -300,6 +300,8 @@ pub fn CursorTracker(
     {
         use crate::ui::liveshare_client::ConnectionState;
         use leptos::wasm_bindgen::{JsCast, closure::Closure};
+        use std::cell::RefCell;
+        use std::rc::Rc;
 
         let ctx = use_liveshare_context();
 
@@ -313,13 +315,20 @@ pub fn CursorTracker(
             let document = window.document().expect("no document");
 
             // Simple throttling - send latest position at ~50fps (20ms)
-            // Smoothing is handled on the receiving side
-            let last_update = std::rc::Rc::new(std::cell::RefCell::new(0.0_f64));
-            let last_position = std::rc::Rc::new(std::cell::RefCell::new(None::<(f64, f64)>));
+            let last_update = Rc::new(RefCell::new(0.0_f64));
+            let last_position = Rc::new(RefCell::new(None::<(f64, f64)>));
+
+            // Store transform values in Rc<RefCell> so closures can safely access them
+            let zoom_rc = Rc::new(RefCell::new(zoom.get_untracked()));
+            let pan_x_rc = Rc::new(RefCell::new(pan_x.get_untracked()));
+            let pan_y_rc = Rc::new(RefCell::new(pan_y.get_untracked()));
 
             let ctx_move = ctx;
             let last_update_move = last_update.clone();
             let last_position_move = last_position.clone();
+            let zoom_move = zoom_rc.clone();
+            let pan_x_move = pan_x_rc.clone();
+            let pan_y_move = pan_y_rc.clone();
 
             let mousemove = Closure::wrap(Box::new(move |e: web_sys::MouseEvent| {
                 let now = js_sys::Date::now();
@@ -328,10 +337,10 @@ pub fn CursorTracker(
                 let viewport_x = e.client_x() as f64;
                 let viewport_y = e.client_y() as f64;
 
-                // Get current transform values
-                let current_zoom = zoom.with_untracked(|v| *v);
-                let current_pan_x = pan_x.with_untracked(|v| *v);
-                let current_pan_y = pan_y.with_untracked(|v| *v);
+                // Get current transform values from Rc (no signal access)
+                let current_zoom = *zoom_move.borrow();
+                let current_pan_x = *pan_x_move.borrow();
+                let current_pan_y = *pan_y_move.borrow();
 
                 // Convert viewport coordinates to canvas coordinates
                 let canvas_x = (viewport_x - current_pan_x) / current_zoom;
@@ -363,8 +372,19 @@ pub fn CursorTracker(
                 mouseleave.as_ref().unchecked_ref(),
             );
 
-            // Leak the closures to keep them alive
-            // In a real app, you'd want to clean these up properly
+            // Update transform values when signals change - separate effect
+            let zoom_update = zoom_rc.clone();
+            let pan_x_update = pan_x_rc.clone();
+            let pan_y_update = pan_y_rc.clone();
+
+            Effect::new(move |_| {
+                *zoom_update.borrow_mut() = zoom.get();
+                *pan_x_update.borrow_mut() = pan_x.get();
+                *pan_y_update.borrow_mut() = pan_y.get();
+            });
+
+            // Leak closures - they live for the lifetime of the page
+            // This is acceptable for global document event listeners
             mousemove.forget();
             mouseleave.forget();
         });
