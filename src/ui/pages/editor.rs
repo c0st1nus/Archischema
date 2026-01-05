@@ -179,8 +179,16 @@ pub fn EditorPage() -> impl IntoView {
     // Update diagram name when connected to LiveShare
     Effect::new(move |_| {
         if let Some(room_info) = liveshare_ctx.room_info.get() {
+            leptos::logging::log!(
+                "LiveShare room_info updated: diagram_id={:?}, diagram_name={:?}",
+                room_info.diagram_id,
+                room_info.diagram_name
+            );
             if let Some(name) = room_info.diagram_name {
+                leptos::logging::log!("Setting diagram name from LiveShare: {}", name);
                 diagram_name.set(name);
+            } else {
+                leptos::logging::log!("LiveShare room_info has no diagram_name");
             }
         }
     });

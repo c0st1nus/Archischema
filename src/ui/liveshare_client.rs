@@ -689,6 +689,11 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
             if success {
                 ctx.connection_state.set(ConnectionState::Connected);
                 if let Some(info) = room_info {
+                    leptos::logging::log!(
+                        "Received room_info from server: diagram_id={:?}, diagram_name={:?}",
+                        info.diagram_id,
+                        info.diagram_name
+                    );
                     // Add existing users from room info
                     let remote_users: Vec<RemoteUser> = info
                         .users
@@ -697,7 +702,13 @@ fn handle_message(ctx: &LiveShareContext, text: &str) {
                         .map(|u| RemoteUser::new(u.user_id, u.username.clone()))
                         .collect();
                     ctx.remote_users.set(remote_users.clone());
-                    ctx.room_info.set(Some(info.into()));
+                    let room_info_converted: RoomInfo = info.into();
+                    leptos::logging::log!(
+                        "Setting room_info signal: diagram_id={:?}, diagram_name={:?}",
+                        room_info_converted.diagram_id,
+                        room_info_converted.diagram_name
+                    );
+                    ctx.room_info.set(Some(room_info_converted));
 
                     // If there are other users, request graph state from them
                     if !remote_users.is_empty() {
