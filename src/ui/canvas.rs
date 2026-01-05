@@ -439,8 +439,10 @@ pub fn SchemaCanvas(
                 move |e: web_sys::CustomEvent| {
                     if let Some(detail) = e.detail().as_string() {
                         if let Ok(state) = serde_json::from_str::<GraphStateSnapshot>(&detail) {
-                            // Check if user has local data before replacing
-                            let had_local_data = graph_clone.with_untracked(|g| g.node_count() > 0);
+                            // Check if signal is still valid before accessing
+                            let had_local_data = graph_clone
+                                .try_with_untracked(|g| g.node_count() > 0)
+                                .unwrap_or(false);
 
                             leptos::logging::log!(
                                 "Applying graph state: {} tables, {} relationships",
@@ -448,13 +450,23 @@ pub fn SchemaCanvas(
                                 state.relationships.len()
                             );
 
-                            apply_graph_state(graph_clone, state);
-
-                            // Show notification if local data was replaced
-                            if had_local_data {
-                                notif_manager.warning(
-                                    "Session Joined",
-                                    "Your local tables were replaced with the LiveShare session state"
+                            // Only apply if signal is still valid
+                            if graph_clone
+                                .try_update_untracked(|g| {
+                                    apply_graph_state_internal(g, state.clone());
+                                })
+                                .is_some()
+                            {
+                                // Show notification if local data was replaced
+                                if had_local_data {
+                                    notif_manager.warning(
+                                        "Session Joined",
+                                        "Your local tables were replaced with the LiveShare session state"
+                                    );
+                                }
+                            } else {
+                                leptos::logging::log!(
+                                    "Ignoring graph state: component has been disposed"
                                 );
                             }
                         }
@@ -481,15 +493,22 @@ pub fn SchemaCanvas(
                     if let Some(detail) = e.detail().as_string() {
                         // Parse requester_id from the detail
                         if let Ok(requester_id) = uuid::Uuid::parse_str(&detail) {
-                            // Create snapshot of current graph state
-                            let state = create_graph_snapshot(graph_clone);
-                            leptos::logging::log!(
-                                "Sending graph state to {:?}: {} tables",
-                                requester_id,
-                                state.tables.len()
-                            );
-                            // Send it to the requester
-                            ctx_clone.send_graph_state_response(requester_id, state);
+                            // Check if signal is still valid before creating snapshot
+                            if let Some(state) = graph_clone
+                                .try_with_untracked(|g| create_graph_snapshot_internal(g))
+                            {
+                                leptos::logging::log!(
+                                    "Sending graph state to {:?}: {} tables",
+                                    requester_id,
+                                    state.tables.len()
+                                );
+                                // Send it to the requester
+                                ctx_clone.send_graph_state_response(requester_id, state);
+                            } else {
+                                leptos::logging::log!(
+                                    "Cannot send graph state: component has been disposed"
+                                );
+                            }
                         }
                     }
                 });
@@ -1763,159 +1782,171 @@ fn apply_remote_graph_op(graph: RwSignal<SchemaGraph>, op: GraphOperation) {
 
 /// Apply a full graph state snapshot (for initial sync)
 #[cfg(not(feature = "ssr"))]
+#[allow(dead_code)]
 fn apply_graph_state(graph: RwSignal<SchemaGraph>, state: GraphStateSnapshot) {
+    graph.update(|g| {
+        apply_graph_state_internal(g, state);
+    });
+}
+
+/// Internal function to apply graph state without going through signal
+#[cfg(not(feature = "ssr"))]
+fn apply_graph_state_internal(g: &mut SchemaGraph, state: GraphStateSnapshot) {
     use crate::core::TableNode;
 
-    graph.update(|g| {
-        // When receiving graph state from a LiveShare session, we should:
-        // 1. Clear ALL local tables and relationships
-        // 2. Apply the state from the session
-        // This ensures that joining a session replaces local work with session state
+    // When receiving graph state from a LiveShare session, we should:
+    // 1. Clear ALL local tables and relationships
+    // 2. Apply the state from the session
+    // This ensures that joining a session replaces local work with session state
 
-        let had_local_data = g.node_count() > 0;
+    let had_local_data = g.node_count() > 0;
 
-        if had_local_data {
-            leptos::logging::log!(
-                "Replacing {} local tables with {} tables from LiveShare session",
-                g.node_count(),
-                state.tables.len()
-            );
-        }
+    if had_local_data {
+        leptos::logging::log!(
+            "Replacing {} local tables with {} tables from LiveShare session",
+            g.node_count(),
+            state.tables.len()
+        );
+    }
 
-        // Clear the entire graph
-        *g = SchemaGraph::new();
+    // Clear the entire graph
+    *g = SchemaGraph::new();
 
-        // Apply tables from snapshot
-        for table in state.tables {
-            let mut node =
-                TableNode::new(&table.name).with_position(table.position.0, table.position.1);
+    // Apply tables from snapshot
+    for table in state.tables {
+        let mut node =
+            TableNode::new(&table.name).with_position(table.position.0, table.position.1);
 
-            // Preserve the UUID from the snapshot
-            node.uuid = table.table_uuid;
+        // Preserve the UUID from the snapshot
+        node.uuid = table.table_uuid;
 
-            // Add columns
-            for col_data in table.columns {
-                use crate::core::Column;
-                let mut col = Column::new(&col_data.name, &col_data.data_type);
-                if col_data.is_primary_key {
-                    col = col.primary_key();
-                }
-                if !col_data.is_nullable {
-                    col = col.not_null();
-                }
-                if col_data.is_unique {
-                    col = col.unique();
-                }
-                if let Some(default) = col_data.default_value {
-                    col = col.with_default(&default);
-                }
-                node.columns.push(col);
+        // Add columns
+        for col_data in table.columns {
+            use crate::core::Column;
+            let mut col = Column::new(&col_data.name, &col_data.data_type);
+            if col_data.is_primary_key {
+                col = col.primary_key();
             }
-
-            g.add_node(node);
-        }
-
-        // Apply relationships from snapshot
-        for rel_snap in state.relationships {
-            use crate::core::{Relationship, RelationshipType};
-
-            let from_idx = NodeIndex::new(rel_snap.from_node as usize);
-            let to_idx = NodeIndex::new(rel_snap.to_node as usize);
-
-            // Only add if both nodes exist
-            if g.node_weight(from_idx).is_some() && g.node_weight(to_idx).is_some() {
-                let rel_type = match rel_snap.data.relationship_type.as_str() {
-                    "1:1" => RelationshipType::OneToOne,
-                    "1:N" => RelationshipType::OneToMany,
-                    "N:1" => RelationshipType::ManyToOne,
-                    "N:M" => RelationshipType::ManyToMany,
-                    _ => RelationshipType::ManyToOne, // Default to M:1 as most common FK type
-                };
-
-                let rel = Relationship::new(
-                    &rel_snap.data.name,
-                    rel_type,
-                    &rel_snap.data.from_column,
-                    &rel_snap.data.to_column,
-                );
-
-                g.add_edge(from_idx, to_idx, rel);
+            if !col_data.is_nullable {
+                col = col.not_null();
             }
+            if col_data.is_unique {
+                col = col.unique();
+            }
+            if let Some(default) = col_data.default_value {
+                col = col.with_default(&default);
+            }
+            node.columns.push(col);
         }
 
-        if had_local_data {
-            leptos::logging::log!(
-                "Successfully replaced local state with LiveShare session state: {} tables, {} relationships",
-                g.node_count(),
-                g.edge_count()
+        g.add_node(node);
+    }
+
+    // Apply relationships from snapshot
+    for rel_snap in state.relationships {
+        use crate::core::{Relationship, RelationshipType};
+
+        let from_idx = NodeIndex::new(rel_snap.from_node as usize);
+        let to_idx = NodeIndex::new(rel_snap.to_node as usize);
+
+        // Only add if both nodes exist
+        if g.node_weight(from_idx).is_some() && g.node_weight(to_idx).is_some() {
+            let rel_type = match rel_snap.data.relationship_type.as_str() {
+                "1:1" => RelationshipType::OneToOne,
+                "1:N" => RelationshipType::OneToMany,
+                "N:1" => RelationshipType::ManyToOne,
+                "N:M" => RelationshipType::ManyToMany,
+                _ => RelationshipType::ManyToOne, // Default to M:1 as most common FK type
+            };
+
+            let rel = Relationship::new(
+                &rel_snap.data.name,
+                rel_type,
+                &rel_snap.data.from_column,
+                &rel_snap.data.to_column,
             );
+
+            g.add_edge(from_idx, to_idx, rel);
         }
-    });
+    }
+
+    if had_local_data {
+        leptos::logging::log!(
+            "Successfully replaced local state with LiveShare session state: {} tables, {} relationships",
+            g.node_count(),
+            g.edge_count()
+        );
+    }
 }
 
 /// Create a snapshot of the current graph state
 #[cfg(not(feature = "ssr"))]
+#[allow(dead_code)]
 fn create_graph_snapshot(graph: RwSignal<SchemaGraph>) -> GraphStateSnapshot {
-    graph.with_untracked(|g| {
-        let tables: Vec<TableSnapshot> = g
-            .node_indices()
-            .filter_map(|idx| {
-                g.node_weight(idx).map(|node| {
-                    let columns: Vec<ColumnData> = node
-                        .columns
-                        .iter()
-                        .map(|col| ColumnData {
-                            name: col.name.clone(),
-                            data_type: col.data_type.to_string(),
-                            is_primary_key: col.is_primary_key,
-                            is_nullable: col.is_nullable,
-                            is_unique: col.is_unique,
-                            default_value: col.default_value.clone(),
-                            foreign_key: None, // TODO: handle FK
-                        })
-                        .collect();
+    graph.with_untracked(|g| create_graph_snapshot_internal(g))
+}
 
-                    TableSnapshot {
-                        node_id: idx.index() as u32,
-                        table_uuid: node.uuid,
-                        name: node.name.clone(),
-                        position: node.position,
-                        columns,
-                        version: 0,
-                        last_modified_at: 0,
-                        is_deleted: false,
-                    }
-                })
-            })
-            .collect();
+/// Internal function to create a graph snapshot without going through signal
+#[cfg(not(feature = "ssr"))]
+fn create_graph_snapshot_internal(g: &SchemaGraph) -> GraphStateSnapshot {
+    let tables: Vec<TableSnapshot> = g
+        .node_indices()
+        .filter_map(|idx| {
+            g.node_weight(idx).map(|node| {
+                let columns: Vec<ColumnData> = node
+                    .columns
+                    .iter()
+                    .map(|col| ColumnData {
+                        name: col.name.clone(),
+                        data_type: col.data_type.to_string(),
+                        is_primary_key: col.is_primary_key,
+                        is_nullable: col.is_nullable,
+                        is_unique: col.is_unique,
+                        default_value: col.default_value.clone(),
+                        foreign_key: None, // TODO: handle FK
+                    })
+                    .collect();
 
-        // Collect relationships (edges)
-        let relationships: Vec<RelationshipSnapshot> = g
-            .edge_indices()
-            .filter_map(|idx| {
-                let (from_idx, to_idx) = g.edge_endpoints(idx)?;
-                let edge = g.edge_weight(idx)?;
-
-                Some(RelationshipSnapshot {
-                    edge_id: idx.index() as u32,
-                    from_node: from_idx.index() as u32,
-                    to_node: to_idx.index() as u32,
-                    data: RelationshipData {
-                        name: edge.name.clone(),
-                        relationship_type: edge.relationship_type.to_string(),
-                        from_column: edge.from_column.clone(),
-                        to_column: edge.to_column.clone(),
-                    },
+                TableSnapshot {
+                    node_id: idx.index() as u32,
+                    table_uuid: node.uuid,
+                    name: node.name.clone(),
+                    position: node.position,
+                    columns,
                     version: 0,
                     last_modified_at: 0,
                     is_deleted: false,
-                })
+                }
             })
-            .collect();
+        })
+        .collect();
 
-        GraphStateSnapshot {
-            tables,
-            relationships,
-        }
-    })
+    // Collect relationships (edges)
+    let relationships: Vec<RelationshipSnapshot> = g
+        .edge_indices()
+        .filter_map(|idx| {
+            let (from_idx, to_idx) = g.edge_endpoints(idx)?;
+            let edge = g.edge_weight(idx)?;
+
+            Some(RelationshipSnapshot {
+                edge_id: idx.index() as u32,
+                from_node: from_idx.index() as u32,
+                to_node: to_idx.index() as u32,
+                data: RelationshipData {
+                    name: edge.name.clone(),
+                    relationship_type: edge.relationship_type.to_string(),
+                    from_column: edge.from_column.clone(),
+                    to_column: edge.to_column.clone(),
+                },
+                version: 0,
+                last_modified_at: 0,
+                is_deleted: false,
+            })
+        })
+        .collect();
+
+    GraphStateSnapshot {
+        tables,
+        relationships,
+    }
 }
