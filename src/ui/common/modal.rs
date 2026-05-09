@@ -195,6 +195,7 @@ pub fn AlertDialog(
 /// HTML `<dialog>` based modal component
 /// This uses the native HTML dialog element with `.showModal()` and `.close()`
 #[component]
+#[allow(unused_variables)] // is_open / on_close / close_on_backdrop only used in CSR path
 pub fn Dialog(
     /// Whether dialog is open
     is_open: Signal<bool>,

@@ -59,45 +59,67 @@ pub fn SyncStatusBadge() -> impl IntoView {
         ConnectionState::Error => "Connection error".to_string(),
     };
 
-    let get_status_colors = move || {
-        let (container, dot) = match connection_state.get() {
-            ConnectionState::Disconnected => ("bg-gray-500/10 border-gray-500/30", "bg-gray-400"),
-            ConnectionState::Connecting => {
-                ("bg-yellow-500/10 border-yellow-500/30", "bg-yellow-400")
-            }
-            ConnectionState::Connected => match sync_status.get() {
-                SyncStatus::Idle => ("bg-blue-500/10 border-blue-500/30", "bg-blue-400"),
-                SyncStatus::Syncing => (
-                    "bg-blue-500/10 border-blue-500/30",
-                    "bg-blue-400 animate-pulse",
-                ),
-                SyncStatus::Synced => ("bg-green-500/10 border-green-500/30", "bg-green-400"),
-                SyncStatus::Error => ("bg-red-500/10 border-red-500/30", "bg-red-400"),
-                SyncStatus::Throttled => ("bg-orange-500/10 border-orange-500/30", "bg-orange-400"),
-            },
-            ConnectionState::Reconnecting => (
-                "bg-orange-500/10 border-orange-500/30",
-                "bg-orange-400 animate-pulse",
+    let get_status_styles = move || match connection_state.get() {
+        ConnectionState::Disconnected => (
+            "color: var(--muted-foreground); border-color: color-mix(in oklab, var(--muted-foreground) 28%, transparent); background: color-mix(in oklab, var(--muted-foreground) 10%, transparent);",
+            "background: var(--muted-foreground);",
+            "",
+        ),
+        ConnectionState::Connecting => (
+            "color: var(--warning); border-color: color-mix(in oklab, var(--warning) 35%, transparent); background: var(--warning-soft);",
+            "background: var(--warning);",
+            "animate-pulse",
+        ),
+        ConnectionState::Connected => match sync_status.get() {
+            SyncStatus::Idle => (
+                "color: var(--info); border-color: color-mix(in oklab, var(--info) 35%, transparent); background: var(--info-soft);",
+                "background: var(--info);",
+                "",
             ),
-            ConnectionState::Error => ("bg-red-500/10 border-red-500/30", "bg-red-400"),
-        };
-        ("text-theme-primary", container, dot)
+            SyncStatus::Syncing => (
+                "color: var(--info); border-color: color-mix(in oklab, var(--info) 35%, transparent); background: var(--info-soft);",
+                "background: var(--info);",
+                "animate-pulse",
+            ),
+            SyncStatus::Synced => (
+                "color: var(--success); border-color: var(--success-border); background: var(--success-soft);",
+                "background: var(--success);",
+                "",
+            ),
+            SyncStatus::Error => (
+                "color: var(--destructive); border-color: var(--error-border); background: var(--destructive-soft);",
+                "background: var(--destructive);",
+                "",
+            ),
+            SyncStatus::Throttled => (
+                "color: var(--warning); border-color: var(--warning-border); background: var(--warning-soft);",
+                "background: var(--warning);",
+                "",
+            ),
+        },
+        ConnectionState::Reconnecting => (
+            "color: var(--warning); border-color: var(--warning-border); background: var(--warning-soft);",
+            "background: var(--warning);",
+            "animate-pulse",
+        ),
+        ConnectionState::Error => (
+            "color: var(--destructive); border-color: var(--error-border); background: var(--destructive-soft);",
+            "background: var(--destructive);",
+            "",
+        ),
     };
 
     view! {
         <Show when=move || is_visible.get()>
-            <div class={move || {
-                let (_, container, _) = get_status_colors();
-                format!(
-                    "inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border backdrop-blur-sm transition-all duration-300 {}",
-                    container
-                )
-            }}>
+            <div
+                class="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 backdrop-blur-sm theme-transition"
+                style=move || get_status_styles().0
+            >
                 <div class={move || {
-                    let (_, _, dot) = get_status_colors();
-                    format!("w-2 h-2 rounded-full {}", dot)
-                }}></div>
-                <span class="text-xs font-medium text-theme-primary whitespace-nowrap">
+                    let (_, _, pulse) = get_status_styles();
+                    format!("h-2 w-2 rounded-full {}", pulse)
+                }} style=move || get_status_styles().1></div>
+                <span class="whitespace-nowrap text-xs font-medium">
                     {status_text}
                 </span>
             </div>
@@ -131,11 +153,11 @@ pub fn UserPresenceIndicator() -> impl IntoView {
     };
 
     view! {
-        <div class="inline-flex items-center gap-2">
-        <Icon name=icons::USER_PLUS class="icon-text text-theme-secondary" />
-        <span class="text-xs font-medium text-theme-primary">
-            {move || format!("{} user{}", user_count(), if user_count() != 1 { "s" } else { "" })}
-        </span>
+        <div class="inline-flex items-center gap-2 rounded-lg border border-theme-primary bg-theme-secondary px-2.5 py-1.5">
+            <Icon name=icons::USER_PLUS class="icon-text text-theme-secondary" />
+            <span class="text-xs font-medium text-theme-primary">
+                {move || format!("{} user{}", user_count(), if user_count() != 1 { "s" } else { "" })}
+            </span>
             <Show when=move || !active_users().is_empty() || !idle_users().is_empty()>
                 <div class="flex items-center gap-1">
                     {move || {
@@ -149,7 +171,7 @@ pub fn UserPresenceIndicator() -> impl IntoView {
                             let opacity = if user.is_active { "opacity-100" } else { "opacity-50" };
                             view! {
                                 <div
-                                    class={format!("w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white {}", opacity)}
+                                    class={format!("flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold text-white {}", opacity)}
                                     style=move || format!("background-color: {}", user.color)
                                     title={if user.is_active { format!("{} (active)", user.username) } else { format!("{} (idle)", user.username) }}
                                 >
@@ -213,11 +235,12 @@ pub fn ConnectionStatusBar() -> impl IntoView {
     view! {
         <Show when=should_show>
             <div class="fixed top-20 left-1/2 transform -translate-x-1/2 z-50">
-                <div class="bg-orange-500/10 border border-orange-500/30 rounded-lg px-4 py-2 flex items-center gap-3 backdrop-blur-sm shadow-lg">
-                    <Icon name=icons::ALERT_CIRCLE class="icon-text text-orange-400" />
-                    <span class="text-sm text-orange-400">{message}</span>
+                <div class="flex items-center gap-3 rounded-lg border border-theme-warning bg-theme-warning px-4 py-2 shadow-theme-lg backdrop-blur-sm">
+                    <Icon name=icons::ALERT_CIRCLE class="icon-text text-theme-warning" />
+                    <span class="text-sm text-theme-warning">{message}</span>
                     <button
-                        class="btn-xs bg-orange-500/20 hover:bg-orange-500/30 text-orange-400"
+                        type="button"
+                        class="btn-warning btn-sm"
                         on:click=retry
                     >
                         "Retry Now"
@@ -253,9 +276,9 @@ pub fn SnapshotSaveIndicator() -> impl IntoView {
     view! {
         <div class={move || {
             if snapshot_saving.get() {
-                "inline-flex items-center gap-2 px-2 py-1 rounded text-xs text-blue-400 animate-pulse"
+                "inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-theme-accent animate-pulse"
             } else {
-                "inline-flex items-center gap-2 px-2 py-1 rounded text-xs text-green-400"
+                "inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-theme-success"
             }
         }}>
             <Icon name={

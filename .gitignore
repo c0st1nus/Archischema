@@ -20,3 +20,7 @@ style/output.css
 .DS_Store
 .env
 .zed
+
+# Design files
+Archischema(1)
+.playwright-mcp

@@ -28,8 +28,8 @@ async fn main() {
     // Load .env file (if exists)
     let _ = dotenvy::dotenv();
 
-    // Initialize tracing
-    tracing_subscriber::fmt::init();
+    // Initialize tracing (try_init to avoid panicking if already initialised by tests)
+    let _ = tracing_subscriber::fmt().try_init();
 
     // Load application config from environment variables
     let config = Config::from_env();
@@ -101,11 +101,9 @@ async fn main() {
     let routes = generate_route_list(App);
 
     // Create diagram repository if database is available (for LiveShare to fetch diagram metadata)
-    let diagram_repo_for_liveshare = if let Some(ref pool) = db_pool {
-        Some(DiagramRepository::new(pool.clone()))
-    } else {
-        None
-    };
+    let diagram_repo_for_liveshare = db_pool
+        .as_ref()
+        .map(|pool| DiagramRepository::new(pool.clone()));
 
     // Create LiveShare state
     // Use the server address for WebSocket URLs

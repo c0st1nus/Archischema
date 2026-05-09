@@ -199,14 +199,13 @@ pub fn RegisterForm(
     };
 
     let form_content = view! {
-        <form on:submit=on_submit class="space-y-5">
-            // Header
-            <div class="text-center">
-                <h2 class="text-2xl font-bold text-theme-primary">
-                    "Create Account"
-                </h2>
-                <p class="mt-2 text-sm text-theme-secondary">
-                    "Join Archischema to save and share your diagrams"
+        <form on:submit=on_submit class="space-y-[18px]" aria-busy=move || auth.loading.get()>
+            <div class="mt-3">
+                <h1 class="m-0 text-[26px] font-semibold tracking-[-0.02em] text-theme-primary">
+                    "Create your account"
+                </h1>
+                <p class="mt-1.5 text-[13px] text-theme-muted">
+                    "Start free. No credit card required."
                 </p>
             </div>
 
@@ -214,8 +213,8 @@ pub fn RegisterForm(
             {move || {
                 auth.error.get().map(|error| {
                     view! {
-                        <div class="p-3 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-lg">
-                            <p class="text-sm text-red-700 dark:text-red-300">{error}</p>
+                        <div class="rounded-lg border border-theme-error bg-theme-error p-3">
+                            <p class="text-sm text-theme-error">{error}</p>
                         </div>
                     }
                 })
@@ -223,7 +222,7 @@ pub fn RegisterForm(
 
             // Email field
             <div>
-                <label for="email" class="block text-sm font-medium text-theme-primary mb-1">
+                <label for="email" class="field-label">
                     "Email"
                 </label>
                 <input
@@ -231,12 +230,12 @@ pub fn RegisterForm(
                     id="email"
                     name="email"
                     autocomplete="email"
+                    spellcheck="false"
                     placeholder="you@example.com"
-                    class="w-full px-3 py-2 bg-theme-secondary border border-theme rounded-lg
-                           text-theme-primary placeholder-theme-tertiary
-                           focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent
-                           transition-colors"
-                    class:border-red-500=move || email_error.get().is_some()
+                    class="input input-lg"
+                    class:border-theme-error=move || email_error.get().is_some()
+                    aria-invalid=move || email_error.get().is_some()
+                    aria-describedby="register-email-error"
                     prop:value=move || email.get()
                     on:input=move |ev| {
                         email.set(event_target_value(&ev));
@@ -247,7 +246,7 @@ pub fn RegisterForm(
                 {move || {
                     email_error.get().map(|error| {
                         view! {
-                            <p class="mt-1 text-sm text-red-500">{error}</p>
+                            <p id="register-email-error" class="mt-1 text-xs text-theme-error">{error}</p>
                         }
                     })
                 }}
@@ -255,7 +254,7 @@ pub fn RegisterForm(
 
             // Username field
             <div>
-                <label for="username" class="block text-sm font-medium text-theme-primary mb-1">
+                <label for="username" class="field-label">
                     "Username"
                 </label>
                 <input
@@ -263,12 +262,12 @@ pub fn RegisterForm(
                     id="username"
                     name="username"
                     autocomplete="username"
+                    spellcheck="false"
                     placeholder="Choose a username"
-                    class="w-full px-3 py-2 bg-theme-secondary border border-theme rounded-lg
-                           text-theme-primary placeholder-theme-tertiary
-                           focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent
-                           transition-colors"
-                    class:border-red-500=move || username_error.get().is_some()
+                    class="input input-lg"
+                    class:border-theme-error=move || username_error.get().is_some()
+                    aria-invalid=move || username_error.get().is_some()
+                    aria-describedby="username-error"
                     prop:value=move || username.get()
                     on:input=move |ev| {
                         username.set(event_target_value(&ev));
@@ -279,7 +278,7 @@ pub fn RegisterForm(
                 {move || {
                     username_error.get().map(|error| {
                         view! {
-                            <p class="mt-1 text-sm text-red-500">{error}</p>
+                            <p id="username-error" class="mt-1 text-xs text-theme-error">{error}</p>
                         }
                     })
                 }}
@@ -287,7 +286,7 @@ pub fn RegisterForm(
 
             // Password field
             <div>
-                <label for="password" class="block text-sm font-medium text-theme-primary mb-1">
+                <label for="password" class="field-label">
                     "Password"
                 </label>
                 <div class="relative">
@@ -297,11 +296,10 @@ pub fn RegisterForm(
                         name="password"
                         autocomplete="new-password"
                         placeholder="Create a strong password"
-                        class="w-full px-3 py-2 pr-10 bg-theme-secondary border border-theme rounded-lg
-                               text-theme-primary placeholder-theme-tertiary
-                               focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent
-                               transition-colors"
-                        class:border-red-500=move || password_error.get().is_some()
+                        class="input input-lg pr-10"
+                        class:border-theme-error=move || password_error.get().is_some()
+                        aria-invalid=move || password_error.get().is_some()
+                        aria-describedby="register-password-error"
                         prop:value=move || password.get()
                         on:input=move |ev| {
                             password.set(event_target_value(&ev));
@@ -311,17 +309,18 @@ pub fn RegisterForm(
                     />
                     <button
                         type="button"
-                        class="absolute inset-y-0 right-0 pr-3 flex items-center text-theme-tertiary hover:text-theme-secondary"
+                        class="btn-icon absolute right-1 top-1/2 -translate-y-1/2"
                         on:click=move |_| show_password.update(|v| *v = !*v)
+                        aria-label=move || if show_password.get() { "Hide password" } else { "Show password" }
                     >
                         {move || {
                             if show_password.get() {
                                 view! {
-                                    <Icon name=icons::EYE_CLOSED class="h-5 w-5" />
+                                    <Icon name=icons::EYE_CLOSED class="h-4 w-4" />
                                 }.into_any()
                             } else {
                                 view! {
-                                    <Icon name=icons::EYE class="h-5 w-5" />
+                                    <Icon name=icons::EYE class="h-4 w-4" />
                                 }.into_any()
                             }
                         }}
@@ -332,21 +331,21 @@ pub fn RegisterForm(
                     let (strength, label) = password_strength();
                     if !password.get().is_empty() {
                         let color_class = match strength {
-                            1 => "bg-red-500",
-                            2 => "bg-yellow-500",
-                            _ => "bg-green-500",
+                            1 => "bg-theme-error",
+                            2 => "bg-theme-warning",
+                            _ => "bg-theme-success",
                         };
                         let text_class = match strength {
-                            1 => "text-red-500",
-                            2 => "text-yellow-500",
-                            _ => "text-green-500",
+                            1 => "text-theme-error",
+                            2 => "text-theme-warning",
+                            _ => "text-theme-success",
                         };
                         Some(view! {
                             <div class="mt-2">
                                 <div class="flex gap-1 mb-1">
-                                    <div class={format!("h-1 flex-1 rounded {}", if strength >= 1 { color_class } else { "bg-gray-300 dark:bg-gray-600" })}></div>
-                                    <div class={format!("h-1 flex-1 rounded {}", if strength >= 2 { color_class } else { "bg-gray-300 dark:bg-gray-600" })}></div>
-                                    <div class={format!("h-1 flex-1 rounded {}", if strength >= 3 { color_class } else { "bg-gray-300 dark:bg-gray-600" })}></div>
+                                    <div class={format!("h-1 flex-1 rounded {}", if strength >= 1 { color_class } else { "bg-theme-tertiary" })}></div>
+                                    <div class={format!("h-1 flex-1 rounded {}", if strength >= 2 { color_class } else { "bg-theme-tertiary" })}></div>
+                                    <div class={format!("h-1 flex-1 rounded {}", if strength >= 3 { color_class } else { "bg-theme-tertiary" })}></div>
                                 </div>
                                 <p class={format!("text-xs {}", text_class)}>{label}</p>
                             </div>
@@ -358,7 +357,7 @@ pub fn RegisterForm(
                 {move || {
                     password_error.get().map(|error| {
                         view! {
-                            <p class="mt-1 text-sm text-red-500">{error}</p>
+                            <p id="register-password-error" class="mt-1 text-xs text-theme-error">{error}</p>
                         }
                     })
                 }}
@@ -366,8 +365,8 @@ pub fn RegisterForm(
 
             // Confirm password field
             <div>
-                <label for="confirm-password" class="block text-sm font-medium text-theme-primary mb-1">
-                    "Confirm Password"
+                <label for="confirm-password" class="field-label">
+                    "Confirm password"
                 </label>
                 <input
                     type=move || if show_password.get() { "text" } else { "password" }
@@ -375,11 +374,10 @@ pub fn RegisterForm(
                     name="confirm-password"
                     autocomplete="new-password"
                     placeholder="Confirm your password"
-                    class="w-full px-3 py-2 bg-theme-secondary border border-theme rounded-lg
-                           text-theme-primary placeholder-theme-tertiary
-                           focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent
-                           transition-colors"
-                    class:border-red-500=move || confirm_error.get().is_some()
+                    class="input input-lg"
+                    class:border-theme-error=move || confirm_error.get().is_some()
+                    aria-invalid=move || confirm_error.get().is_some()
+                    aria-describedby="confirm-password-error"
                     prop:value=move || confirm_password.get()
                     on:input=move |ev| {
                         confirm_password.set(event_target_value(&ev));
@@ -390,7 +388,7 @@ pub fn RegisterForm(
                 {move || {
                     confirm_error.get().map(|error| {
                         view! {
-                            <p class="mt-1 text-sm text-red-500">{error}</p>
+                            <p id="confirm-password-error" class="mt-1 text-xs text-theme-error">{error}</p>
                         }
                     })
                 }}
@@ -399,33 +397,29 @@ pub fn RegisterForm(
             // Submit button
             <button
                 type="submit"
-                class="w-full py-2.5 px-4 bg-accent-primary hover:bg-accent-primary-hover
-                       text-white font-medium rounded-lg
-                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-primary
-                       disabled:opacity-50 disabled:cursor-not-allowed
-                       transition-colors"
+                class="btn btn-primary btn-lg w-full"
                 disabled=move || auth.loading.get()
             >
                 {move || {
                     if auth.loading.get() {
                         view! {
-                            <span class="flex items-center justify-center">
-                                <Icon name=icons::LOADER class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" />
+                            <span class="flex items-center justify-center gap-2">
+                                <Icon name=icons::LOADER class="icon-spin h-4 w-4" />
                                 "Creating account..."
                             </span>
                         }.into_any()
                     } else {
-                        view! { <span class="block">"Create Account"</span> }.into_any()
+                        view! { <span>"Create account"</span> }.into_any()
                     }
                 }}
             </button>
 
             // Login link
-            <div class="text-center text-sm text-theme-secondary">
-                "Already have an account? "
+            <div class="text-center text-xs text-theme-muted">
+                "Have an account? "
                 <button
                     type="button"
-                    class="text-accent-primary hover:text-accent-primary-hover font-medium"
+                    class="btn-link"
                     on:click=move |_| {
                         if let Some(callback) = on_login_click.as_ref() {
                             callback.run(());
@@ -452,7 +446,7 @@ pub fn RegisterForm(
                 ></div>
 
                 // Modal content
-                <div class="relative w-full max-w-md bg-theme-primary rounded-xl shadow-xl p-6 border border-theme max-h-[90vh] overflow-y-auto">
+                <div class="surface-elev relative max-h-[90vh] w-full max-w-md overflow-y-auto p-6 shadow-theme-xl">
                     // Close button
                     <button
                         type="button"
@@ -472,9 +466,10 @@ pub fn RegisterForm(
         }.into_any()
     } else {
         view! {
-            <div class="w-full max-w-md mx-auto bg-theme-primary rounded-xl shadow-lg p-6 border border-theme">
+            <div class="w-full">
                 {form_content}
             </div>
-        }.into_any()
+        }
+        .into_any()
     }
 }

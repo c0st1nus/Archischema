@@ -31,18 +31,18 @@ fn ModeTabButton(
 ) -> impl IntoView {
     let is_selected = move || current_mode.get() == mode_value;
 
-    let button_style = move || {
+    let button_class = move || {
         if is_selected() {
-            "padding: 8px 12px; font-size: 14px; font-weight: 500; color: var(--accent-primary); background-color: var(--bg-surface); border-radius: 8px; box-shadow: var(--shadow-sm);"
+            "flex-1 btn btn-sm bg-theme-surface text-theme-primary border-theme-accent"
         } else {
-            "padding: 8px 12px; font-size: 14px; font-weight: 500; color: var(--text-tertiary); background-color: transparent; border-radius: 8px;"
+            "flex-1 btn btn-sm btn-ghost text-theme-tertiary"
         }
     };
 
     view! {
         <button
-            class="flex-1 transition-all"
-            style=button_style
+            type="button"
+            class=button_class
             on:click=move |_| on_click.run(())
         >
             {label}
@@ -76,7 +76,13 @@ fn LiveShareDisconnectedView(
             let password_val = password.get();
 
             spawn_local(async move {
-                let window = web_sys::window().expect("no window");
+                let Some(window) = web_sys::window() else {
+                    ctx_inner
+                        .error
+                        .set(Some("Browser window unavailable".to_string()));
+                    ctx_inner.connection_state.set(ConnectionState::Error);
+                    return;
+                };
                 let location = window.location();
                 let origin = location.origin().unwrap_or_default();
 
@@ -89,23 +95,37 @@ fn LiveShareDisconnectedView(
                     "max_users": 50
                 });
 
+                let body_str = match serde_json::to_string(&body) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        ctx_inner
+                            .error
+                            .set(Some(format!("Failed to serialize request: {}", e)));
+                        ctx_inner.connection_state.set(ConnectionState::Error);
+                        return;
+                    }
+                };
+
                 let opts = web_sys::RequestInit::new();
                 opts.set_method("POST");
                 opts.set_credentials(web_sys::RequestCredentials::Include);
-                opts.set_body(&wasm_bindgen::JsValue::from_str(
-                    &serde_json::to_string(&body).unwrap(),
-                ));
+                opts.set_body(&wasm_bindgen::JsValue::from_str(&body_str));
 
-                let request = web_sys::Request::new_with_str_and_init(&create_url, &opts).unwrap();
-                request
-                    .headers()
-                    .set("Content-Type", "application/json")
-                    .unwrap();
+                let request = match web_sys::Request::new_with_str_and_init(&create_url, &opts) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        ctx_inner
+                            .error
+                            .set(Some(format!("Failed to build request: {:?}", e)));
+                        ctx_inner.connection_state.set(ConnectionState::Error);
+                        return;
+                    }
+                };
+                let _ = request.headers().set("Content-Type", "application/json");
 
                 // Add Authorization header with JWT token from localStorage
                 let _ = auth_utils::add_auth_header(&request);
 
-                let window = web_sys::window().unwrap();
                 match wasm_bindgen_futures::JsFuture::from(window.fetch_with_request(&request))
                     .await
                 {
@@ -113,7 +133,18 @@ fn LiveShareDisconnectedView(
                         let resp: web_sys::Response = resp.into();
                         if resp.ok() {
                             // Parse response to get the generated room ID
-                            match wasm_bindgen_futures::JsFuture::from(resp.json().unwrap()).await {
+                            let json_promise = match resp.json() {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    ctx_inner.error.set(Some(format!(
+                                        "Failed to read response body: {:?}",
+                                        e
+                                    )));
+                                    ctx_inner.connection_state.set(ConnectionState::Error);
+                                    return;
+                                }
+                            };
+                            match wasm_bindgen_futures::JsFuture::from(json_promise).await {
                                 Ok(json_value) => {
                                     let json_obj = js_sys::Object::from(json_value);
                                     if let Some(room_id_js) = js_sys::Reflect::get(
@@ -191,9 +222,9 @@ fn LiveShareDisconnectedView(
     let set_create = Callback::new(move |_: ()| mode.set("create"));
 
     view! {
-        <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="space-y-4">
             // Tab selector
-            <div class="flex bg-theme-tertiary theme-transition" style="border-radius: 12px; padding: 4px;">
+            <div class="flex gap-1 rounded-lg border border-theme-primary bg-theme-tertiary p-1 theme-transition">
                 <ModeTabButton
                     mode_value="join"
                     current_mode=current_mode
@@ -210,7 +241,7 @@ fn LiveShareDisconnectedView(
 
             // Error message
             {move || error.get().map(|err| view! {
-                <div class="bg-theme-error border border-theme-error text-theme-error theme-transition" style="padding: 12px; border-radius: 12px; font-size: 14px;">
+                <div class="rounded-lg border border-theme-error bg-theme-error p-3 text-sm text-theme-error theme-transition">
                     {err}
                 </div>
             })}
@@ -218,14 +249,15 @@ fn LiveShareDisconnectedView(
             // Room ID input (only in join mode)
             {move || if mode.get() == "join" {
                 view! {
-                    <div>
-                        <label class="text-theme-secondary" style="display: block; font-size: 14px; font-weight: 500; margin-bottom: 8px;">
+                    <div class="space-y-1.5">
+                        <label class="label">
                             "Room ID"
                         </label>
                         <input
                             type="text"
-                            class="input-theme"
-                            style="width: 100%; padding: 10px 12px; border-radius: 12px; font-size: 14px; box-sizing: border-box;"
+                            class="input-theme input-lg font-mono"
+                            autocomplete="off"
+                            spellcheck="false"
                             placeholder="Enter room ID or UUID"
                             prop:value=move || room_id_input.get()
                             on:input=move |ev| room_id_input.set(event_target_value(&ev))
@@ -239,15 +271,16 @@ fn LiveShareDisconnectedView(
             // Room name (create mode only)
             {move || if mode.get() == "create" {
                 view! {
-                    <div>
-                        <label class="text-theme-secondary" style="display: block; font-size: 14px; font-weight: 500; margin-bottom: 8px;">
+                    <div class="space-y-1.5">
+                        <label class="label">
                             "Room Name " <span class="text-theme-muted">"(optional)"</span>
                         </label>
                         <input
                             type="text"
-                            class="input-theme"
-                            style="width: 100%; padding: 10px 12px; border-radius: 12px; font-size: 14px; box-sizing: border-box;"
-                            placeholder="My awesome project"
+                            class="input-theme input-lg"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="Architecture review"
                             prop:value=move || room_name.get()
                             on:input=move |ev| room_name.set(event_target_value(&ev))
                         />
@@ -258,14 +291,14 @@ fn LiveShareDisconnectedView(
             }}
 
             // Password input
-            <div>
-                <label class="text-theme-secondary" style="display: block; font-size: 14px; font-weight: 500; margin-bottom: 8px;">
+            <div class="space-y-1.5">
+                <label class="label">
                     "Password " <span class="text-theme-muted">"(optional)"</span>
                 </label>
                 <input
                     type="password"
-                    class="input-theme"
-                    style="width: 100%; padding: 10px 12px; border-radius: 12px; font-size: 14px; box-sizing: border-box;"
+                    class="input-theme input-lg"
+                    autocomplete="current-password"
                     placeholder=move || if mode.get() == "create" { "Set a password" } else { "Enter room password" }
                     prop:value=move || password.get()
                     on:input=move |ev| password.set(event_target_value(&ev))
@@ -276,8 +309,8 @@ fn LiveShareDisconnectedView(
             {
                 view! {
                     <button
-                        class="btn-theme-primary"
-                        style="width: 100%; padding: 12px 16px; border-radius: 12px; font-size: 14px; font-weight: 500;"
+                        type="button"
+                        class="btn-primary btn-lg w-full disabled:opacity-50"
                         disabled=move || connection_state.get() == ConnectionState::Connecting
                         on:click=move |ev| {
                             if mode.get() == "create" {
@@ -301,7 +334,7 @@ fn LiveShareDisconnectedView(
             }
 
             // Help text
-            <p class="text-theme-tertiary" style="font-size: 12px; text-align: center;">
+            <p class="text-center text-xs text-theme-muted">
                 {move || if mode.get() == "create" {
                     "Room ID will be generated automatically for sharing"
                 } else {
@@ -318,31 +351,92 @@ fn SettingsTabButton(
     tab_value: &'static str,
     current_tab: Memo<&'static str>,
     label: &'static str,
-    icon_path: &'static str,
+    icon_name: &'static str,
+    #[prop(default = false)] danger: bool,
     on_click: Callback<()>,
 ) -> impl IntoView {
     let is_selected = move || current_tab.get() == tab_value;
 
-    let button_style = move || {
-        if is_selected() {
-            "gap: 6px; padding: 8px 4px; font-size: 13px; font-weight: 600; color: var(--accent-primary); background-color: var(--accent-light); border-radius: 8px; box-shadow: var(--shadow-sm); border: 1px solid var(--accent-primary);"
+    let button_class = move || {
+        if danger && is_selected() {
+            "w-full min-h-8 inline-flex items-center justify-start gap-2 rounded-md border border-theme-error bg-theme-error px-2.5 text-left text-[12.5px] font-medium text-theme-error theme-transition"
+        } else if danger {
+            "w-full min-h-8 inline-flex items-center justify-start gap-2 rounded-md border border-transparent px-2.5 text-left text-[12.5px] font-medium text-theme-error hover:bg-theme-error theme-transition"
+        } else if is_selected() {
+            "w-full min-h-8 inline-flex items-center justify-start gap-2 rounded-md border border-theme-primary bg-theme-tertiary px-2.5 text-left text-[12.5px] font-medium text-theme-primary theme-transition"
         } else {
-            "gap: 6px; padding: 8px 4px; font-size: 13px; font-weight: 600; color: var(--text-tertiary); background-color: transparent; border-radius: 8px; border: 1px solid transparent;"
+            "w-full min-h-8 inline-flex items-center justify-start gap-2 rounded-md border border-transparent px-2.5 text-left text-[12.5px] font-medium text-theme-secondary hover:bg-theme-tertiary hover:text-theme-primary theme-transition"
         }
     };
 
     view! {
         <button
-            class="flex-1 flex items-center justify-center transition-all"
-            style=button_style
+            type="button"
+            class=button_class
             on:click=move |_| on_click.run(())
         >
-            <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d=icon_path />
-            </svg>
+            <Icon name=icon_name class="w-3.5 h-3.5 flex-shrink-0" />
             {label}
         </button>
-    }.into_any()
+    }
+    .into_any()
+}
+
+/// Two-column row used by the command-center settings layout.
+#[component]
+fn SettingsRow(label: &'static str, hint: &'static str, children: Children) -> impl IntoView {
+    view! {
+        <div class="settings-row">
+            <div>
+                <div class="text-[12.5px] font-medium text-theme-primary">{label}</div>
+                {(!hint.is_empty()).then(|| view! {
+                    <div class="mt-1 text-[11.5px] leading-snug text-theme-muted">{hint}</div>
+                })}
+            </div>
+            <div class="min-w-0">{children()}</div>
+        </div>
+    }
+}
+
+/// Disabled controls keep reference-only settings visible without persisting new model fields.
+#[component]
+fn DisabledOption(label: &'static str, selected: bool) -> impl IntoView {
+    let class = move || {
+        if selected {
+            "btn btn-sm border-theme-accent bg-theme-accent-light text-theme-accent"
+        } else {
+            "btn btn-sm opacity-50"
+        }
+    };
+
+    view! {
+        <button type="button" class=class disabled=true>
+            {label}
+        </button>
+    }
+}
+
+#[component]
+fn DisabledPreference(label: &'static str, enabled: bool) -> impl IntoView {
+    let switch_style = move || {
+        if enabled {
+            "background: var(--primary); border-color: var(--primary); justify-content: flex-end;"
+        } else {
+            "background: var(--muted); border-color: var(--border); justify-content: flex-start;"
+        }
+    };
+
+    view! {
+        <div class="flex items-center gap-3 rounded-lg border border-theme-primary bg-theme-secondary px-3 py-2 opacity-70">
+            <span
+                class="inline-flex h-[18px] w-[30px] items-center rounded-full border p-[2px] theme-transition"
+                style=switch_style
+            >
+                <span class="h-3 w-3 rounded-full bg-theme-surface shadow-theme-sm"></span>
+            </span>
+            <span class="text-[12.5px] text-theme-secondary">{label}</span>
+        </div>
+    }
 }
 
 /// Theme button component - isolated to reduce type nesting
@@ -351,49 +445,49 @@ fn ThemeButton(
     mode: ThemeMode,
     current_mode: Memo<ThemeMode>,
     label: &'static str,
-    icon_path: &'static str,
+    icon_name: &'static str,
     on_click: Callback<()>,
 ) -> impl IntoView {
     let is_selected = move || current_mode.get() == mode;
 
-    let button_style = move || {
+    let button_class = move || {
         if is_selected() {
-            "padding: 12px 8px; border-radius: 12px; gap: 8px; background-color: var(--accent-light); border: 2px solid var(--accent-primary);"
+            "flex min-h-[60px] flex-1 flex-col items-start justify-between rounded-lg border border-theme-accent bg-theme-accent-light px-3 py-2 text-left theme-transition"
         } else {
-            "padding: 12px 8px; border-radius: 12px; gap: 8px; background-color: var(--bg-surface); border: 2px solid var(--border-primary);"
+            "flex min-h-[60px] flex-1 flex-col items-start justify-between rounded-lg border border-theme-primary bg-theme-secondary px-3 py-2 text-left hover:border-theme-secondary theme-transition"
         }
     };
 
-    let icon_style = move || {
+    let label_class = move || {
         if is_selected() {
-            "color: var(--accent-primary);"
+            "inline-flex items-center gap-1.5 text-[12.5px] font-medium text-theme-accent"
         } else {
-            "color: var(--text-tertiary);"
+            "inline-flex items-center gap-1.5 text-[12.5px] font-medium text-theme-secondary"
         }
     };
 
-    let text_style = move || {
-        if is_selected() {
-            "font-size: 12px; font-weight: 500; color: var(--accent-primary);"
-        } else {
-            "font-size: 12px; font-weight: 500; color: var(--text-tertiary);"
+    let preview_style = match mode {
+        ThemeMode::Auto => {
+            "background: linear-gradient(90deg, var(--canvas) 50%, var(--card-elev) 50%);"
         }
+        ThemeMode::Dark => "background: linear-gradient(90deg, var(--canvas), var(--muted));",
+        ThemeMode::Light => "background: linear-gradient(90deg, var(--card-elev), var(--muted));",
     };
 
     view! {
         <button
-            class="flex-1 flex flex-col items-center transition-all theme-transition"
-            style=button_style
+            type="button"
+            class=button_class
             on:click=move |_| on_click.run(())
         >
-            <svg class="w-6 h-6" style=icon_style fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d=icon_path />
-            </svg>
-            <span style=text_style>
+            <span class=label_class>
+                <Icon name=icon_name class="w-3.5 h-3.5" />
                 {label}
             </span>
+            <span class="h-1.5 w-full rounded-full" style=preview_style></span>
         </button>
-    }.into_any()
+    }
+    .into_any()
 }
 
 /// Theme selector component
@@ -407,36 +501,33 @@ fn ThemeSelector() -> impl IntoView {
     let set_light = Callback::new(move |_: ()| theme_ctx.set_mode(ThemeMode::Light));
 
     view! {
-        <div class="bg-theme-secondary theme-transition" style="padding: 16px; border-radius: 12px;">
-            <label class="text-theme-secondary" style="display: block; font-size: 14px; font-weight: 500; margin-bottom: 12px;">
-                "Theme"
-            </label>
-            <div style="display: flex; gap: 8px;">
+        <div class="space-y-3">
+            <div class="flex gap-2">
                 <ThemeButton
                     mode=ThemeMode::Auto
                     current_mode=current_mode
-                    label="Automatic"
-                    icon_path="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    label="Auto"
+                    icon_name=icons::SETTINGS
                     on_click=set_auto
                 />
                 <ThemeButton
                     mode=ThemeMode::Dark
                     current_mode=current_mode
                     label="Dark"
-                    icon_path="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+                    icon_name=icons::MOON
                     on_click=set_dark
                 />
                 <ThemeButton
                     mode=ThemeMode::Light
                     current_mode=current_mode
                     label="Light"
-                    icon_path="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                    icon_name=icons::SUN
                     on_click=set_light
                 />
             </div>
 
             // Current theme indicator
-            <p class="text-theme-muted" style="font-size: 12px; margin-top: 12px; text-align: center;">
+            <p class="text-[11.5px] text-theme-muted">
                 {move || {
                     match theme_ctx.mode.get() {
                         ThemeMode::Auto => {
@@ -452,29 +543,69 @@ fn ThemeSelector() -> impl IntoView {
                 }}
             </p>
         </div>
-    }.into_any()
+    }
+    .into_any()
 }
 
 /// Canvas/Theme tab content component
 #[component]
 fn CanvasTab() -> impl IntoView {
     view! {
-        <div style="display: flex; flex-direction: column; gap: 20px;">
-            // Theme section
-            <div>
-                <h3 class="text-theme-primary" style="font-size: 16px; font-weight: 600; margin-bottom: 16px;">"Appearance"</h3>
+        <div>
+            <SettingsRow
+                label="Theme"
+                hint="Editor color scheme. Auto follows your OS preference."
+            >
                 <ThemeSelector/>
-            </div>
+            </SettingsRow>
 
-            // Additional canvas settings placeholder
-            <div class="bg-theme-secondary theme-transition" style="padding: 16px; border-radius: 12px;">
-                <div class="flex items-center" style="gap: 12px;">
-                    <Icon name=icons::INFORMATION_CIRCLE class="w-5 h-5 text-theme-muted" />
-                    <p class="text-theme-tertiary" style="font-size: 14px;">
-                        "More canvas settings coming soon..."
-                    </p>
+            <SettingsRow
+                label="Accent color"
+                hint="One strong color for selection, primary actions, and relation highlights."
+            >
+                <div class="flex flex-wrap gap-1.5">
+                    <DisabledOption label="Verdant" selected=true />
+                    <DisabledOption label="Cobalt" selected=false />
+                    <DisabledOption label="Amber" selected=false />
+                    <DisabledOption label="Plum" selected=false />
+                    <DisabledOption label="Mist" selected=false />
                 </div>
-            </div>
+                <p class="mt-2 text-[11.5px] text-theme-muted">
+                    "Palette editing is disabled in this pass; ArchiSchema Foundations remains the source of truth."
+                </p>
+            </SettingsRow>
+
+            <SettingsRow
+                label="Grid background"
+                hint="Visual reference inside the canvas."
+            >
+                <div class="flex flex-wrap gap-1.5">
+                    <DisabledOption label="Dots" selected=true />
+                    <DisabledOption label="Lines" selected=false />
+                    <DisabledOption label="Off" selected=false />
+                </div>
+            </SettingsRow>
+
+            <SettingsRow
+                label="Density"
+                hint="Compact fits more on screen; comfy is easier to scan."
+            >
+                <div class="flex flex-wrap gap-1.5">
+                    <DisabledOption label="Compact" selected=false />
+                    <DisabledOption label="Cozy" selected=true />
+                    <DisabledOption label="Comfy" selected=false />
+                </div>
+            </SettingsRow>
+
+            <SettingsRow label="Editor preferences" hint="Shown for parity with the design reference; not persisted yet.">
+                <div class="grid gap-2 sm:grid-cols-2">
+                    <DisabledPreference label="Snap tables to grid" enabled=true />
+                    <DisabledPreference label="Auto-route relation lines" enabled=true />
+                    <DisabledPreference label="Show column types inline" enabled=true />
+                    <DisabledPreference label="Highlight orphaned tables" enabled=false />
+                    <DisabledPreference label="Animate panel transitions" enabled=false />
+                </div>
+            </SettingsRow>
         </div>
     }
 }
@@ -490,30 +621,22 @@ fn ExportFormatButton(
 ) -> impl IntoView {
     let is_selected = move || current_format.get() == format_value;
 
-    let button_style = move || {
+    let button_class = move || {
         if is_selected() {
-            "padding: 12px 8px; border-radius: 12px; gap: 8px; background-color: var(--accent-light); border: 2px solid var(--accent-primary);"
+            "flex min-h-[58px] flex-1 flex-col items-start justify-between rounded-lg border border-theme-accent bg-theme-accent-light px-3 py-2 text-left text-theme-accent theme-transition"
         } else {
-            "padding: 12px 8px; border-radius: 12px; gap: 8px; background-color: var(--bg-surface); border: 2px solid var(--border-primary);"
-        }
-    };
-
-    let text_style = move || {
-        if is_selected() {
-            "font-size: 12px; font-weight: 500; color: var(--accent-primary);"
-        } else {
-            "font-size: 12px; font-weight: 500; color: var(--text-tertiary);"
+            "flex min-h-[58px] flex-1 flex-col items-start justify-between rounded-lg border border-theme-primary bg-theme-secondary px-3 py-2 text-left text-theme-secondary hover:border-theme-secondary theme-transition"
         }
     };
 
     view! {
         <button
-            class="flex-1 flex flex-col items-center transition-all theme-transition"
-            style=button_style
+            type="button"
+            class=button_class
             on:click=move |_| on_click.run(())
         >
-            <Icon name=icon_name class="w-5 h-5"/>
-            <span style=text_style>
+            <Icon name=icon_name class="w-4 h-4"/>
+            <span class="text-[12.5px] font-medium">
                 {label}
             </span>
         </button>
@@ -534,11 +657,8 @@ fn ExportFormatSelector(
     let set_csv = Callback::new(move |_: ()| set_export_format.set("csv"));
 
     view! {
-        <div class="bg-theme-secondary theme-transition" style="padding: 16px; border-radius: 12px; margin-bottom: 16px;">
-            <label class="text-theme-secondary" style="display: block; font-size: 14px; font-weight: 500; margin-bottom: 12px;">
-                "Format"
-            </label>
-            <div style="display: flex; gap: 8px;">
+        <div>
+            <div class="flex gap-2">
                 <ExportFormatButton
                     format_value="sql"
                     current_format=current_format
@@ -562,7 +682,8 @@ fn ExportFormatSelector(
                 />
             </div>
         </div>
-    }.into_any()
+    }
+    .into_any()
 }
 
 /// Export tab content component
@@ -571,43 +692,86 @@ fn ExportTab(graph: Option<RwSignal<SchemaGraph>>) -> impl IntoView {
     let (export_format, set_export_format) = signal("sql");
     let (_export_result, set_export_result) = signal::<Option<String>>(None);
     let (export_filename, set_export_filename) = signal(String::from("schema"));
+    let schema_stats = move || {
+        graph
+            .map(|g| {
+                g.with(|graph| {
+                    let table_count = graph.node_count();
+                    let column_count = graph
+                        .node_weights()
+                        .map(|table| table.columns.len())
+                        .sum::<usize>();
+                    let relation_count = graph.edge_count();
+                    format!(
+                        "{} tables · {} columns · {} relations",
+                        table_count, column_count, relation_count
+                    )
+                })
+            })
+            .unwrap_or_else(|| "No schema loaded".to_string())
+    };
 
     view! {
-        <div style="display: flex; flex-direction: column; gap: 20px;">
-            // Export format selector
-            <div>
-                <h3 class="text-theme-primary" style="font-size: 16px; font-weight: 600; margin-bottom: 16px;">"Export Schema"</h3>
-
-                // Format selector
+        <div>
+            <SettingsRow label="Format" hint="Choose the generated file format.">
                 <ExportFormatSelector export_format=export_format set_export_format=set_export_format/>
+            </SettingsRow>
 
-                // Filename input
-                <div class="bg-theme-secondary theme-transition" style="padding: 16px; border-radius: 12px; margin-bottom: 16px;">
-                    <label class="text-theme-secondary" style="display: block; font-size: 14px; font-weight: 500; margin-bottom: 8px;">
-                        "Filename"
-                    </label>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <input
-                            type="text"
-                            class="input-theme"
-                            style="flex: 1; padding: 10px 12px; border-radius: 8px; font-size: 14px;"
-                            placeholder="schema"
-                            prop:value=move || export_filename.get()
-                            on:input=move |ev| set_export_filename.set(event_target_value(&ev))
-                        />
-                        <span class="text-theme-muted" style="font-size: 14px;">
-                            {move || format!(".{}", export_format.get())}
-                        </span>
-                    </div>
+            <SettingsRow label="Filename" hint="Downloaded file name; extension follows the selected format.">
+                <div class="flex items-center gap-2">
+                    <input
+                        type="text"
+                        class="input-theme input-lg font-mono"
+                        placeholder="schema"
+                        autocomplete="off"
+                        spellcheck="false"
+                        prop:value=move || export_filename.get()
+                        on:input=move |ev| set_export_filename.set(event_target_value(&ev))
+                    />
+                    <span class="font-mono text-xs text-theme-muted">
+                        {move || format!(".{}", export_format.get())}
+                    </span>
                 </div>
+            </SettingsRow>
 
-                // Export button
+            <SettingsRow label="Dialect" hint="Current exporter behavior stays unchanged in this redesign pass.">
+                <div class="flex flex-wrap gap-1.5">
+                    <DisabledOption label="MySQL" selected=true />
+                    <DisabledOption label="PostgreSQL" selected=false />
+                    <DisabledOption label="SQLite" selected=false />
+                </div>
+            </SettingsRow>
+
+            <SettingsRow label="Options" hint="Unsupported export toggles are visible but disabled until the exporter flow is expanded.">
+                <div class="grid gap-2 sm:grid-cols-2">
+                    <DisabledPreference label="Pretty print" enabled=true />
+                    <DisabledPreference label="Include positions" enabled=true />
+                    <DisabledPreference label="Include DROP statements" enabled=false />
+                    <DisabledPreference label="Confirm SQL diff before apply" enabled=false />
+                </div>
+            </SettingsRow>
+
+            <SettingsRow label="Summary" hint="Export uses the current in-memory schema graph.">
+                <div class="rounded-lg border border-theme-primary bg-theme-secondary p-3">
+                    <div class="eyebrow">"Schema size"</div>
+                    <div class="mt-1 font-mono text-sm text-theme-primary">{schema_stats}</div>
+                    <p class="mt-2 text-[11.5px] leading-snug text-theme-muted">
+                        {move || match export_format.get() {
+                            "json" => "JSON includes tables, columns, relationships, and canvas positions.",
+                            "csv" => "CSV exports separate tabular sections for spreadsheet review.",
+                            _ => "SQL exports CREATE TABLE statements with the current MySQL dialect path.",
+                        }}
+                    </p>
+                </div>
+            </SettingsRow>
+
+            <div class="mt-5 flex items-center justify-end gap-2">
                 {move || {
                     if let Some(g) = graph {
                         view! {
                             <button
-                                class="btn-theme-primary"
-                                style="width: 100%; padding: 14px 16px; border-radius: 12px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;"
+                                type="button"
+                                class="btn-primary btn-lg"
                                 on:click=move |_| {
                                     let format = export_format.get();
                                     let filename_input = export_filename.get();
@@ -672,43 +836,19 @@ fn ExportTab(graph: Option<RwSignal<SchemaGraph>>) -> impl IntoView {
                                     }
                                 }
                             >
-                                <Icon name=icons::ARROW_DOWN_TO_LINE class="w-5 h-5" />
+                                <Icon name=icons::ARROW_DOWN_TO_LINE class="w-4 h-4" />
                                 "Download"
                             </button>
                         }.into_any()
                     } else {
                         view! {
-                            <div class="bg-theme-secondary theme-transition" style="padding: 16px; border-radius: 12px; text-align: center;">
-                                <p class="text-theme-tertiary" style="font-size: 14px;">
-                                    "No schema loaded"
-                                </p>
-                            </div>
+                            <button type="button" class="btn-primary btn-lg" disabled=true>
+                                <Icon name=icons::ARROW_DOWN_TO_LINE class="w-4 h-4" />
+                                "No schema loaded"
+                            </button>
                         }.into_any()
                     }
                 }}
-            </div>
-
-            // Format description
-            <div class="bg-theme-secondary theme-transition" style="padding: 16px; border-radius: 12px;">
-                <div class="flex items-start" style="gap: 12px;">
-                    <Icon name=icons::INFORMATION_CIRCLE class="w-5 h-5 text-theme-muted flex-shrink-0 mt-0.5" />
-                    <div>
-                        <p class="text-theme-secondary" style="font-size: 14px; font-weight: 500; margin-bottom: 4px;">
-                            {move || match export_format.get() {
-                                "json" => "JSON Format",
-                                "csv" => "CSV Format",
-                                _ => "SQL Format",
-                            }}
-                        </p>
-                        <p class="text-theme-tertiary" style="font-size: 13px; line-height: 1.5;">
-                            {move || match export_format.get() {
-                                "json" => "Structured format with tables, columns, relationships and positions. Ideal for backup and programmatic access.",
-                                "csv" => "Tabular format with separate sections for tables, columns and relationships. Good for spreadsheet analysis.",
-                                _ => "DDL statements (CREATE TABLE) compatible with MySQL. Ready for database deployment.",
-                            }}
-                        </p>
-                    </div>
-                </div>
             </div>
         </div>
     }
@@ -726,6 +866,7 @@ fn DiagramTab(
     room_name: RwSignal<String>,
     password: RwSignal<String>,
     mode: RwSignal<&'static str>,
+    active_tab: ReadSignal<&'static str>,
 ) -> impl IntoView {
     // Store original name in signal for use in closures
     let original_name = RwSignal::new(
@@ -845,13 +986,14 @@ fn DiagramTab(
 
     view! {
         <div class="space-y-6">
+            <Show when=move || active_tab.get() == "diagram">
             // Diagram info section with editable name
             <div class="space-y-3">
-                <h3 class="text-sm font-medium text-theme-primary">"Diagram Info"</h3>
-                <div class="p-4 bg-theme-tertiary rounded-xl">
+                <div class="eyebrow">"Identity"</div>
+                <div class="rounded-xl border border-theme-primary bg-theme-secondary p-4">
                     <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-lg bg-theme-secondary flex items-center justify-center flex-shrink-0">
-                            <Icon name=icons::DATABASE class="w-5 h-5 text-theme-secondary"/>
+                        <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-theme-primary bg-theme-surface">
+                            <Icon name=icons::DATABASE class="w-5 h-5 text-theme-accent"/>
                         </div>
                         <div class="flex-1 min-w-0">
                             {move || if is_editing_name.get() {
@@ -859,7 +1001,9 @@ fn DiagramTab(
                                     <div class="flex flex-col gap-2">
                                         <input
                                             type="text"
-                                            class="w-full px-2 py-1 text-sm font-medium text-theme-primary bg-theme-surface border border-theme-primary rounded-lg focus:outline-none focus:border-theme-accent"
+                                            class="input-theme input-lg font-medium"
+                                            autocomplete="off"
+                                            spellcheck="false"
                                             prop:value=move || name_input.get()
                                             on:input=move |ev| {
                                                 name_input.set(event_target_value(&ev));
@@ -878,7 +1022,8 @@ fn DiagramTab(
                                         })}
                                         <div class="flex items-center gap-2">
                                             <button
-                                                class="px-2 py-1 text-xs font-medium text-theme-secondary border border-theme-primary rounded hover:bg-theme-secondary transition-colors"
+                                                type="button"
+                                                class="btn btn-sm"
                                                 on:click=move |_| {
                                                     is_editing_name.set(false);
                                                     name_input.set(original_name.get());
@@ -888,7 +1033,8 @@ fn DiagramTab(
                                                 "Cancel"
                                             </button>
                                             <button
-                                                class="px-2 py-1 text-xs font-medium text-white bg-accent-primary hover:bg-accent-secondary rounded transition-colors disabled:opacity-50 flex items-center gap-1"
+                                                type="button"
+                                                class="btn-primary btn-sm disabled:opacity-50"
                                                 on:click=move |_| handle_rename.run(())
                                                 disabled=move || renaming.get()
                                             >
@@ -910,10 +1056,14 @@ fn DiagramTab(
                                         <p class="text-sm font-medium text-theme-primary truncate">
                                             {move || original_name.get()}
                                         </p>
+                                        <span class="badge-default text-[10.5px]">
+                                            {if is_demo { "demo" } else { "saved" }}
+                                        </span>
                                         {if !is_demo && has_diagram_id {
                                             view! {
                                                 <button
-                                                    class="p-1 text-theme-muted hover:text-theme-primary opacity-0 group-hover:opacity-100 transition-all"
+                                                    type="button"
+                                                    class="btn-icon btn-sm opacity-0 transition-opacity group-hover:opacity-100"
                                                     on:click=move |_| is_editing_name.set(true)
                                                     title="Rename diagram"
                                                 >
@@ -924,8 +1074,8 @@ fn DiagramTab(
                                             view! { <span></span> }.into_any()
                                         }}
                                     </div>
-                                    <p class="text-xs text-theme-muted">
-                                        {if is_demo { "Demo diagram" } else { "Saved diagram" }}
+                                    <p class="mt-1 text-xs text-theme-muted">
+                                        {if is_demo { "Demo diagrams are read-only examples." } else { "Renames save to your account." }}
                                     </p>
                                 }.into_any()
                             }}
@@ -933,34 +1083,36 @@ fn DiagramTab(
                     </div>
                 </div>
             </div>
+            </Show>
 
+            <Show when=move || active_tab.get() == "collaboration">
             // LiveShare section
             <div class="space-y-3">
-                <h3 class="text-sm font-medium text-theme-primary">"LiveShare"</h3>
+                <div class="eyebrow">"LiveShare"</div>
 
                 // Connection status
-                <div class="flex items-center bg-theme-secondary theme-transition gap-3 p-3 rounded-xl">
+                <div class="flex items-center gap-3 rounded-xl border border-theme-primary bg-theme-secondary p-3 theme-transition">
                     {move || {
                         let state = connection_state.get();
                         match state {
                             ConnectionState::Connected => view! {
-                                <div class="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></div>
+                                <div class="h-2.5 w-2.5 rounded-full bg-theme-accent animate-pulse"></div>
                                 <span class="text-sm text-theme-secondary">"Connected"</span>
                             }.into_any(),
                             ConnectionState::Connecting => view! {
-                                <div class="w-2.5 h-2.5 bg-yellow-500 rounded-full animate-pulse"></div>
+                                <div class="h-2.5 w-2.5 rounded-full bg-theme-warning animate-pulse"></div>
                                 <span class="text-sm text-theme-secondary">"Connecting..."</span>
                             }.into_any(),
                             ConnectionState::Reconnecting => view! {
-                                <div class="w-2.5 h-2.5 bg-yellow-500 rounded-full animate-pulse"></div>
+                                <div class="h-2.5 w-2.5 rounded-full bg-theme-warning animate-pulse"></div>
                                 <span class="text-sm text-theme-secondary">"Reconnecting..."</span>
                             }.into_any(),
                             ConnectionState::Error => view! {
-                                <div class="w-2.5 h-2.5 bg-red-500 rounded-full"></div>
+                                <div class="h-2.5 w-2.5 rounded-full bg-theme-error"></div>
                                 <span class="text-sm text-theme-secondary">"Error"</span>
                             }.into_any(),
                             ConnectionState::Disconnected => view! {
-                                <div class="w-2.5 h-2.5 bg-gray-400 rounded-full"></div>
+                                <div class="h-2.5 w-2.5 rounded-full bg-theme-tertiary"></div>
                                 <span class="text-sm text-theme-secondary">"Disconnected"</span>
                             }.into_any(),
                         }
@@ -977,10 +1129,10 @@ fn DiagramTab(
                             let diagram_id = diagram_id.clone();
                             // Connected view
                             view! {
-                                <div class="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl space-y-3">
+                                <div class="space-y-3 rounded-xl border border-theme-accent bg-theme-accent-light p-4">
                                     // Room info
                                     {move || room_info.get().map(|info| view! {
-                                        <p class="text-sm font-medium text-green-700 dark:text-green-300">{info.name}</p>
+                                        <p class="text-sm font-medium text-theme-primary">{info.name}</p>
                                     })}
 
                                     // Room link
@@ -988,7 +1140,7 @@ fn DiagramTab(
                                         <input
                                             type="text"
                                             readonly
-                                            class="flex-1 px-2 py-1.5 text-xs font-mono bg-theme-surface border border-green-300 dark:border-green-700 text-theme-primary rounded-lg"
+                                            class="input-theme input-sm flex-1 font-mono"
                                             prop:value={
                                                 let _diagram_id = diagram_id.clone();
                                                 move || {
@@ -1017,7 +1169,8 @@ fn DiagramTab(
                                             }
                                     />
                                     <button
-                                        class="p-1.5 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors"
+                                        type="button"
+                                        class="btn-icon"
                                         on:click=move |ev| copy_link.with_value(|f| f(ev))
                                         title="Copy room link"
                                     >
@@ -1027,7 +1180,8 @@ fn DiagramTab(
 
                                 // Disconnect button
                                 <button
-                                    class="w-full px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                                    type="button"
+                                    class="btn-danger btn-sm w-full"
                                     on:click=move |_| disconnect.run(())
                                 >
                                     "Disconnect"
@@ -1050,16 +1204,36 @@ fn DiagramTab(
                     }
                 }}
             </div>
+            </Show>
 
+            <Show when=move || active_tab.get() == "danger">
             // Danger zone section
             {if !is_demo && diagram_id.is_some() {
                 view! {
                     <div class="space-y-3">
-                        <h3 class="text-sm font-medium text-red-500">"Danger Zone"</h3>
-                        <div class="p-4 border border-red-200 dark:border-red-800 rounded-xl bg-red-50/50 dark:bg-red-900/10">
+                        <div class="eyebrow text-theme-error">"Danger zone"</div>
+                        {move || if connection_state.get() == ConnectionState::Connected {
+                            view! {
+                                <div class="mb-3 flex items-center gap-3 rounded-xl border border-theme-primary bg-theme-secondary p-4">
+                                    <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-theme-primary bg-theme-surface">
+                                        <Icon name=icons::USERS class="w-5 h-5 text-theme-secondary"/>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <p class="text-sm font-medium text-theme-primary">"Disconnect from LiveShare room"</p>
+                                        <p class="mt-1 text-xs text-theme-muted">"Stop receiving collaborator updates. Your local copy stays open."</p>
+                                    </div>
+                                    <button type="button" class="btn btn-sm" on:click=move |_| disconnect.run(())>
+                                        "Disconnect"
+                                    </button>
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! { <div></div> }.into_any()
+                        }}
+                        <div class="rounded-xl border border-theme-error bg-theme-error p-4">
                             <div class="flex items-start gap-3">
-                                <div class="flex-shrink-0 w-10 h-10 rounded-lg bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                                    <Icon name=icons::TRASH class="w-5 h-5 text-red-600 dark:text-red-400"/>
+                                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-theme-error bg-theme-surface">
+                                    <Icon name=icons::TRASH class="w-5 h-5 text-theme-error"/>
                                 </div>
                                 <div class="flex-1">
                                     <p class="text-sm font-medium text-theme-primary">"Delete Diagram"</p>
@@ -1069,8 +1243,8 @@ fn DiagramTab(
 
                                     // Error message
                                     {move || delete_error.get().map(|e| view! {
-                                        <div class="mt-3 p-2 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg">
-                                            <p class="text-xs text-red-700 dark:text-red-300">{e}</p>
+                                        <div class="mt-3 rounded-lg border border-theme-error bg-theme-error p-2">
+                                            <p class="text-xs text-theme-error">{e}</p>
                                         </div>
                                     })}
 
@@ -1078,14 +1252,16 @@ fn DiagramTab(
                                         view! {
                                             <div class="mt-3 flex items-center gap-2">
                                                 <button
-                                                    class="px-3 py-1.5 text-xs font-medium text-theme-secondary border border-theme-primary rounded-lg hover:bg-theme-tertiary transition-colors"
+                                                    type="button"
+                                                    class="btn btn-sm"
                                                     on:click=move |_| show_delete_confirm.set(false)
                                                     disabled=move || deleting.get()
                                                 >
                                                     "Cancel"
                                                 </button>
                                                 <button
-                                                    class="px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                                                    type="button"
+                                                    class="btn-danger btn-sm disabled:opacity-50"
                                                     on:click=move |_| handle_delete.run(())
                                                     disabled=move || deleting.get()
                                                 >
@@ -1103,7 +1279,8 @@ fn DiagramTab(
                                     } else {
                                         view! {
                                             <button
-                                                class="mt-3 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                                                type="button"
+                                                class="btn-danger btn-sm mt-3"
                                                 on:click=move |_| show_delete_confirm.set(true)
                                             >
                                                 "Delete this diagram"
@@ -1128,6 +1305,7 @@ fn DiagramTab(
                     </div>
                 }.into_any()
             }}
+            </Show>
         </div>
     }
 }
@@ -1287,6 +1465,28 @@ pub fn SettingsModal(
         on_cleanup(move || drop(handle_keydown));
     }
 
+    let current_tab = Memo::new(move |_| active_tab.get());
+    let set_diagram = Callback::new(move |_: ()| set_active_tab.set("diagram"));
+    let set_collaboration = Callback::new(move |_: ()| set_active_tab.set("collaboration"));
+    let set_canvas = Callback::new(move |_: ()| set_active_tab.set("canvas"));
+    let set_export = Callback::new(move |_: ()| set_active_tab.set("export"));
+    let set_danger = Callback::new(move |_: ()| set_active_tab.set("danger"));
+
+    let active_title = move || match active_tab.get() {
+        "collaboration" => "Collaboration",
+        "canvas" => "Canvas",
+        "export" => "Export",
+        "danger" => "Danger zone",
+        _ => "Diagram",
+    };
+    let active_subtitle = move || match active_tab.get() {
+        "collaboration" => "Join, create, and share LiveShare rooms.",
+        "canvas" => "How the editor looks and behaves during long sessions.",
+        "export" => "Generate SQL, JSON, or CSV from the current schema graph.",
+        "danger" => "Destructive actions that cannot be undone.",
+        _ => "Rename the saved diagram and review its state.",
+    };
+
     view! {
         // Modal backdrop and container
         <Show when=move || is_open.get()>
@@ -1300,94 +1500,83 @@ pub fn SettingsModal(
                     on:click=close_modal
                 ></div>
 
-                // Modal content - 9:16 aspect ratio (phone format)
+                // Command-center modal content
                 <div
-                    class="relative flex flex-col bg-theme-surface border border-theme-primary theme-transition"
-                    style="width: 380px; max-width: 100%; height: min(85vh, 680px); border-radius: 24px; box-shadow: var(--shadow-xl); overflow: hidden;"
+                    class="dialog settings-command-dialog relative theme-transition"
                 >
-                    // Header
-                    <div
-                        class="card-header"
-                        style="padding: 16px 20px;"
-                    >
-                        <h2 class="title-lg">"Settings"</h2>
-                        <button
-                            class="btn-icon"
-                            on:click=close_modal
-                            title="Close"
-                        >
-                            <Icon name=icons::X class="icon-standalone"/>
-                        </button>
-                    </div>
+                    <nav class="settings-rail">
+                        <div class="flex items-center gap-2 px-2 pb-3 pt-1">
+                            <Icon name=icons::SETTINGS class="w-3.5 h-3.5 text-theme-accent" />
+                            <span class="text-sm font-semibold text-theme-primary">"Settings"</span>
+                        </div>
 
-                    // Tabs
-                    <div
-                        class="flex items-center shrink-0 bg-theme-secondary border-b border-theme-primary theme-transition"
-                        style="padding: 12px 16px;"
-                    >
-                        {
-                            let current_tab = Memo::new(move |_| active_tab.get());
-                            let set_diagram = Callback::new(move |_: ()| set_active_tab.set("diagram"));
-                            let set_canvas = Callback::new(move |_: ()| set_active_tab.set("canvas"));
-                            let set_export = Callback::new(move |_: ()| set_active_tab.set("export"));
-                            view! {
-                                <SettingsTabButton
-                                    tab_value="diagram"
-                                    current_tab=current_tab
-                                    label="Diagram"
-                                    icon_path="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7c-2 0-3 1-3 3zm5-1v4m-2-2h4m4 1h.01M15 14h.01"
-                                    on_click=set_diagram
-                                />
-                                <SettingsTabButton
-                                    tab_value="canvas"
-                                    current_tab=current_tab
-                                    label="Canvas"
-                                    icon_path="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"
-                                    on_click=set_canvas
-                                />
-                                <SettingsTabButton
-                                    tab_value="export"
-                                    current_tab=current_tab
-                                    label="Export"
-                                    icon_path="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-                                    on_click=set_export
-                                />
+                        <SettingsTabButton tab_value="diagram" current_tab=current_tab label="Diagram" icon_name=icons::DATABASE on_click=set_diagram />
+                        <SettingsTabButton tab_value="collaboration" current_tab=current_tab label="Collaboration" icon_name=icons::USERS on_click=set_collaboration />
+                        <SettingsTabButton tab_value="canvas" current_tab=current_tab label="Canvas" icon_name=icons::LAYOUT on_click=set_canvas />
+                        <SettingsTabButton tab_value="export" current_tab=current_tab label="Export" icon_name=icons::ARROW_DOWN_TO_LINE on_click=set_export />
+                        <SettingsTabButton tab_value="danger" current_tab=current_tab label="Danger zone" icon_name=icons::WARNING danger=true on_click=set_danger />
+
+                        <div class="flex-1"></div>
+                        <div class="border-t border-theme-primary px-2 pt-3 text-[11px] leading-snug text-theme-muted">
+                            "Press " <span class="kbd-key">"Esc"</span> " to close"
+                        </div>
+                    </nav>
+
+                    <div class="flex min-h-0 flex-col bg-theme-surface">
+                        <div class="flex items-start justify-between gap-4 px-6 pb-3 pt-4">
+                            <div>
+                                <div class="dialog-title">{active_title}</div>
+                                <div class="dialog-sub">{active_subtitle}</div>
+                            </div>
+                            <button
+                                type="button"
+                                class="btn-icon"
+                                on:click=close_modal
+                                title="Close"
+                            >
+                                <Icon name=icons::X class="icon-standalone"/>
+                            </button>
+                        </div>
+
+                        <div class="scroll flex-1 overflow-y-auto px-6 pb-4">
+                            {
+                                let diagram_name_clone = diagram_name.clone();
+                                let diagram_id_clone = diagram_id.clone();
+                                view! {
+                                    <Show when=move || matches!(active_tab.get(), "diagram" | "collaboration" | "danger")>
+                                        <DiagramTab
+                                            diagram_name=diagram_name_clone.clone()
+                                            diagram_id=diagram_id_clone.clone()
+                                            is_demo=is_demo
+                                            on_name_change=on_name_change
+                                            ctx=ctx
+                                            room_id_input=room_id_input
+                                            room_name=room_name
+                                            password=password
+                                            mode=mode
+                                            active_tab=active_tab
+                                        />
+                                    </Show>
+                                }
                             }
-                        }
-                    </div>
 
-                    // Content area
-                    <div class="flex-1 overflow-y-auto bg-theme-surface theme-transition" style="padding: 20px;">
-                        // Diagram tab content
-                        {
-                            let diagram_name_clone = diagram_name.clone();
-                            let diagram_id_clone = diagram_id.clone();
-                            view! {
-                                <Show when=move || active_tab.get() == "diagram">
-                                    <DiagramTab
-                                        diagram_name=diagram_name_clone.clone()
-                                        diagram_id=diagram_id_clone.clone()
-                                        is_demo=is_demo
-                                        on_name_change=on_name_change
-                                        ctx=ctx
-                                        room_id_input=room_id_input
-                                        room_name=room_name
-                                        password=password
-                                        mode=mode
-                                    />
-                                </Show>
-                            }
-                        }
+                            <Show when=move || active_tab.get() == "canvas">
+                                <CanvasTab/>
+                            </Show>
 
-                        // Canvas tab content
-                        <Show when=move || active_tab.get() == "canvas">
-                            <CanvasTab/>
-                        </Show>
+                            <Show when=move || active_tab.get() == "export">
+                                <ExportTab graph=graph/>
+                            </Show>
+                        </div>
 
-                        // Export tab content
-                        <Show when=move || active_tab.get() == "export">
-                            <ExportTab graph=graph/>
-                        </Show>
+                        <div class="flex items-center justify-between border-t border-theme-primary px-6 py-3">
+                            <span class="text-[11.5px] text-theme-muted">
+                                "Changes apply immediately unless the control is marked disabled."
+                            </span>
+                            <button type="button" class="btn-primary" on:click=close_modal>
+                                "Done"
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1403,12 +1592,12 @@ pub fn SettingsButton(
 ) -> impl IntoView {
     view! {
         <button
-            class="fixed bottom-4 right-4 z-40 flex items-center justify-center w-12 h-12 bg-theme-surface border border-theme-primary text-theme-secondary hover:text-theme-accent hover:border-theme-accent theme-transition transition-colors"
-            style="border-radius: 12px; box-shadow: var(--shadow-lg);"
+            type="button"
+            class="fixed bottom-4 right-4 z-40 flex h-11 w-11 items-center justify-center rounded-xl border border-theme-primary bg-theme-surface text-theme-secondary shadow-theme-lg transition-colors theme-transition hover:border-theme-accent hover:text-theme-accent"
             on:click=move |_| is_open.set(true)
             title="Settings"
         >
-            <Icon name=icons::SETTINGS class="w-6 h-6" />
+            <Icon name=icons::SETTINGS class="w-5 h-5" />
         </button>
     }
 }

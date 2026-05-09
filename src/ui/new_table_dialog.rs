@@ -1,13 +1,70 @@
-use crate::ui::{CreateCancelHints, Dialog, ErrorMessage, Icon, icons};
+use crate::core::Column;
+use crate::ui::{Dialog, ErrorMessage, Icon, icons};
 use leptos::prelude::*;
 use leptos::web_sys;
 
-/// Данные для создания новой таблицы
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StarterPreset {
+    Empty,
+    Identity,
+    Audit,
+    SoftDelete,
+}
+
+impl StarterPreset {
+    fn label(self) -> &'static str {
+        match self {
+            StarterPreset::Empty => "Empty",
+            StarterPreset::Identity => "Identity",
+            StarterPreset::Audit => "Audit",
+            StarterPreset::SoftDelete => "Soft delete",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            StarterPreset::Empty => "No columns",
+            StarterPreset::Identity => "id + created_at",
+            StarterPreset::Audit => "+ updated_at, by",
+            StarterPreset::SoftDelete => "+ deleted_at",
+        }
+    }
+}
+
+fn preset_columns(preset: StarterPreset) -> Vec<Column> {
+    let id = Column::new("id", "uuid")
+        .primary_key()
+        .with_default("gen_random_uuid()");
+    let created_at = Column::new("created_at", "timestamptz")
+        .not_null()
+        .with_default("now()");
+
+    match preset {
+        StarterPreset::Empty => Vec::new(),
+        StarterPreset::Identity => vec![id, created_at],
+        StarterPreset::Audit => vec![
+            id,
+            created_at,
+            Column::new("updated_at", "timestamptz").with_default("now()"),
+            Column::new("updated_by", "uuid"),
+        ],
+        StarterPreset::SoftDelete => vec![
+            id,
+            created_at,
+            Column::new("updated_at", "timestamptz").with_default("now()"),
+            Column::new("deleted_at", "timestamptz"),
+        ],
+    }
+}
+
+/// Data used to create a new table. Only `table_name` and `columns` are applied
+/// to the graph in this model-limited redesign pass.
 #[derive(Clone, Debug)]
 pub struct NewTableData {
     pub table_name: String,
     pub pk_name: String,
     pub pk_type: String,
+    pub columns: Vec<Column>,
 }
 
 impl Default for NewTableData {
@@ -15,125 +72,87 @@ impl Default for NewTableData {
         Self {
             table_name: String::new(),
             pk_name: "id".to_string(),
-            pk_type: "INT".to_string(),
+            pk_type: "uuid".to_string(),
+            columns: preset_columns(StarterPreset::Identity),
         }
     }
 }
 
-/// Результат создания таблицы
+/// Result of creating a table.
 #[derive(Clone, Debug)]
 pub enum CreateTableResult {
-    /// Успешно создана
     Success,
-    /// Ошибка создания
     Error(String),
 }
 
-/// Диалог создания новой таблицы с настройкой первичного ключа
 #[component]
 pub fn NewTableDialog(
     /// Whether dialog is open
     is_open: Signal<bool>,
-    /// Callback при создании таблицы (передаёт данные таблицы), возвращает результат
+    /// Callback for creating a table. Returns success/error for inline feedback.
     #[prop(into)]
     on_create: Callback<NewTableData, CreateTableResult>,
-    /// Callback при отмене
+    /// Cancel callback
     #[prop(into)]
     on_cancel: Callback<()>,
-    /// Начальное имя таблицы (опционально)
+    /// Optional initial table name
     #[prop(default = String::new())]
     initial_table_name: String,
-    /// Функция проверки существования таблицы (опционально)
+    /// Optional table existence check
     #[prop(optional, into)]
     table_exists: Option<Callback<String, bool>>,
 ) -> impl IntoView {
     let (table_name, set_table_name) = signal(initial_table_name);
-    let (pk_name, set_pk_name) = signal("id".to_string());
-    let (pk_type, set_pk_type) = signal("INT".to_string());
+    let (schema_name, set_schema_name) = signal("public".to_string());
+    let (folder_name, set_folder_name) = signal("Current diagram".to_string());
+    let (description, set_description) = signal(String::new());
+    let (preset, set_preset) = signal(StarterPreset::Identity);
     let (error, set_error) = signal::<Option<String>>(None);
     let (is_creating, set_is_creating) = signal(false);
 
     let table_input_ref = NodeRef::<leptos::html::Input>::new();
 
-    // Auto-focus на input имени таблицы при открытии диалога
-    Effect::new(move || {
-        if is_open.get() {
-            if let Some(input) = table_input_ref.get() {
-                let _ = input.focus();
-                input.select();
-            }
+    Effect::new(move |_| {
+        if is_open.get()
+            && let Some(input) = table_input_ref.get()
+        {
+            let _ = input.focus();
+            input.select();
         }
     });
 
-    // Типы данных для PK (только те, что подходят для первичного ключа)
-    let pk_types = [
-        "INT",
-        "BIGINT",
-        "TINYINT",
-        "SMALLINT",
-        "MEDIUMINT",
-        "VARCHAR",
-        "CHAR",
-    ];
+    let validate_identifier = move |label: &str, value: &str| -> Result<(), String> {
+        if value.is_empty() {
+            return Err(format!("{} cannot be empty", label));
+        }
+
+        if !value
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_alphabetic() || c == '_')
+            .unwrap_or(false)
+        {
+            return Err(format!("{} must start with a letter or underscore", label));
+        }
+
+        if !value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(format!(
+                "{} can only contain letters, numbers, and underscores",
+                label
+            ));
+        }
+
+        Ok(())
+    };
 
     let handle_create = move || {
         let name = table_name.get().trim().to_string();
-        let pk = pk_name.get().trim().to_string();
-        let pk_t = pk_type.get();
 
-        // Валидация имени таблицы
-        if name.is_empty() {
-            set_error.set(Some("Table name cannot be empty".to_string()));
+        if let Err(err) = validate_identifier("Table name", &name) {
+            set_error.set(Some(err));
             return;
         }
 
-        // Валидация имени PK
-        if pk.is_empty() {
-            set_error.set(Some("Primary key name cannot be empty".to_string()));
-            return;
-        }
-
-        // Проверка на валидные символы в имени таблицы
-        if !name
-            .chars()
-            .next()
-            .map(|c| c.is_ascii_alphabetic() || c == '_')
-            .unwrap_or(false)
-        {
-            set_error.set(Some(
-                "Table name must start with a letter or underscore".to_string(),
-            ));
-            return;
-        }
-
-        if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            set_error.set(Some(
-                "Table name can only contain letters, numbers, and underscores".to_string(),
-            ));
-            return;
-        }
-
-        // Проверка на валидные символы в имени PK
-        if !pk
-            .chars()
-            .next()
-            .map(|c| c.is_ascii_alphabetic() || c == '_')
-            .unwrap_or(false)
-        {
-            set_error.set(Some(
-                "Primary key name must start with a letter or underscore".to_string(),
-            ));
-            return;
-        }
-
-        if !pk.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            set_error.set(Some(
-                "Primary key name can only contain letters, numbers, and underscores".to_string(),
-            ));
-            return;
-        }
-
-        // Проверка на существование таблицы с таким именем
         if let Some(ref exists_fn) = table_exists
             && exists_fn.run(name.clone())
         {
@@ -144,15 +163,21 @@ pub fn NewTableDialog(
         set_is_creating.set(true);
         set_error.set(None);
 
+        let columns = preset_columns(preset.get());
+        let first_pk = columns.iter().find(|column| column.is_primary_key);
         let result = on_create.run(NewTableData {
             table_name: name.clone(),
-            pk_name: pk,
-            pk_type: pk_t,
+            pk_name: first_pk
+                .map(|column| column.name.clone())
+                .unwrap_or_else(|| "id".to_string()),
+            pk_type: first_pk
+                .map(|column| column.data_type.clone())
+                .unwrap_or_else(|| "uuid".to_string()),
+            columns,
         });
 
         match result {
             CreateTableResult::Success => {
-                // Успех - диалог закроется через on_cancel callback
                 set_is_creating.set(false);
             }
             CreateTableResult::Error(err) => {
@@ -168,160 +193,208 @@ pub fn NewTableDialog(
         on_cancel.run(());
     };
 
-    let handle_keydown = move |ev: web_sys::KeyboardEvent| match ev.key().as_str() {
-        "Enter" => {
+    let handle_keydown = move |ev: web_sys::KeyboardEvent| {
+        if ev.key() == "Enter" && (ev.ctrl_key() || ev.meta_key()) {
             ev.prevent_default();
             handle_create();
+        } else if ev.key() == "Escape" {
+            ev.prevent_default();
+            handle_cancel();
         }
-        _ => {}
     };
+
+    let preset_options = [
+        StarterPreset::Empty,
+        StarterPreset::Identity,
+        StarterPreset::Audit,
+        StarterPreset::SoftDelete,
+    ];
 
     view! {
         <Dialog
             is_open=is_open
             on_close=Callback::new(move |_| handle_cancel())
-            max_width="max-w-lg"
+            max_width="max-w-5xl"
             close_on_backdrop=true
         >
-            <div class="p-6">
-                // Заголовок
-                <div class="mb-6">
-                    <h3 class="text-2xl font-bold text-theme-primary mb-2">"New Table"</h3>
-                    <p class="text-sm text-theme-muted">
-                        "Create a new table with a primary key"
+            <div class="dialog-head form-dialog-head">
+                <div>
+                    <div class="eyebrow mb-1">"New table"</div>
+                    <h3 class="title-lg">"Create table"</h3>
+                    <p class="mt-1 text-sm text-theme-muted">
+                        "Tables are scoped to the current diagram. Columns can be added now or later."
                     </p>
                 </div>
+                <button type="button" class="btn-secondary btn-sm" disabled=true title="Use the AI panel from the editor for generation">
+                    <Icon name=icons::SPARKLES class="h-3.5 w-3.5" />
+                    "Generate with AI"
+                </button>
+            </div>
 
-                // Форма
-                <div class="space-y-5">
-                    // Поле имени таблицы
-                    <div>
-                        <label class="block text-sm font-medium text-theme-primary mb-2">
-                            "Table Name"
-                            <span class="text-red-500 ml-1">"*"</span>
-                        </label>
+            <div class="form-wall-body" on:keydown=handle_keydown>
+                <div class="grid gap-4 lg:grid-cols-[1fr_0.72fr_0.72fr]">
+                    <label class="block">
+                        <span class="field-label">"Name"</span>
                         <input
                             node_ref=table_input_ref
                             type="text"
-                            class="w-full px-4 py-2.5 bg-theme-surface border border-theme-primary rounded-lg text-theme-primary placeholder-theme-muted focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent transition-all"
-                            placeholder="e.g., users, orders, products"
+                            autocomplete="off"
+                            spellcheck="false"
+                            class="input-base mt-1"
+                            placeholder="categories"
                             prop:value=move || table_name.get()
                             on:input=move |ev| {
                                 set_table_name.set(event_target_value(&ev));
                                 set_error.set(None);
                             }
-                            on:keydown=handle_keydown
                             disabled=move || is_creating.get()
                         />
-                    </div>
+                        <span class="field-help">"snake_case · plural is conventional in Postgres"</span>
+                    </label>
 
-                    // Секция первичного ключа
-                    <div class="bg-theme-tertiary border border-theme-primary rounded-lg p-4 space-y-4">
-                        <div class="flex items-center text-sm font-semibold text-theme-primary">
-                            <Icon name=icons::KEY class="w-4 h-4 mr-2 text-yellow-500"/>
-                            "Primary Key"
-                        </div>
+                    <label class="block">
+                        <span class="field-label">"Schema"</span>
+                        <input
+                            type="text"
+                            autocomplete="off"
+                            spellcheck="false"
+                            class="input-base mt-1"
+                            prop:value=move || schema_name.get()
+                            on:input=move |ev| set_schema_name.set(event_target_value(&ev))
+                        />
+                        <span class="field-help">"Database namespace · preview-only"</span>
+                    </label>
 
-                        // Имя первичного ключа
-                        <div>
-                            <label class="block text-sm font-medium text-theme-secondary mb-2">
-                                "Column Name"
-                                <span class="text-red-500 ml-1">"*"</span>
-                            </label>
-                            <input
-                                type="text"
-                                class="w-full px-3 py-2 bg-theme-surface border border-theme-primary rounded-lg text-theme-primary placeholder-theme-muted focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent transition-all text-sm"
-                                placeholder="e.g., id, user_id"
-                                prop:value=move || pk_name.get()
-                                on:input=move |ev| {
-                                    set_pk_name.set(event_target_value(&ev));
-                                    set_error.set(None);
-                                }
-                                on:keydown=handle_keydown
-                                disabled=move || is_creating.get()
-                            />
-                        </div>
-
-                        // Тип данных первичного ключа
-                        <div>
-                            <label class="block text-sm font-medium text-theme-secondary mb-2">
-                                "Data Type"
-                            </label>
-                            <select
-                                class="w-full px-3 py-2 bg-theme-surface border border-theme-primary rounded-lg text-theme-primary focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent transition-all text-sm"
-                                prop:value=move || pk_type.get()
-                                on:change=move |ev| {
-                                    set_pk_type.set(event_target_value(&ev));
-                                }
-                                disabled=move || is_creating.get()
-                            >
-                                {pk_types
-                                    .iter()
-                                    .map(|&dt| {
-                                        view! {
-                                            <option value=dt selected=move || pk_type.get() == dt>
-                                                {dt}
-                                            </option>
-                                        }
-                                    })
-                                    .collect_view()}
-                            </select>
-                        </div>
-
-                        // Информация о PK
-                        <div class="flex items-start text-xs text-theme-muted bg-theme-surface rounded-md p-2.5 border border-theme-primary/50">
-                            <Icon name=icons::INFORMATION_CIRCLE class="w-3.5 h-3.5 mr-2 mt-0.5 flex-shrink-0 text-blue-500"/>
-                            <span>"Primary key will be NOT NULL and auto-indexed"</span>
-                        </div>
-                    </div>
-
-                    // Ошибка
-                    <ErrorMessage error=error/>
+                    <label class="block">
+                        <span class="field-label">"Folder"</span>
+                        <input
+                            type="text"
+                            autocomplete="off"
+                            class="input-base mt-1"
+                            prop:value=move || folder_name.get()
+                            on:input=move |ev| set_folder_name.set(event_target_value(&ev))
+                        />
+                        <span class="field-help">"Folder metadata is not persisted yet"</span>
+                    </label>
                 </div>
 
-                // Кнопки действий
-                <div class="flex items-center justify-end space-x-3 mt-6 pt-5 border-t border-theme-primary">
-                    <button
-                        class="px-5 py-2.5 text-sm font-medium text-theme-secondary bg-theme-secondary hover:bg-theme-tertiary border border-theme-primary rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-theme-accent"
-                        on:click=move |_| handle_cancel()
-                        disabled=move || is_creating.get()
-                    >
-                        "Cancel"
-                    </button>
-                    <button
-                        class="px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-accent-primary to-accent-secondary hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-accent-primary flex items-center"
-                        on:click=move |_| handle_create()
-                        disabled=move || {
-                            is_creating.get()
-                                || table_name.get().trim().is_empty()
-                                || pk_name.get().trim().is_empty()
-                        }
-                    >
+                <label class="block">
+                    <span class="field-label">"Description"</span>
+                    <textarea
+                        class="input-base mt-1 min-h-[92px] resize-none"
+                        placeholder="Lookup table for post categories."
+                        prop:value=move || description.get()
+                        on:input=move |ev| set_description.set(event_target_value(&ev))
+                    ></textarea>
+                    <span class="field-help">"Surfaces in tooltips and exported docs later. Preview-only in this pass."</span>
+                </label>
+
+                <ErrorMessage error=error />
+
+                <section>
+                    <div class="field-label mb-2">"Starter preset"</div>
+                    <div class="preset-grid">
+                        {preset_options.into_iter().map(|option| {
+                            let option_for_click = option;
+                            let option_for_active = option;
+                            view! {
+                                <button
+                                    type="button"
+                                    class="preset-card"
+                                    attr:data-active=move || if preset.get() == option_for_active { "true" } else { "false" }
+                                    on:click=move |_| set_preset.set(option_for_click)
+                                >
+                                    <span class="font-semibold text-theme-primary">{option.label()}</span>
+                                    <span class="text-xs text-theme-muted">{option.description()}</span>
+                                </button>
+                            }
+                        }).collect_view()}
+                    </div>
+                </section>
+
+                <section class="surface overflow-hidden">
+                    <div class="form-section-head">
+                        <span class="eyebrow">"Columns · " {move || preset_columns(preset.get()).len()}</span>
+                        <button type="button" class="btn-ghost btn-sm" disabled=true title="Detailed column editing happens in the table inspector">
+                            <Icon name=icons::PLUS class="h-3 w-3" />
+                            "Add column"
+                        </button>
+                    </div>
+                    <div class="form-column-table-head">
+                        <span></span>
+                        <span>"Name"</span>
+                        <span>"Type"</span>
+                        <span>"Not null"</span>
+                        <span>"Unique"</span>
+                        <span>"Default"</span>
+                        <span></span>
+                    </div>
+                    <div class="max-h-[260px] overflow-y-auto scroll">
                         {move || {
-                            if is_creating.get() {
+                            let columns = preset_columns(preset.get());
+                            if columns.is_empty() {
                                 view! {
-                                    <>
-                                        <Icon name=icons::LOADER class="w-4 h-4 mr-2 animate-spin"/>
-                                        "Creating..."
-                                    </>
-                                }
-                                    .into_any()
+                                    <div class="rounded-md border border-dashed border-theme p-5 text-center text-xs text-theme-muted">
+                                        "No columns. Add them later from the table inspector."
+                                    </div>
+                                }.into_any()
                             } else {
-                                view! {
-                                    <>
-                                        <Icon name=icons::PLUS class="w-4 h-4 mr-2"/>
-                                        "Create Table"
-                                    </>
-                                }
-                                    .into_any()
+                                columns.into_iter().map(|column| {
+                                    let name = column.name.clone();
+                                    let data_type = column.data_type.clone();
+                                    let default = column.default_value.clone().unwrap_or_else(|| "-".to_string());
+                                    view! {
+                                        <div class="form-column-row">
+                                            <span class="form-column-drag"><Icon name=icons::GRIP_HORIZONTAL class="h-3.5 w-3.5" /></span>
+                                            <div class="column-inline-main">
+                                                <span class="column-inline-badges">
+                                                    {if column.is_primary_key {
+                                                        view! { <span class="schema-table-badge schema-table-badge-pk">"PK"</span> }.into_any()
+                                                    } else {
+                                                        view! { <span></span> }.into_any()
+                                                    }}
+                                                </span>
+                                                <span class="column-inline-name" title=name.clone()>{name.clone()}</span>
+                                            </div>
+                                            <span class="column-inline-type" title=data_type.clone()>{data_type.clone()}</span>
+                                            <span class="form-column-check">{if !column.is_nullable { "✓" } else { "-" }}</span>
+                                            <span class="form-column-check">{if column.is_unique { "✓" } else { "-" }}</span>
+                                            <span class="form-column-default" title=default.clone()>{default.clone()}</span>
+                                            <span class="text-theme-muted">"..."</span>
+                                        </div>
+                                    }
+                                }).collect_view().into_any()
                             }
                         }}
-                    </button>
-                </div>
+                    </div>
+                </section>
+            </div>
 
-                // Подсказка по горячим клавишам
-                <div class="mt-4 pt-4 border-t border-theme-primary/50">
-                    <CreateCancelHints/>
+            <div class="form-dialog-footer">
+                <div class="text-xs text-theme-muted">
+                    <span class="font-medium text-theme-secondary">"Will emit 1 CREATE TABLE"</span>
+                    " · preset columns only"
+                </div>
+                <div class="flex items-center justify-end gap-2">
+                    <button class="btn-secondary" on:click=move |_| handle_cancel() disabled=move || is_creating.get()>
+                        "Cancel"
+                    </button>
+                    <button class="btn-secondary" type="button" disabled=true title="SQL diff preview is planned for a later model pass">
+                        <Icon name=icons::CODE class="icon-btn" />
+                        "Preview SQL"
+                    </button>
+                    <button
+                        class="btn-primary"
+                        on:click=move |_| handle_create()
+                        disabled=move || is_creating.get() || table_name.get().trim().is_empty()
+                    >
+                        {move || if is_creating.get() {
+                            view! { <Icon name=icons::LOADER class="icon-btn animate-spin" /> }.into_any()
+                        } else {
+                            view! { <Icon name=icons::PLUS class="icon-btn" /> }.into_any()
+                        }}
+                        "Create table"
+                    </button>
                 </div>
             </div>
         </Dialog>

@@ -1,6 +1,7 @@
-use crate::core::{SchemaGraph, TableOps, auto_layout, create_demo_graph};
-use crate::ui::ai_chat::{AiChatButton, AiChatPanel};
+use crate::core::{SchemaGraph, TableOps, auto_layout};
+use crate::ui::ai_chat::AiChatPanel;
 use crate::ui::auth::UserMenu;
+use crate::ui::common::{BrandMark, KbdKey};
 #[cfg(not(feature = "ssr"))]
 use crate::ui::liveshare_client::{
     ColumnData, GraphStateSnapshot, RelationshipData, RelationshipSnapshot, TableSnapshot,
@@ -8,13 +9,17 @@ use crate::ui::liveshare_client::{
 use crate::ui::liveshare_client::{ConnectionState, GraphOperation, use_liveshare_context};
 use crate::ui::notifications::{NotificationManager, NotificationsContainer};
 use crate::ui::remote_cursors::{CursorTracker, RemoteCursors};
-use crate::ui::settings_modal::{SettingsButton, SettingsModal};
+use crate::ui::settings_modal::SettingsModal;
 use crate::ui::sidebar::Sidebar;
 use crate::ui::source_editor::{EditorMode, SourceEditor};
-use crate::ui::table::TableNodeView;
-use crate::ui::{Icon, icons};
+use crate::ui::table::{
+    TABLE_BODY_PADDING_Y, TABLE_EDGE_GAP, TABLE_HEADER_HEIGHT, TABLE_NODE_WIDTH, TABLE_ROW_HEIGHT,
+    TableNodeView,
+};
+use crate::ui::{EmptyState, Icon, icons};
 use leptos::prelude::*;
 use leptos::{html, web_sys};
+use leptos_router::components::A;
 use petgraph::graph::{EdgeIndex, NodeIndex};
 #[cfg(not(feature = "ssr"))]
 use std::collections::HashMap;
@@ -838,67 +843,86 @@ pub fn SchemaCanvas(
         });
     }
 
+    let settings_open = RwSignal::new(false);
+    let initial_room_id = RwSignal::new(String::new());
+    let ai_chat_open = RwSignal::new(false);
+
+    // Auto-open settings and connect when there's a pending room from URL.
+    #[cfg(not(feature = "ssr"))]
+    {
+        let ctx = liveshare_ctx;
+        let settings_open_clone = settings_open;
+        let initial_room_id_clone = initial_room_id;
+
+        Effect::new(move |_| {
+            if let Some(room_id) = ctx.pending_join_room.get() {
+                ctx.pending_join_room.set(None);
+                initial_room_id_clone.set(room_id.clone());
+                settings_open_clone.set(true);
+
+                if let Some(window) = web_sys::window() {
+                    if let Ok(history) = window.history() {
+                        let _ = history.replace_state_with_url(
+                            &wasm_bindgen::JsValue::NULL,
+                            "",
+                            Some("/"),
+                        );
+                    }
+                }
+
+                ctx.connect(room_id, None);
+            }
+        });
+    }
+
     view! {
-        <div class="relative w-full h-screen bg-theme-canvas overflow-hidden flex theme-transition">
+        <div class="editor-shell app relative h-screen w-full overflow-hidden theme-transition">
             // Notification container
             <NotificationsContainer notifications=notification_manager.notifications() />
 
-            // Сайдбар
-            <Sidebar
-                graph=graph
-                on_table_focus=handle_table_focus
-                editor_mode=editor_mode
-                is_collapsed=sidebar_collapsed
+            <EditorTopBar
                 diagram_name=diagram_name
                 is_demo=is_demo
-                on_name_change=on_name_change
+                ai_chat_open=ai_chat_open
+                settings_open=settings_open
             />
 
-            // Source Editor (показывается в режиме Source)
-            <Show when=move || editor_mode.get() == EditorMode::Source>
-                <div class=move || {
-                    if editor_mode.get() == EditorMode::Source {
-                        "flex-1 transition-all duration-300"
-                    } else {
-                        "hidden"
-                    }
-                }>
-                    <SourceEditor graph=graph readonly=false />
-                </div>
-            </Show>
+            <div class="editor-body">
+                <Show when=move || editor_mode.get() == EditorMode::Source>
+                    <SourceEditor graph=graph readonly=false editor_mode=editor_mode />
+                </Show>
 
-            // Основной канвас (полноразмерный, сайдбар накрывает его сверху) - показывается в режиме Visual
-            <div
-                node_ref=canvas_ref
-                class=move || {
-                    if editor_mode.get() == EditorMode::Visual {
-                        "flex-1 relative bg-theme-canvas theme-transition transition-all duration-300"
-                    } else {
-                        "hidden"
-                    }
-                }
-                on:mousedown=move |ev: web_sys::MouseEvent| {
-                    // Средняя кнопка мыши (button = 1)
-                    if ev.button() == 1 {
-                        ev.prevent_default();
-                        ev.stop_propagation();
-                        set_panning.set(Some((ev.client_x() as f64, ev.client_y() as f64)));
-                    }
-                }
-                on:click=move |ev: web_sys::MouseEvent| {
-                    // Clear selection when clicking on empty canvas (not on table or edge)
-                    // The event target should be the canvas itself or the grid
-                    if ev.button() == 0 {
-                        // Only clear if we didn't click on a table or edge (they stop propagation)
-                        highlighted_edges.set(HashSet::new());
-                        selected_table.set(None);
-                    }
-                }
-                on:contextmenu=move |ev: web_sys::MouseEvent| {
-                    // Отключаем контекстное меню при клике средней кнопкой
-                    ev.prevent_default();
-                }
-            >
+                <Show when=move || editor_mode.get() == EditorMode::Visual>
+                    <Sidebar
+                        graph=graph
+                        on_table_focus=handle_table_focus
+                        editor_mode=editor_mode
+                        is_collapsed=sidebar_collapsed
+                    />
+
+                    // Основной канвас - показывается в режиме Visual
+                    <div
+                        node_ref=canvas_ref
+                        class="editor-canvas"
+                        on:mousedown=move |ev: web_sys::MouseEvent| {
+                            // Средняя кнопка мыши (button = 1)
+                            if ev.button() == 1 {
+                                ev.prevent_default();
+                                ev.stop_propagation();
+                                set_panning.set(Some((ev.client_x() as f64, ev.client_y() as f64)));
+                            }
+                        }
+                        on:click=move |ev: web_sys::MouseEvent| {
+                            // Clear selection when clicking on empty canvas (not on table or edge)
+                            if ev.button() == 0 {
+                                highlighted_edges.set(HashSet::new());
+                                selected_table.set(None);
+                            }
+                        }
+                        on:contextmenu=move |ev: web_sys::MouseEvent| {
+                            ev.prevent_default();
+                        }
+                    >
                 // Сетка на фоне
                 <div class="absolute inset-0 bg-grid-pattern opacity-20"></div>
 
@@ -913,7 +937,7 @@ pub fn SchemaCanvas(
                             refY="3"
                             orient="auto"
                         >
-                            <polygon points="0 0, 10 3, 0 6" class="fill-current text-gray-500 dark:text-gray-400" />
+                            <polygon points="0 0, 10 3, 0 6" fill="var(--relation)" />
                         </marker>
                     </defs>
 
@@ -942,13 +966,6 @@ pub fn SchemaCanvas(
                                     let (from_x, from_y) = from_node.position;
                                     let (to_x, to_y) = to_node.position;
 
-                                    // Константы для расчёта позиции стрелок
-                                    const NODE_WIDTH: f64 = 280.0;
-                                    const HEADER_HEIGHT: f64 = 48.0;
-                                    const ROW_HEIGHT: f64 = 36.0;
-                                    const PADDING_TOP: f64 = 8.0;
-                                    const GAP: f64 = 30.0;
-
                                     // Находим индекс колонки в исходной таблице
                                     let from_col_idx = from_node.columns.iter()
                                         .position(|col| col.name == edge.from_column)
@@ -960,15 +977,15 @@ pub fn SchemaCanvas(
                                         .unwrap_or(0);
 
                                     // Вычисляем Y координаты для конкретных колонок
-                                    let from_col_y = from_y + HEADER_HEIGHT + PADDING_TOP
-                                        + (from_col_idx as f64 * ROW_HEIGHT) + (ROW_HEIGHT / 2.0);
-                                    let to_col_y = to_y + HEADER_HEIGHT + PADDING_TOP
-                                        + (to_col_idx as f64 * ROW_HEIGHT) + (ROW_HEIGHT / 2.0);
+                                    let from_col_y = from_y + TABLE_HEADER_HEIGHT + TABLE_BODY_PADDING_Y
+                                        + (from_col_idx as f64 * TABLE_ROW_HEIGHT) + (TABLE_ROW_HEIGHT / 2.0);
+                                    let to_col_y = to_y + TABLE_HEADER_HEIGHT + TABLE_BODY_PADDING_Y
+                                        + (to_col_idx as f64 * TABLE_ROW_HEIGHT) + (TABLE_ROW_HEIGHT / 2.0);
 
                                     // Определяем границы таблиц
-                                    let from_right = from_x + NODE_WIDTH;
+                                    let from_right = from_x + TABLE_NODE_WIDTH;
                                     let from_left = from_x;
-                                    let to_right = to_x + NODE_WIDTH;
+                                    let to_right = to_x + TABLE_NODE_WIDTH;
                                     let to_left = to_x;
 
                                     // Умная логика выбора пути стрелки
@@ -977,7 +994,7 @@ pub fn SchemaCanvas(
                                             from_x, from_y, to_x, to_y,
                                             from_col_y, to_col_y,
                                             from_left, from_right, to_left, to_right,
-                                            NODE_WIDTH, GAP
+                                            TABLE_NODE_WIDTH, TABLE_EDGE_GAP
                                         );
 
                                     let rel_type = edge.relationship_type.to_string();
@@ -1010,8 +1027,8 @@ pub fn SchemaCanvas(
                                             // Visible path (dimmed if highlighted, since highlighted version is on top layer)
                                             <path
                                                 d=path_data
-                                                class="stroke-current text-gray-500 dark:text-gray-400"
-                                                stroke-width="2"
+                                                class="schema-relation"
+                                                stroke-width="1.75"
                                                 fill="none"
                                                 marker-end="url(#arrowhead)"
                                                 style="pointer-events: none;"
@@ -1020,7 +1037,7 @@ pub fn SchemaCanvas(
                                             <text
                                                 x=text_x
                                                 y=text_y
-                                                class="fill-current text-gray-500 dark:text-gray-400 select-none"
+                                                class="schema-relation-label select-none"
                                                 font-size="12"
                                                 text-anchor="start"
                                                 style="pointer-events: none;"
@@ -1153,14 +1170,14 @@ pub fn SchemaCanvas(
                     </style>
                     <defs>
                         <marker
-                            id="arrowhead-white"
+                            id="arrowhead-selected"
                             markerWidth="12"
                             markerHeight="12"
                             refX="10"
                             refY="4"
                             orient="auto"
                         >
-                            <polygon points="0 0, 12 4, 0 8" fill="white" />
+                            <polygon points="0 0, 12 4, 0 8" fill="var(--relation-selected)" />
                         </marker>
                     </defs>
 
@@ -1198,12 +1215,6 @@ pub fn SchemaCanvas(
                                     let (from_x, from_y) = from_node.position;
                                     let (to_x, to_y) = to_node.position;
 
-                                    const NODE_WIDTH: f64 = 280.0;
-                                    const HEADER_HEIGHT: f64 = 48.0;
-                                    const ROW_HEIGHT: f64 = 36.0;
-                                    const PADDING_TOP: f64 = 8.0;
-                                    const GAP: f64 = 30.0;
-
                                     let from_col_idx = from_node.columns.iter()
                                         .position(|col| col.name == edge.from_column)
                                         .unwrap_or(0);
@@ -1212,14 +1223,14 @@ pub fn SchemaCanvas(
                                         .position(|col| col.name == edge.to_column)
                                         .unwrap_or(0);
 
-                                    let from_col_y = from_y + HEADER_HEIGHT + PADDING_TOP
-                                        + (from_col_idx as f64 * ROW_HEIGHT) + (ROW_HEIGHT / 2.0);
-                                    let to_col_y = to_y + HEADER_HEIGHT + PADDING_TOP
-                                        + (to_col_idx as f64 * ROW_HEIGHT) + (ROW_HEIGHT / 2.0);
+                                    let from_col_y = from_y + TABLE_HEADER_HEIGHT + TABLE_BODY_PADDING_Y
+                                        + (from_col_idx as f64 * TABLE_ROW_HEIGHT) + (TABLE_ROW_HEIGHT / 2.0);
+                                    let to_col_y = to_y + TABLE_HEADER_HEIGHT + TABLE_BODY_PADDING_Y
+                                        + (to_col_idx as f64 * TABLE_ROW_HEIGHT) + (TABLE_ROW_HEIGHT / 2.0);
 
-                                    let from_right = from_x + NODE_WIDTH;
+                                    let from_right = from_x + TABLE_NODE_WIDTH;
                                     let from_left = from_x;
-                                    let to_right = to_x + NODE_WIDTH;
+                                    let to_right = to_x + TABLE_NODE_WIDTH;
                                     let to_left = to_x;
 
                                     let (_start_x, _start_y, _end_x, _end_y, text_x, text_y, path_data) =
@@ -1227,7 +1238,7 @@ pub fn SchemaCanvas(
                                             from_x, from_y, to_x, to_y,
                                             from_col_y, to_col_y,
                                             from_left, from_right, to_left, to_right,
-                                            NODE_WIDTH, GAP
+                                            TABLE_NODE_WIDTH, TABLE_EDGE_GAP
                                         );
 
                                     let rel_type = edge.relationship_type.to_string();
@@ -1235,33 +1246,30 @@ pub fn SchemaCanvas(
 
                                     Some(view! {
                                         <g>
-                                            // Glow effect (blurred white background)
+                                            // Glow effect (blurred accent background)
                                             <path
                                                 d=path_data_glow
-                                                stroke="white"
+                                                class="schema-relation-highlight-glow"
                                                 stroke-width="8"
                                                 fill="none"
-                                                style="filter: blur(4px); opacity: 0.5;"
                                             />
-                                            // Main white animated line
+                                            // Main animated line
                                             <path
                                                 d=path_data
-                                                stroke="white"
-                                                stroke-width="4"
+                                                class="schema-relation-highlight animated-edge"
+                                                stroke-width="3"
                                                 fill="none"
                                                 stroke-dasharray="10 10"
-                                                class="animated-edge"
-                                                marker-end="url(#arrowhead-white)"
+                                                marker-end="url(#arrowhead-selected)"
                                             />
                                             // Relationship type label
                                             <text
                                                 x=text_x
                                                 y=text_y
-                                                fill="white"
+                                                class="schema-relation-highlight-label"
                                                 font-size="13"
-                                                font-weight="bold"
                                                 text-anchor="start"
-                                                style="text-shadow: 0 0 4px rgba(0,0,0,0.8);"
+                                                style="filter: drop-shadow(0 0 5px var(--background));"
                                             >
                                                 {rel_type}
                                             </text>
@@ -1274,95 +1282,202 @@ pub fn SchemaCanvas(
                     </g>
                 </svg>
 
-                // Settings button (правый верхний угол) and AI Chat button
-                {
-                    let settings_open = RwSignal::new(false);
-                    let initial_room_id = RwSignal::new(String::new());
-                    let ai_chat_open = RwSignal::new(false);
-
-                    // Auto-open settings and connect when there's a pending room from URL
-                    #[cfg(not(feature = "ssr"))]
-                    {
-                        let ctx = liveshare_ctx;
-                        let settings_open_clone = settings_open;
-                        let initial_room_id_clone = initial_room_id;
-
-                        Effect::new(move |_| {
-                            if let Some(room_id) = ctx.pending_join_room.get() {
-                                // Clear the pending room immediately to avoid re-triggering
-                                ctx.pending_join_room.set(None);
-
-                                // Set initial room ID for the modal
-                                initial_room_id_clone.set(room_id.clone());
-
-                                // Open settings modal
-                                settings_open_clone.set(true);
-
-                                // Clear the URL query parameter
-                                if let Some(window) = web_sys::window() {
-                                    if let Ok(history) = window.history() {
-                                        let _ = history.replace_state_with_url(
-                                            &wasm_bindgen::JsValue::NULL,
-                                            "",
-                                            Some("/"),
-                                        );
-                                    }
-                                }
-
-                                // Connect to the room (without password for now)
-                                ctx.connect(room_id, None);
-                            }
-                        });
-                    }
-
-                    view! {
-                        <div class="absolute top-4 right-4 z-50 flex items-center gap-3">
-                            <UserMenu />
-                            <SettingsButton is_open=settings_open />
-                        </div>
-                        <SettingsModal
-                            is_open=settings_open
-                            initial_room_id=initial_room_id
-                            graph=graph
-                            diagram_name=diagram_name.map(|s| s.with_untracked(|v| v.clone()))
-                            diagram_id=diagram_id
-                            is_demo=is_demo
-                            on_name_change=on_name_change
-                        />
-                        // Auto Layout button (above AI chat button in bottom-right)
-                        <button
-                            class="fixed bottom-36 right-4 z-40 flex items-center justify-center w-12 h-12 bg-theme-surface border border-theme-primary text-theme-secondary hover:text-theme-accent hover:border-theme-accent theme-transition transition-colors"
-                            style="border-radius: 12px; box-shadow: var(--shadow-lg);"
-                            on:click=move |_| {
-                                // Apply auto layout
-                                graph.update(|g| {
-                                    auto_layout(g);
-                                });
-                                // Sync all table positions to LiveShare
-                                if liveshare_ctx.connection_state.with_untracked(|v| *v) == ConnectionState::Connected {
-                                    graph.with_untracked(|g| {
-                                        for node_idx in g.node_indices() {
-                                            if let Some(node) = g.node_weight(node_idx) {
-                                                liveshare_ctx.send_graph_op(GraphOperation::MoveTable {
-                                                    node_id: node_idx.index() as u32,
-                                                    table_uuid: node.uuid,
-                                                    position: node.position,
-                                                });
-                                            }
+                // Canvas tool dock
+                <div class="canvas-tool-dock" aria-label="Canvas tools">
+                    <button type="button" class="btn-icon is-active" title="Select">
+                        <Icon name=icons::TABLE class="h-3.5 w-3.5"/>
+                    </button>
+                    <button
+                        type="button"
+                        class="btn-icon"
+                        title="New table"
+                        on:click=move |_| {
+                            let node_idx = graph.write().create_table_auto((400.0, 300.0));
+                            let (name, uuid) = graph.with(|g| {
+                                g.node_weight(node_idx)
+                                    .map(|n| (n.name.clone(), n.uuid))
+                                    .unwrap_or_default()
+                            });
+                            send_graph_op(GraphOperation::CreateTable {
+                                node_id: node_idx.index() as u32,
+                                table_uuid: uuid,
+                                name,
+                                position: (400.0, 300.0),
+                            });
+                            dispatch_save_event("table_created");
+                        }
+                    >
+                        <Icon name=icons::PLUS class="h-3.5 w-3.5"/>
+                    </button>
+                    <button
+                        type="button"
+                        class="btn-icon"
+                        title="Auto layout"
+                        on:click=move |_| {
+                            graph.update(auto_layout);
+                            if liveshare_ctx.connection_state.with_untracked(|v| *v) == ConnectionState::Connected {
+                                graph.with_untracked(|g| {
+                                    for node_idx in g.node_indices() {
+                                        if let Some(node) = g.node_weight(node_idx) {
+                                            liveshare_ctx.send_graph_op(GraphOperation::MoveTable {
+                                                node_id: node_idx.index() as u32,
+                                                table_uuid: node.uuid,
+                                                position: node.position,
+                                            });
                                         }
-                                    });
-                                }
+                                    }
+                                });
                             }
-                            title="Auto Layout - Arrange tables automatically based on relationships"
-                        >
-                            <Icon name=icons::SPARKLES class="w-6 h-6"/>
-                        </button>
-                        // AI Chat button (above settings button in bottom-right)
-                        <AiChatButton is_open=ai_chat_open />
-                        // AI Chat panel
-                        <AiChatPanel is_open=ai_chat_open _graph=graph />
-                    }
-                }
+                            dispatch_save_event("auto_layout");
+                        }
+                    >
+                        <Icon name=icons::SPARKLES class="h-3.5 w-3.5"/>
+                    </button>
+                    <button type="button" class="btn-icon" title="Snap to grid">
+                        <Icon name=icons::SQUARES_2X2 class="h-3.5 w-3.5"/>
+                    </button>
+                </div>
+
+                // Selection mini-toolbar
+                {move || {
+                    selected_table.get().and_then(|idx| {
+                        graph.with(|g| {
+                            g.node_weight(idx).map(|node| {
+                                let (x, y) = node.position;
+                                let left = pan_x.get() + x * zoom.get();
+                                let top = pan_y.get() + y * zoom.get() - 44.0;
+                                let table_name = node.name.clone();
+                                view! {
+                                    <div class="canvas-selection-toolbar" style:left=format!("{}px", left) style:top=format!("{}px", top.max(8.0))>
+                                        <span class="mono text-theme-muted">{table_name}</span>
+                                        <span class="hairline-v h-4"></span>
+                                        <button type="button" class="btn-ghost btn-sm" title="Rename from the sidebar inspector">
+                                            <Icon name=icons::EDIT class="h-3 w-3"/>"Rename"
+                                        </button>
+                                        <button type="button" class="btn-ghost btn-sm" title="Add a column from the sidebar inspector">
+                                            <Icon name=icons::PLUS class="h-3 w-3"/>"Column"
+                                        </button>
+                                        <button type="button" class="btn-ghost btn-sm" disabled=true title="Use a column foreign key to create a relation">
+                                            <Icon name=icons::LIGHTNING class="h-3 w-3"/>"Relate"
+                                        </button>
+                                    </div>
+                                }
+                            })
+                        })
+                    })
+                }}
+
+                // Relationship hovercard for selected edge
+                {move || {
+                    let selected_edge = highlighted_edges.get().iter().next().copied();
+                    selected_edge.and_then(|edge_idx| {
+                        graph.with(|g| {
+                            let (from_idx, to_idx) = g.edge_endpoints(edge_idx)?;
+                            let from_node = g.node_weight(from_idx)?;
+                            let to_node = g.node_weight(to_idx)?;
+                            let edge = g.edge_weight(edge_idx)?;
+                            let from_col_idx = from_node.columns.iter()
+                                .position(|col| col.name == edge.from_column)
+                                .unwrap_or(0);
+                            let to_col_idx = to_node.columns.iter()
+                                .position(|col| col.name == edge.to_column)
+                                .unwrap_or(0);
+                            let (from_x, from_y) = from_node.position;
+                            let (to_x, to_y) = to_node.position;
+                            let from_col_y = from_y + TABLE_HEADER_HEIGHT + TABLE_BODY_PADDING_Y
+                                + (from_col_idx as f64 * TABLE_ROW_HEIGHT) + (TABLE_ROW_HEIGHT / 2.0);
+                            let to_col_y = to_y + TABLE_HEADER_HEIGHT + TABLE_BODY_PADDING_Y
+                                + (to_col_idx as f64 * TABLE_ROW_HEIGHT) + (TABLE_ROW_HEIGHT / 2.0);
+                            let (_, _, _, _, text_x, text_y, _) = calculate_edge_path(
+                                from_x, from_y, to_x, to_y, from_col_y, to_col_y,
+                                from_x, from_x + TABLE_NODE_WIDTH, to_x, to_x + TABLE_NODE_WIDTH,
+                                TABLE_NODE_WIDTH, TABLE_EDGE_GAP,
+                            );
+                            let left = pan_x.get() + text_x * zoom.get() + 12.0;
+                            let top = pan_y.get() + text_y * zoom.get() + 8.0;
+                            let relation = format!("{}.{} -> {}.{}", from_node.name, edge.from_column, to_node.name, edge.to_column);
+                            let rel_type = edge.relationship_type.to_string();
+                            Some(view! {
+                                <div class="relation-hovercard" style:left=format!("{}px", left) style:top=format!("{}px", top)>
+                                    <div class="flex items-center gap-1.5 text-xs text-theme-primary">
+                                        <Icon name=icons::LIGHTNING class="h-3 w-3 text-theme-accent"/>
+                                        <span class="mono">{relation}</span>
+                                    </div>
+                                    <div class="mt-1 flex gap-1.5">
+                                        <span class="chip h-[18px] text-[10px]">{rel_type}</span>
+                                        <span class="chip h-[18px] text-[10px]">"relationship"</span>
+                                    </div>
+                                </div>
+                            })
+                        })
+                    })
+                }}
+
+                // Bottom-center floating action bar
+                <div class="canvas-action-bar">
+                    <button
+                        type="button"
+                        class="btn-secondary btn-sm btn-pill"
+                        on:click=move |_| {
+                            graph.update(auto_layout);
+                            if liveshare_ctx.connection_state.with_untracked(|v| *v) == ConnectionState::Connected {
+                                graph.with_untracked(|g| {
+                                    for node_idx in g.node_indices() {
+                                        if let Some(node) = g.node_weight(node_idx) {
+                                            liveshare_ctx.send_graph_op(GraphOperation::MoveTable {
+                                                node_id: node_idx.index() as u32,
+                                                table_uuid: node.uuid,
+                                                position: node.position,
+                                            });
+                                        }
+                                    }
+                                });
+                            }
+                            dispatch_save_event("auto_layout");
+                        }
+                    >
+                        <Icon name=icons::SPARKLES class="h-3 w-3"/>"Auto layout"
+                    </button>
+                    <button type="button" class="btn-secondary btn-sm btn-pill" disabled=true title="Relationship creation is handled from column editor">
+                        <Icon name=icons::LIGHTNING class="h-3 w-3"/>"Add relation"
+                    </button>
+                    <button
+                        type="button"
+                        class="btn-secondary btn-sm btn-pill"
+                        on:click=move |_| {
+                            let node_idx = graph.write().create_table_auto((400.0, 300.0));
+                            let (name, uuid) = graph.with(|g| {
+                                g.node_weight(node_idx)
+                                    .map(|n| (n.name.clone(), n.uuid))
+                                    .unwrap_or_default()
+                            });
+                            send_graph_op(GraphOperation::CreateTable {
+                                node_id: node_idx.index() as u32,
+                                table_uuid: uuid,
+                                name,
+                                position: (400.0, 300.0),
+                            });
+                            dispatch_save_event("table_created");
+                        }
+                    >
+                        <Icon name=icons::PLUS class="h-3 w-3"/>"Add table"
+                    </button>
+                    <span class="hairline-v h-4"></span>
+                    <button type="button" class="btn-primary btn-sm btn-pill" on:click=move |_| ai_chat_open.set(true)>
+                        <Icon name=icons::SPARKLES class="h-3 w-3"/>"Ask AI" <KbdKey class="bg-black/20 text-white border-black/25".to_string()>"Ctrl J"</KbdKey>
+                    </button>
+                </div>
+
+                // Bottom-right zoom controls
+                <div class="canvas-zoom-dock">
+                    <button type="button" class="btn-ghost btn-sm btn-pill" title="Zoom out" on:click=move |_| set_zoom.update(|z| *z = (*z * 0.9).clamp(0.1, 5.0))>"-"</button>
+                    <button type="button" class="btn-ghost btn-sm btn-pill mono min-w-[56px]" title="Reset zoom" on:click=move |_| {
+                        set_zoom.set(1.0);
+                        set_pan_x.set(0.0);
+                        set_pan_y.set(0.0);
+                    }>{move || format!("{:.0}%", zoom.get() * 100.0)}</button>
+                    <button type="button" class="btn-ghost btn-sm btn-pill" title="Zoom in" on:click=move |_| set_zoom.update(|z| *z = (*z * 1.1).clamp(0.1, 5.0))>"+"</button>
+                </div>
 
                 // Remote cursors overlay (показывает курсоры других пользователей)
                 <RemoteCursors zoom=Signal::from(zoom) pan_x=Signal::from(pan_x) pan_y=Signal::from(pan_y) />
@@ -1375,20 +1490,16 @@ pub fn SchemaCanvas(
                     let table_count = graph.with(|g| g.node_count());
                     if table_count == 0 {
                         view! {
-                            <div class="absolute inset-0 flex items-center justify-center">
-                                <div class="text-center max-w-md px-8">
-                                    <div class="w-24 h-24 mx-auto mb-6 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900 dark:to-purple-900 rounded-full flex items-center justify-center">
-                                        <Icon name=icons::TABLE class="w-12 h-12 text-blue-600 dark:text-blue-400"/>
-                                    </div>
-                                    <h2 class="text-3xl font-bold text-theme-primary mb-3">
-                                        "Welcome to Archischema"
-                                    </h2>
-                                    <p class="text-theme-tertiary mb-8 leading-relaxed">
-                                        "Start designing your database schema by creating your first table, or load a demo to see how it works."
-                                    </p>
-                                    <div class="flex flex-col gap-3 justify-center items-stretch w-full max-w-xs mx-auto">
+                            <div class="pointer-events-none absolute inset-0 flex items-center justify-center px-6">
+                                <EmptyState
+                                    title="A blank canvas, ready to model".to_string()
+                                    description="Start by sketching a table, pasting SQL, or describing your domain to the AI assistant.".to_string()
+                                    icon=icons::TABLE
+                                    class="pointer-events-auto rounded-2xl border border-theme bg-theme-surface/80 p-8 shadow-theme-xl backdrop-blur".to_string()
+                                >
+                                    <div class="flex w-full max-w-sm flex-col items-stretch justify-center gap-3 sm:flex-row">
                                         <button
-                                            class="w-full px-6 py-3 btn-theme-primary rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2"
+                                            class="btn-primary btn-lg min-w-[130px]"
                                             on:click=move |_| {
                                                 let node_idx = graph.write().create_table_auto((400.0, 300.0));
                                                 let (name, uuid) = graph.with(|g| {
@@ -1400,25 +1511,31 @@ pub fn SchemaCanvas(
                                                     name,
                                                     position: (400.0, 300.0),
                                                 });
+                                                dispatch_save_event("table_created");
                                             }
                                         >
                                             <Icon name=icons::PLUS class="w-5 h-5"/>
-                                            "Create Your First Table"
+                                            "Add table"
                                         </button>
                                         <button
-                                            class="w-full px-6 py-3 text-theme-secondary bg-theme-tertiary rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2 theme-transition"
-                                            on:click=move |_| {
-                                                graph.set(create_demo_graph());
-                                            }
+                                            class="btn-secondary btn-lg min-w-[130px]"
+                                            on:click=move |_| editor_mode.set(EditorMode::Source)
                                         >
-                                            <Icon name=icons::TABLE class="w-5 h-5"/>
-                                            "Load Demo Schema"
+                                            <Icon name=icons::CODE class="w-5 h-5"/>
+                                            "Paste SQL"
+                                        </button>
+                                        <button
+                                            class="btn-secondary btn-lg min-w-[130px]"
+                                            on:click=move |_| ai_chat_open.set(true)
+                                        >
+                                            <Icon name=icons::SPARKLES class="w-5 h-5"/>
+                                            "Describe to AI"
                                         </button>
                                     </div>
-                                    <div class="mt-6 text-sm text-theme-muted">
-                                        "Or use the \"New Table\" button in the sidebar"
+                                    <div class="text-sm text-theme-muted">
+                                        "Use the left sidebar for existing tables and the bottom bar for layout actions."
                                     </div>
-                                </div>
+                                </EmptyState>
                             </div>
                         }
                             .into_any()
@@ -1426,8 +1543,126 @@ pub fn SchemaCanvas(
                         view! { <div></div> }.into_any()
                     }
                 }}
+                    </div>
+
+                    <AiChatPanel is_open=ai_chat_open _graph=graph />
+                </Show>
             </div>
+
+            <SettingsModal
+                is_open=settings_open
+                initial_room_id=initial_room_id
+                graph=graph
+                diagram_name=diagram_name.map(|s| s.with_untracked(|v| v.clone()))
+                diagram_id=diagram_id
+                is_demo=is_demo
+                on_name_change=on_name_change
+            />
         </div>
+    }
+}
+
+#[component]
+fn EditorTopBar(
+    #[prop(default = None)] diagram_name: Option<RwSignal<String>>,
+    #[prop(default = false)] is_demo: bool,
+    ai_chat_open: RwSignal<bool>,
+    settings_open: RwSignal<bool>,
+) -> impl IntoView {
+    let liveshare_ctx = use_liveshare_context();
+
+    let title = move || {
+        diagram_name
+            .map(|name| name.get())
+            .unwrap_or_else(|| "Untitled diagram".to_string())
+    };
+
+    let sync_label = move || match liveshare_ctx.connection_state.get() {
+        ConnectionState::Connected => "Live",
+        ConnectionState::Connecting => "Connecting",
+        ConnectionState::Reconnecting => "Reconnecting",
+        ConnectionState::Error => "Sync error",
+        ConnectionState::Disconnected => "Local",
+    };
+
+    let sync_class = move || match liveshare_ctx.connection_state.get() {
+        ConnectionState::Connected => "status-dot status-dot-live",
+        ConnectionState::Connecting | ConnectionState::Reconnecting => {
+            "status-dot status-dot-pending"
+        }
+        ConnectionState::Error => "status-dot status-dot-error",
+        ConnectionState::Disconnected => "status-dot",
+    };
+
+    view! {
+        <header class="editor-topbar">
+            <div class="flex min-w-0 items-center gap-2 text-[12.5px] text-theme-muted">
+                <BrandMark />
+                <A href="/dashboard" attr:class="editor-breadcrumb-link" attr:title="Back to dashboard">
+                    <Icon name=icons::FOLDER class="h-3 w-3" />
+                    <span class="hidden sm:inline">"Client work"</span>
+                </A>
+                <Icon name=icons::CHEVRON_RIGHT class="h-3 w-3" />
+                <span class="truncate font-medium text-theme-primary">{title}</span>
+                {if is_demo {
+                    view! { <span class="chip h-[18px] text-[10.5px]">"Demo"</span> }.into_any()
+                } else {
+                    view! { <span></span> }.into_any()
+                }}
+                <span class="chip h-[18px] text-[10.5px]">
+                    <span class=sync_class></span>
+                    {sync_label}
+                </span>
+            </div>
+
+            <div class="flex flex-1 items-center justify-center gap-2 text-theme-muted">
+                <button type="button" class="btn-ghost btn-sm" title="Current branch">
+                    <Icon name=icons::GIT_BRANCH class="h-3 w-3" />
+                    "main"
+                </button>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <div class="hidden items-center sm:flex">
+                    {move || {
+                        liveshare_ctx.remote_users.get()
+                            .into_iter()
+                            .take(3)
+                            .enumerate()
+                            .map(|(index, user)| {
+                                let initial = user.username.chars().next()
+                                    .map(|c| c.to_uppercase().to_string())
+                                    .unwrap_or_else(|| "?".to_string());
+                                let margin = if index == 0 { "0" } else { "-6px" };
+                                view! {
+                                    <span
+                                        class="editor-avatar"
+                                        style=format!("background: {}; margin-left: {};", user.color, margin)
+                                        title=user.username
+                                    >
+                                        {initial}
+                                    </span>
+                                }
+                            })
+                            .collect_view()
+                    }}
+                </div>
+                <button type="button" class="btn-secondary btn-sm" on:click=move |_| settings_open.set(true)>
+                    <Icon name=icons::USER_PLUS class="h-3 w-3" />
+                    "Share"
+                </button>
+                <span class="hairline-v h-[18px]"></span>
+                <button type="button" class="btn-ghost btn-sm" on:click=move |_| ai_chat_open.set(true)>
+                    <Icon name=icons::SPARKLES class="h-3 w-3 text-theme-accent" />
+                    "Ask AI"
+                    <KbdKey>"Ctrl J"</KbdKey>
+                </button>
+                <button type="button" class="btn-icon" title="Settings" on:click=move |_| settings_open.set(true)>
+                    <Icon name=icons::SETTINGS class="icon-standalone" />
+                </button>
+                <UserMenu />
+            </div>
+        </header>
     }
 }
 

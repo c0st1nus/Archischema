@@ -16,8 +16,8 @@ use leptos::web_sys;
 /// Theme mode options
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ThemeMode {
-    #[default]
     Auto,
+    #[default]
     Dark,
     Light,
 }
@@ -108,8 +108,12 @@ impl ThemeContext {
                         let class_list = html.class_list();
                         if self.is_dark.with_untracked(|v| *v) {
                             let _ = class_list.add_1("dark");
+                            let _ = class_list.add_1("theme-dark");
+                            let _ = class_list.remove_1("theme-light");
                         } else {
                             let _ = class_list.remove_1("dark");
+                            let _ = class_list.remove_1("theme-dark");
+                            let _ = class_list.add_1("theme-light");
                         }
                     }
                 }
@@ -130,7 +134,7 @@ fn load_persisted_theme() -> ThemeMode {
             }
         }
     }
-    ThemeMode::Auto
+    ThemeMode::Dark
 }
 
 /// Detect system color scheme preference

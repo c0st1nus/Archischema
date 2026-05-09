@@ -6,6 +6,7 @@
 
 pub mod badge;
 pub mod button;
+pub mod design;
 pub mod dropdown;
 pub mod form;
 pub mod keyboard;
@@ -20,6 +21,10 @@ pub use badge::{
     RemovableBadge, StatusBadge,
 };
 pub use button::{Button, ButtonGroup, ButtonSize, ButtonVariant, IconButton, SubmitCancelButtons};
+pub use design::{
+    AuthVisualPane, AvatarInitials, BrandMark, Chip, EmptyState, Field, KbdKey,
+    NeutralVisualPlaceholder, SegmentedControl, SegmentedOption, Sep, StatTile, Surface,
+};
 pub use dropdown::{
     Dropdown, DropdownAlign, DropdownItem, DropdownItemVariant, IconDropdown, SimpleDropdown,
 };

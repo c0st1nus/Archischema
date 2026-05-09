@@ -38,6 +38,9 @@ pub fn SourceEditor(
     /// Optional callback for validation result (for LLM agent)
     #[prop(optional)]
     on_validation: Option<Callback<SqlValidationResult>>,
+    /// Optional editor mode signal used when SourceEditor owns the source-mode sidebar
+    #[prop(optional)]
+    editor_mode: Option<RwSignal<EditorMode>>,
 ) -> impl IntoView {
     // Get LiveShare context for sync
     let liveshare_ctx = use_liveshare_context();
@@ -55,9 +58,6 @@ pub fn SourceEditor(
             SchemaExporter::export_sql(g, &options).unwrap_or_else(|e| format!("-- Error: {}", e))
         })
     });
-
-    // Line numbers derived from content
-    let line_count = Memo::new(move |_| sql_content.with(|s| s.lines().count().max(1)));
 
     // Local editable content (for non-readonly mode)
     let (local_content, set_local_content) = signal(String::new());
@@ -87,13 +87,17 @@ pub fn SourceEditor(
         }
     });
 
+    // Line numbers derived from the visible buffer, including unsaved edits.
+    let line_count = Memo::new(move |_| display_content.with(|s| s.lines().count().max(1)));
+
     // Handle text input changes
     let on_input = move |ev: leptos::ev::Event| {
         use leptos::wasm_bindgen::JsCast;
-        let target = ev.target().unwrap();
-        let textarea = target.dyn_ref::<web_sys::HtmlTextAreaElement>().unwrap();
-        let value = textarea.value();
-        set_local_content.set(value);
+        let Some(target) = ev.target() else { return };
+        let Some(textarea) = target.dyn_ref::<web_sys::HtmlTextAreaElement>() else {
+            return;
+        };
+        set_local_content.set(textarea.value());
         set_is_modified.set(true);
         // Clear previous validation on edit
         set_validation_result.set(None);
@@ -103,8 +107,10 @@ pub fn SourceEditor(
     // Handle scroll synchronization for underline overlay
     let on_scroll = move |ev: leptos::ev::Event| {
         use leptos::wasm_bindgen::JsCast;
-        let target = ev.target().unwrap();
-        let textarea = target.dyn_ref::<web_sys::HtmlTextAreaElement>().unwrap();
+        let Some(target) = ev.target() else { return };
+        let Some(textarea) = target.dyn_ref::<web_sys::HtmlTextAreaElement>() else {
+            return;
+        };
         set_scroll_top.set(textarea.scroll_top() as f64);
         set_scroll_left.set(textarea.scroll_left() as f64);
     };
@@ -194,251 +200,350 @@ pub fn SourceEditor(
     };
 
     view! {
-        <div class="h-full flex flex-col bg-theme-primary theme-transition">
-            // Toolbar
-            <div class="flex items-center justify-between px-4 py-2 bg-theme-secondary border-b border-theme-primary theme-transition">
-                <div class="flex items-center gap-2">
-                    <span class="text-theme-secondary text-sm font-medium">"SQL Source"</span>
-                    <span class="text-theme-muted text-xs">
-                        {move || format!("{} lines", line_count.get())}
-                    </span>
+        <div class="source-shell theme-transition">
+            <div class="source-topbar">
+                <div class="flex min-w-0 items-center gap-2 text-[12.5px] text-theme-muted">
+                    <Icon name=icons::FOLDER class="h-3 w-3" />
+                    <span class="hidden sm:inline">"Client work"</span>
+                    <Icon name=icons::CHEVRON_RIGHT class="h-3 w-3" />
+                    <span class="font-medium text-theme-primary">"schema.sql"</span>
+                    <span class="chip h-[18px] text-[10.5px]">"DDL"</span>
+                    <span class="chip h-[18px] text-[10.5px]">"MySQL"</span>
+                </div>
+
+                <div class="flex flex-1 items-center justify-end gap-3 text-[11.5px] text-theme-muted">
+                    <span class="mono">{move || format!("{} lines", line_count.get())}</span>
                     {move || {
                         if is_modified.get() {
                             view! {
-                                <span class="px-2 py-0.5 text-xs font-medium rounded-full bg-yellow-500/20 text-yellow-400">
-                                    "Modified"
+                                <span class="source-status source-status-warning">
+                                    <span class="status-dot status-dot-pending"></span>"Modified"
                                 </span>
                             }.into_any()
                         } else {
-                            view! { <span></span> }.into_any()
+                            view! {
+                                <span class="source-status">
+                                    <span class="status-dot status-dot-live"></span>"Synced"
+                                </span>
+                            }.into_any()
                         }
                     }}
-                    // Validation status badge
                     {move || {
-                        if let Some(result) = validation_result.get() {
-                            if result.is_valid {
-                                view! {
-                                    <span class="px-2 py-0.5 text-xs font-medium rounded-full bg-green-500/20 text-green-400">
-                                        "✓ Valid"
-                                    </span>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <span class="px-2 py-0.5 text-xs font-medium rounded-full bg-red-500/20 text-red-400">
-                                        {format!("{} errors", result.stats.error_count)}
-                                    </span>
-                                }.into_any()
+                        validation_result.get().map(|result| {
+                            view! {
+                                <span class=if result.is_valid { "source-status source-status-success" } else { "source-status source-status-error" }>
+                                    {if result.is_valid { "Valid".to_string() } else { format!("{} errors", result.stats.error_count) }}
+                                </span>
                             }
-                        } else {
-                            view! { <span></span> }.into_any()
-                        }
+                        })
                     }}
-                </div>
-
-                // Action buttons
-                <div class="flex items-center gap-2">
-                    // Save button (only show if modified and not readonly)
-                    {move || {
-                        if !readonly && is_modified.get() {
-                            view! {
-                                <button
-                                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    on:click=on_save_click
-                                    disabled=move || is_saving.get()
-                                >
-                                    {move || {
-                                        if is_saving.get() {
-                                            view! {
-                                                <Icon name=icons::LOADER class="w-3.5 h-3.5 animate-spin" />
-                                            }.into_any()
-                                        } else {
-                                            view! {
-                                                <Icon name=icons::SAVE class="w-3.5 h-3.5" />
-                                            }.into_any()
-                                        }
-                                    }}
-                                    "Save"
-                                </button>
-                            }.into_any()
-                        } else {
-                            view! { <span></span> }.into_any()
-                        }
-                    }}
-
-                    // Reset button (only show if modified)
-                    {move || {
-                        if !readonly && is_modified.get() {
-                            view! {
-                                <button
-                                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-theme-tertiary text-theme-secondary hover:bg-theme-primary transition-colors"
-                                    on:click=reset_changes
-                                >
-                                    "Reset"
-                                </button>
-                            }.into_any()
-                        } else {
-                            view! { <span></span> }.into_any()
-                        }
-                    }}
+                    <span class="hairline-v h-[18px]"></span>
+                    <button type="button" class="btn-secondary btn-sm" disabled=true title="Formatting is not implemented yet">
+                        <Icon name=icons::CODE class="h-3 w-3" />"Format"
+                    </button>
+                    <button type="button" class="btn-secondary btn-sm" disabled=true title="Diff confirmation is planned for a later model pass">
+                        "Diff"
+                    </button>
+                    <button
+                        type="button"
+                        class="btn-secondary btn-sm"
+                        on:click=reset_changes
+                        disabled=move || readonly || !is_modified.get()
+                    >
+                        <Icon name=icons::X class="h-3 w-3" />"Reset"
+                    </button>
+                    <button
+                        type="button"
+                        class="btn-primary btn-sm"
+                        on:click=on_save_click
+                        disabled=move || readonly || !is_modified.get() || is_saving.get()
+                    >
+                        {move || {
+                            if is_saving.get() {
+                                view! { <Icon name=icons::LOADER class="h-3 w-3 animate-spin" /> }.into_any()
+                            } else {
+                                view! { <Icon name=icons::CHECK class="h-3 w-3" /> }.into_any()
+                            }
+                        }}
+                        "Apply changes"
+                    </button>
                 </div>
             </div>
 
-            // Diagnostics panel (show when there are errors/warnings)
-            {move || {
-                validation_result.get().and_then(|result| {
-                    if result.diagnostics.is_empty() {
-                        None
-                    } else {
-                        Some(view! {
-                            <div class="max-h-32 overflow-auto border-b border-theme-primary bg-theme-tertiary">
-                                {result.diagnostics.iter().map(|diag| {
-                                    let icon = match diag.severity {
-                                        ErrorSeverity::Error => "❌",
-                                        ErrorSeverity::Warning => "⚠️",
-                                        ErrorSeverity::Hint => "💡",
-                                    };
-                                    let bg_class = match diag.severity {
-                                        ErrorSeverity::Error => "bg-red-500/10 border-l-red-500",
-                                        ErrorSeverity::Warning => "bg-yellow-500/10 border-l-yellow-500",
-                                        ErrorSeverity::Hint => "bg-blue-500/10 border-l-blue-500",
-                                    };
-                                    let position = diag.span.as_ref().map(|s| format!("[L{}:{}] ", s.start.line, s.start.column)).unwrap_or_default();
-                                    let message = diag.message.clone();
-                                    let suggestion = diag.suggestion.clone();
+            <div class="source-body">
+                <SourceModeSidebar
+                    graph=graph
+                    editor_mode=editor_mode
+                    line_count=line_count
+                    validation_result=validation_result
+                />
 
-                                    view! {
-                                        <div class={format!("px-3 py-1.5 text-xs border-l-2 {} flex flex-col gap-0.5", bg_class)}>
-                                            <div class="flex items-center gap-1.5">
-                                                <span>{icon}</span>
-                                                <span class="text-theme-muted font-mono">{position}</span>
-                                                <span class="text-theme-primary">{message}</span>
-                                            </div>
-                                            {suggestion.map(|s| view! {
-                                                <div class="text-theme-muted pl-5">
-                                                    "→ " {s}
+                <main class="source-code-pane">
+                    <div class="source-code-frame code-frame scroll">
+                        // Line numbers with error indicators
+                        <div class="source-line-gutter">
+                            <div class="py-3 px-1 text-right font-mono text-xs select-none" style="line-height: 1.5rem;">
+                                {move || {
+                                    let ranges = underline_ranges.get();
+                                    let error_lines: std::collections::HashSet<usize> = ranges.iter()
+                                        .filter(|r| r.severity == ErrorSeverity::Error)
+                                        .map(|r| r.start_line)
+                                        .collect();
+                                    let warning_lines: std::collections::HashSet<usize> = ranges.iter()
+                                        .filter(|r| r.severity == ErrorSeverity::Warning)
+                                        .map(|r| r.start_line)
+                                        .collect();
+
+                                    (1..=line_count.get())
+                                        .map(|n| {
+                                            let has_error = error_lines.contains(&n);
+                                            let has_warning = !has_error && warning_lines.contains(&n);
+
+                                            let (indicator, text_class) = if has_error {
+                                                ("●", "text-theme-error")
+                                            } else if has_warning {
+                                                ("●", "text-theme-warning")
+                                            } else {
+                                                ("", "text-theme-muted")
+                                            };
+
+                                            view! {
+                                                <div class="flex items-center justify-end gap-1">
+                                                    <span class={format!("text-[10px] {}", text_class)}>{indicator}</span>
+                                                    <span class={format!("w-6 {}", text_class)}>{n}</span>
                                                 </div>
-                                            })}
-                                        </div>
-                                    }
-                                }).collect_view()}
+                                            }
+                                        })
+                                        .collect_view()
+                                }}
                             </div>
-                        })
-                    }
-                })
-            }}
+                        </div>
 
-            // Editor area
-            <div class="flex-1 flex overflow-hidden">
-                // Line numbers with error indicators
-                <div class="flex-shrink-0 w-14 bg-theme-secondary border-r border-theme-primary overflow-hidden theme-transition">
-                    <div class="py-3 px-1 text-right font-mono text-xs select-none" style="line-height: 1.5rem;">
-                        {move || {
-                            let ranges = underline_ranges.get();
-                            let error_lines: std::collections::HashSet<usize> = ranges.iter()
-                                .filter(|r| r.severity == ErrorSeverity::Error)
-                                .map(|r| r.start_line)
-                                .collect();
-                            let warning_lines: std::collections::HashSet<usize> = ranges.iter()
-                                .filter(|r| r.severity == ErrorSeverity::Warning)
-                                .map(|r| r.start_line)
-                                .collect();
-
-                            (1..=line_count.get())
-                                .map(|n| {
-                                    let has_error = error_lines.contains(&n);
-                                    let has_warning = !has_error && warning_lines.contains(&n);
-
-                                    let (indicator, text_class) = if has_error {
-                                        ("●", "text-red-400")
-                                    } else if has_warning {
-                                        ("●", "text-yellow-400")
-                                    } else {
-                                        ("", "text-theme-muted")
-                                    };
-
+                        // Text area with underlines
+                        <div class="source-text-host">
+                            {move || {
+                                if readonly {
                                     view! {
-                                        <div class="flex items-center justify-end gap-1">
-                                            <span class={format!("text-[10px] {}", text_class)}>{indicator}</span>
-                                            <span class={format!("w-6 {}", text_class)}>{n}</span>
+                                        <div class="relative min-h-full">
+                                            <pre class="source-pre" style="line-height: 1.5rem; tab-size: 4;">
+                                                {display_content.get()}
+                                            </pre>
+                                            <ErrorUnderlinesStatic
+                                                content=display_content
+                                                ranges=underline_ranges
+                                            />
                                         </div>
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <div class="relative h-full overflow-hidden">
+                                            <textarea
+                                                class="source-textarea"
+                                                style="line-height: 1.5rem; tab-size: 4;"
+                                                spellcheck="false"
+                                                prop:value=move || display_content.get()
+                                                on:input=on_input
+                                                on:scroll=on_scroll
+                                            />
+                                            <ErrorUnderlinesWithScroll
+                                                content=display_content
+                                                ranges=underline_ranges
+                                                scroll_top=scroll_top
+                                                scroll_left=scroll_left
+                                            />
+                                        </div>
+                                    }.into_any()
+                                }
+                            }}
+                        </div>
+                    </div>
+                </main>
+
+                <DiagnosticsRail validation_result=validation_result />
+            </div>
+
+            <div class="source-footer">
+                <span>{move || format!("{} tables", graph.with(|g| g.node_count()))}</span>
+                <span>{move || format!("{} columns", graph.with(|g| g.node_weights().map(|n| n.columns.len()).sum::<usize>()))}</span>
+                <span>{move || format!("{} relations", graph.with(|g| g.edge_count()))}</span>
+                <span class="hairline-v h-3.5"></span>
+                <span class="text-theme-accent">"schema.sql"</span>
+                <span>"MySQL DDL"</span>
+                <div class="flex-1"></div>
+                <span>"UTF-8"</span>
+                <span>"LF"</span>
+                <span>{move || if is_modified.get() { "Unsaved" } else { "Saved" }}</span>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn SourceModeSidebar(
+    graph: RwSignal<SchemaGraph>,
+    editor_mode: Option<RwSignal<EditorMode>>,
+    line_count: Memo<usize>,
+    validation_result: ReadSignal<Option<SqlValidationResult>>,
+) -> impl IntoView {
+    view! {
+        <aside class="source-sidebar">
+            <div class="source-sidebar-head">
+                <div>
+                    <div class="text-[13px] font-semibold text-theme-primary">"Source mode"</div>
+                    <div class="mt-0.5 flex items-center gap-1 text-[10.5px] text-theme-muted">
+                        <span class="status-dot status-dot-pending"></span>
+                        {move || {
+                            validation_result.get()
+                                .map(|result| {
+                                    if result.is_valid {
+                                        "Ready to apply".to_string()
+                                    } else {
+                                        format!("{} errors", result.stats.error_count)
                                     }
                                 })
-                                .collect_view()
+                                .unwrap_or_else(|| "Not validated".to_string())
                         }}
                     </div>
                 </div>
+            </div>
 
-                // Text area with underlines
-                <div class="flex-1 overflow-auto bg-theme-primary relative">
+            <div class="px-3 pb-3">
+                {if let Some(mode) = editor_mode {
+                    view! { <EditorModeSwitcher mode=mode /> }.into_any()
+                } else {
+                    view! { <div></div> }.into_any()
+                }}
+            </div>
+
+            <div class="source-sidebar-section">
+                <div class="mb-2 flex items-center justify-between gap-2">
+                    <div class="eyebrow">"Objects"</div>
+                    <span class="badge badge-outline">"DDL outline"</span>
+                </div>
+                <div class="flex flex-col gap-px">
                     {move || {
-                        if readonly {
-                            // Read-only: use pre element with underlines
+                        let tables = graph.with(|g| {
+                            g.node_indices()
+                                .filter_map(|idx| {
+                                    g.node_weight(idx).map(|node| {
+                                        (node.name.clone(), node.columns.len())
+                                    })
+                                })
+                                .collect::<Vec<_>>()
+                        });
+
+                        if tables.is_empty() {
                             view! {
-                                <div class="relative">
-                                    <pre class="p-3 font-mono text-sm text-theme-primary whitespace-pre overflow-x-auto" style="line-height: 1.5rem; tab-size: 4;">
-                                        {display_content.get()}
-                                    </pre>
-                                    <ErrorUnderlinesStatic
-                                        content=display_content
-                                        ranges=underline_ranges
-                                    />
+                                <div class="rounded-md border border-dashed border-theme px-3 py-6 text-center text-xs text-theme-muted">
+                                    "No SQL objects yet. Add tables visually or paste CREATE TABLE statements."
                                 </div>
                             }.into_any()
                         } else {
-                            // Editable: use textarea with overlay for underlines
-                            view! {
-                                <div class="relative h-full overflow-hidden">
-                                    <textarea
-                                        class="w-full h-full p-3 font-mono text-sm text-theme-primary bg-transparent resize-none outline-none absolute inset-0 z-10"
-                                        style="line-height: 1.5rem; tab-size: 4;"
-                                        spellcheck="false"
-                                        prop:value=move || display_content.get()
-                                        on:input=on_input
-                                        on:scroll=on_scroll
-                                    />
-                                    // Error underline overlay with tooltips (above textarea for hover)
-                                    <ErrorUnderlinesWithScroll
-                                        content=display_content
-                                        ranges=underline_ranges
-                                        scroll_top=scroll_top
-                                        scroll_left=scroll_left
-                                    />
-                                </div>
-                            }.into_any()
+                            tables.into_iter().enumerate().map(|(index, (name, columns))| {
+                                view! {
+                                    <button type="button" class="source-outline-row">
+                                        <Icon name=icons::DATABASE class="h-3 w-3 text-theme-muted" />
+                                        <span class="truncate">{name}</span>
+                                        <span class="ml-auto text-[10.5px] text-theme-muted">{columns}" cols"</span>
+                                        <span class="text-[10.5px] text-theme-muted">{format!("#{}", index + 1)}</span>
+                                    </button>
+                                }
+                            }).collect_view().into_any()
                         }
                     }}
                 </div>
             </div>
 
-            // Footer with help text and stats
-            <div class="px-4 py-2 bg-theme-secondary border-t border-theme-primary flex items-center justify-between text-theme-muted text-xs theme-transition">
-                <span>
-                    {move || {
-                        if readonly {
-                            "Read-only view. Switch to Visual mode to edit.".to_string()
-                        } else if is_modified.get() {
-                            "Modified. Click 'Save' to validate and apply changes.".to_string()
-                        } else {
-                            "SQL DDL representation of your schema.".to_string()
-                        }
-                    }}
-                </span>
+            <div class="mt-auto source-sidebar-section border-t border-theme-primary">
+                <div class="eyebrow mb-1.5">"File"</div>
+                <div class="source-file-stat"><span>"Path"</span><span>"schema.sql"</span></div>
+                <div class="source-file-stat"><span>"Lines"</span><span>{move || line_count.get()}</span></div>
+                <div class="source-file-stat"><span>"Tables"</span><span>{move || graph.with(|g| g.node_count())}</span></div>
+                <div class="source-file-stat"><span>"Relations"</span><span>{move || graph.with(|g| g.edge_count())}</span></div>
+                <div class="source-file-stat"><span>"Diagnostics"</span><span>{move || validation_result.get().map(|r| r.diagnostics.len()).unwrap_or(0)}</span></div>
+            </div>
+        </aside>
+    }
+}
+
+#[component]
+fn DiagnosticsRail(validation_result: ReadSignal<Option<SqlValidationResult>>) -> impl IntoView {
+    view! {
+        <aside class="diagnostics-rail">
+            <div class="diagnostics-head">
+                <div class="flex items-center gap-2">
+                    <span class="font-semibold text-theme-primary">"Diagnostics"</span>
+                    <span class="chip h-[18px] text-[10.5px]">
+                        {move || format!("{} issues", validation_result.get().map(|r| r.diagnostics.len()).unwrap_or(0))}
+                    </span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-1.5 border-b border-theme px-2 py-2">
+                <div class="rounded-md border border-theme bg-theme-secondary px-2 py-1.5">
+                    <div class="eyebrow">"Errors"</div>
+                    <div class="mono mt-1 text-theme-error">{move || validation_result.get().map(|r| r.stats.error_count).unwrap_or(0)}</div>
+                </div>
+                <div class="rounded-md border border-theme bg-theme-secondary px-2 py-1.5">
+                    <div class="eyebrow">"Warnings"</div>
+                    <div class="mono mt-1 text-theme-warning">{move || validation_result.get().map(|r| r.stats.warning_count).unwrap_or(0)}</div>
+                </div>
+                <div class="rounded-md border border-theme bg-theme-secondary px-2 py-1.5">
+                    <div class="eyebrow">"Hints"</div>
+                    <div class="mono mt-1 text-theme-accent">{move || validation_result.get().map(|r| r.stats.hint_count).unwrap_or(0)}</div>
+                </div>
+            </div>
+
+            <div class="scroll flex-1 overflow-y-auto p-1.5">
                 {move || {
                     validation_result.get().map(|result| {
-                        view! {
-                            <span class="text-theme-muted">
-                                {format!("{} tables • {} relationships • {} errors • {} warnings",
-                                    result.stats.table_count,
-                                    result.stats.relationship_count,
-                                    result.stats.error_count,
-                                    result.stats.warning_count
-                                )}
-                            </span>
+                        if result.diagnostics.is_empty() {
+                            view! {
+                                <div class="m-2 rounded-lg border border-dashed border-theme p-5 text-center text-xs text-theme-muted">
+                                    <div class="font-medium text-theme-primary">"No diagnostics"</div>
+                                    <div class="mt-1">"SQL is ready to apply."</div>
+                                </div>
+                            }.into_any()
+                        } else {
+                            result.diagnostics.into_iter().map(|diag| {
+                                let (icon, label, class_name) = match diag.severity {
+                                    ErrorSeverity::Error => (icons::ALERT_CIRCLE, "Error", "diagnostic-card diagnostic-error"),
+                                    ErrorSeverity::Warning => (icons::WARNING, "Warning", "diagnostic-card diagnostic-warning"),
+                                    ErrorSeverity::Hint => (icons::INFORMATION_CIRCLE, "Hint", "diagnostic-card diagnostic-hint"),
+                                };
+                                let position = diag.span.as_ref()
+                                    .map(|span| format!("schema.sql:{}:{}", span.start.line, span.start.column))
+                                    .unwrap_or_else(|| "schema.sql".to_string());
+                                let message = diag.message;
+                                let suggestion = diag.suggestion;
+                                view! {
+                                     <div class=class_name>
+                                         <div class="flex items-center gap-1.5 text-xs">
+                                             <Icon name=icon class="h-3 w-3" />
+                                             <span class="font-medium text-theme-primary">{message}</span>
+                                         </div>
+                                         <div class="mt-1 mono text-theme-muted">{label}" · "{position}</div>
+                                         {suggestion.map(|text| view! {
+                                             <div class="mt-2 text-[11.5px] leading-relaxed text-theme-secondary">{text}</div>
+                                         })}
+                                         <button type="button" class="btn-secondary btn-sm mt-2" disabled=true title="Quick fixes are display-only in this pass">
+                                             "Quick fix"
+                                         </button>
+                                     </div>
+                                 }
+                            }).collect_view().into_any()
                         }
+                    }).unwrap_or_else(|| {
+                        view! {
+                            <div class="m-2 rounded-lg border border-dashed border-theme p-5 text-center text-xs text-theme-muted">
+                                <div class="font-medium text-theme-primary">"Not validated"</div>
+                                <div class="mt-1">"Run Apply changes to validate the current SQL."</div>
+                            </div>
+                        }.into_any()
                     })
                 }}
             </div>
-        </div>
+        </aside>
     }
 }
 
@@ -666,17 +771,13 @@ pub fn EditorModeSwitcher(
     mode: RwSignal<EditorMode>,
 ) -> impl IntoView {
     view! {
-        <div class="flex items-center bg-theme-tertiary rounded-lg p-1 theme-transition w-full">
+        <div class="segmented w-full">
             // Visual mode button
             <button
-                class="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all"
-                style=move || {
-                    if mode.get() == EditorMode::Visual {
-                        "background-color: var(--bg-surface); color: var(--text-primary); box-shadow: var(--shadow-sm);"
-                    } else {
-                        "background-color: transparent; color: var(--text-tertiary);"
-                    }
-                }
+                type="button"
+                class=move || if mode.get() == EditorMode::Visual { "flex-1 is-active" } else { "flex-1" }
+                attr:data-active=move || if mode.get() == EditorMode::Visual { "true" } else { "false" }
+                aria-pressed=move || mode.get() == EditorMode::Visual
                 on:click=move |_| mode.set(EditorMode::Visual)
             >
                 <Icon name=icons::TABLE class="w-4 h-4" />
@@ -685,18 +786,14 @@ pub fn EditorModeSwitcher(
 
             // Source mode button
             <button
-                class="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all"
-                style=move || {
-                    if mode.get() == EditorMode::Source {
-                        "background-color: var(--bg-surface); color: var(--text-primary); box-shadow: var(--shadow-sm);"
-                    } else {
-                        "background-color: transparent; color: var(--text-tertiary);"
-                    }
-                }
+                type="button"
+                class=move || if mode.get() == EditorMode::Source { "flex-1 is-active" } else { "flex-1" }
+                attr:data-active=move || if mode.get() == EditorMode::Source { "true" } else { "false" }
+                aria-pressed=move || mode.get() == EditorMode::Source
                 on:click=move |_| mode.set(EditorMode::Source)
             >
                 <Icon name=icons::CODE class="w-4 h-4" />
-                "Source"
+                "Code"
             </button>
         </div>
     }

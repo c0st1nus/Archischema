@@ -16,6 +16,44 @@ use leptos::wasm_bindgen;
 #[cfg(not(feature = "ssr"))]
 use leptos::web_sys;
 
+fn connection_label(state: ConnectionState) -> &'static str {
+    match state {
+        ConnectionState::Connected => "Connected",
+        ConnectionState::Connecting => "Connecting...",
+        ConnectionState::Reconnecting => "Reconnecting...",
+        ConnectionState::Error => "Connection lost",
+        ConnectionState::Disconnected => "Not connected",
+    }
+}
+
+fn connection_chip_style(state: ConnectionState) -> &'static str {
+    match state {
+        ConnectionState::Connected => {
+            "color: var(--primary); border-color: var(--success-border); background: var(--success-soft);"
+        }
+        ConnectionState::Connecting | ConnectionState::Reconnecting => {
+            "color: var(--warning); border-color: var(--warning-border); background: var(--warning-soft);"
+        }
+        ConnectionState::Error => {
+            "color: var(--destructive); border-color: var(--error-border); background: var(--destructive-soft);"
+        }
+        ConnectionState::Disconnected => {
+            "color: var(--muted-foreground); border-color: color-mix(in oklab, var(--muted-foreground) 28%, transparent); background: color-mix(in oklab, var(--muted-foreground) 10%, transparent);"
+        }
+    }
+}
+
+fn connection_dot_style(state: ConnectionState) -> &'static str {
+    match state {
+        ConnectionState::Connected => "background: var(--primary);",
+        ConnectionState::Connecting | ConnectionState::Reconnecting => {
+            "background: var(--warning);"
+        }
+        ConnectionState::Error => "background: var(--destructive);",
+        ConnectionState::Disconnected => "background: var(--muted-foreground);",
+    }
+}
+
 /// LiveShare panel component
 #[component]
 pub fn LiveSharePanel() -> impl IntoView {
@@ -192,40 +230,28 @@ pub fn LiveSharePanel() -> impl IntoView {
     let room_info = ctx.room_info;
 
     view! {
-        <div class="absolute top-4 right-4 z-50 flex flex-col gap-2">
+        <div class="absolute right-4 top-4 z-50 flex flex-col items-end gap-2">
             // Top status bar with connection and sync indicators
             <ConnectionStatusBar />
 
             // Toggle button
             <button
-                class="btn-secondary shadow-theme-lg"
+                type="button"
+                class="btn shadow-theme-lg"
                 on:click=move |_| set_is_open.update(|v| *v = !*v)
             >
-                {move || {
-                    let state = connection_state.get();
-                    match state {
-                        ConnectionState::Connected => view! {
-                            <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                            <span class="label-sm">"Connected"</span>
-                        }.into_any(),
-                        ConnectionState::Connecting => view! {
-                            <div class="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
-                            <span class="label-sm">"Connecting..."</span>
-                        }.into_any(),
-                        ConnectionState::Reconnecting => view! {
-                            <div class="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
-                            <span class="label-sm">"Reconnecting..."</span>
-                        }.into_any(),
-                        ConnectionState::Error => view! {
-                            <div class="w-2 h-2 bg-red-500 rounded-full"></div>
-                            <span class="label-sm">"Error"</span>
-                        }.into_any(),
-                        ConnectionState::Disconnected => view! {
-                            <div class="w-2 h-2 bg-gray-400 rounded-full"></div>
-                            <span class="label-sm">"LiveShare"</span>
-                        }.into_any(),
-                    }
-                }}
+                <Icon name=icons::USERS class="icon-text text-theme-accent" />
+                <span class="font-medium">"LiveShare"</span>
+                <span
+                    class={move || {
+                        if matches!(connection_state.get(), ConnectionState::Connecting | ConnectionState::Reconnecting) {
+                            "h-2 w-2 rounded-full animate-pulse"
+                        } else {
+                            "h-2 w-2 rounded-full"
+                        }
+                    }}
+                    style=move || connection_dot_style(connection_state.get())
+                ></span>
                 <div
                     class="icon-text text-theme-tertiary transition-transform duration-200"
                     class=("rotate-180", move || is_open.get())
@@ -246,69 +272,79 @@ pub fn LiveSharePanel() -> impl IntoView {
                     // Connected view
                     let ctx_users = ctx;
                     view! {
-                        <div class="mt-2 w-80 card shadow-theme-xl overflow-hidden">
+                        <div class="mt-2 flex w-[360px] flex-col overflow-hidden rounded-xl border border-theme-primary bg-theme-surface shadow-theme-xl">
                             // Header with sync status
-                            <div class="px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white">
-                                <div class="flex items-center justify-between mb-2">
-                                    <h3 class="font-semibold">"Connected"</h3>
-                                    <button
-                                        class="text-white/80 hover:text-white text-sm"
-                                        on:click={disconnect}
-                                    >
-                                        "Disconnect"
-                                    </button>
-                                </div>
-                                <div class="flex items-center justify-between gap-2">
-                                    <div>
-                                        {move || room_info.get().map(|info| view! {
-                                            <p class="text-sm text-white/80">{info.name}</p>
-                                        })}
-                                    </div>
-                                    <UserPresenceIndicator />
-                                </div>
-                            </div>
-
-                            // Status bar with sync and snapshot info
-                            <div class="px-4 py-2 bg-theme-secondary/20 border-b border-theme-tertiary flex items-center justify-between gap-2 text-xs">
-                                <div class="flex items-center gap-3">
-                                    <SyncStatusBadge />
-                                    <SnapshotSaveIndicator />
-                                </div>
+                            <div class="flex items-center gap-2 border-b border-theme-primary px-4 py-3">
+                                <Icon name=icons::USERS class="w-3.5 h-3.5 text-theme-accent" />
+                                <span class="text-sm font-semibold text-theme-primary">"LiveShare"</span>
+                                <span class="chip h-[22px]" style=move || connection_chip_style(connection_state.get())>
+                                    <span class="h-1.5 w-1.5 rounded-full" style=move || connection_dot_style(connection_state.get())></span>
+                                    {move || connection_label(connection_state.get())}
+                                </span>
+                                <div class="flex-1"></div>
+                                <button
+                                    type="button"
+                                    class="btn-icon btn-sm"
+                                    on:click=move |_| set_is_open.set(false)
+                                    title="Close LiveShare panel"
+                                >
+                                    <Icon name=icons::X class="icon-text" />
+                                </button>
                             </div>
 
                             // Room info
-                            <div class="p-4 border-b border-theme-tertiary">
-                                <div class="flex items-center justify-between text-sm">
-                                    <span class="text-theme-muted">"Room ID"</span>
+                            <div class="border-b border-theme-primary p-4">
+                                <div class="eyebrow mb-2">"Room"</div>
+                                <div class="space-y-3 rounded-lg border border-theme-primary bg-theme-primary p-3">
                                     <div class="flex items-center gap-2">
-                                        <code class="text-xs bg-theme-tertiary text-theme-secondary px-2 py-1 rounded font-mono">
-                                            {move || {
-                                                room_id.get().map(|id| {
-                                                    if id.len() > 8 {
-                                                        format!("{}...", &id[..8])
-                                                    } else {
-                                                        id
-                                                    }
-                                                }).unwrap_or_default()
-                                            }}
+                                        <code class="min-w-0 flex-1 truncate font-mono text-xs text-theme-primary">
+                                            {move || room_info.get().map(|info| info.name).unwrap_or_else(|| "Active room".to_string())}
                                         </code>
+                                        <span class="badge-default h-[18px] text-[10.5px]">"edit access"</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <input
+                                            type="text"
+                                            readonly
+                                            class="input-base input-sm flex-1 font-mono"
+                                            prop:value=move || room_id.get().unwrap_or_default()
+                                        />
                                         <button
-                                            class="btn-icon text-theme-accent hover:opacity-80"
+                                            type="button"
+                                            class="btn btn-sm"
                                             on:click={copy_link}
                                             title="Copy room link"
                                         >
                                             <Icon name=icons::DOCUMENT_DUPLICATE class="icon-text" />
+                                            "Copy"
                                         </button>
                                     </div>
+                                    <button
+                                        type="button"
+                                        class="btn-danger btn-sm"
+                                        on:click={disconnect}
+                                    >
+                                        <Icon name=icons::X class="icon-text" />
+                                        "Disconnect"
+                                    </button>
+                                </div>
+                            </div>
+
+                            // Status bar with sync and snapshot info
+                            <div class="flex flex-wrap items-center gap-2 border-b border-theme-primary px-4 py-3 text-xs">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <SyncStatusBadge />
+                                    <SnapshotSaveIndicator />
+                                    <UserPresenceIndicator />
                                 </div>
                             </div>
 
                             // Users list
-                            <div class="p-4">
-                                <h4 class="label-sm mb-2">
-                                    {move || format!("Users ({})", ctx_users.get_all_users().len())}
-                                </h4>
-                                <div class="space-y-2 max-h-40 overflow-y-auto">
+                            <div class="max-h-64 flex-1 overflow-y-auto p-4 scroll">
+                                <div class="eyebrow mb-2">
+                                    {move || format!("Active · {}", ctx_users.get_all_users().len())}
+                                </div>
+                                <div class="space-y-2">
                                     {move || {
                                         let users = ctx_users.get_all_users();
                                         users.into_iter().map(|user| {
@@ -316,18 +352,23 @@ pub fn LiveSharePanel() -> impl IntoView {
                                             let username = user.username.clone();
                                             let is_self = user.is_self;
                                             view! {
-                                                <div class="flex items-center gap-2 text-sm">
+                                                <div class="flex items-center gap-3 rounded-lg border border-theme-primary bg-theme-primary px-3 py-2 text-sm">
                                                     <div
-                                                        class="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-medium"
+                                                        class="flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold text-white"
                                                         style=format!("background-color: {}", color)
                                                     >
                                                         {username.chars().next().unwrap_or('?').to_uppercase().to_string()}
                                                     </div>
-                                                    <span class="text-theme-secondary">{username}</span>
+                                                    <div class="min-w-0 flex-1">
+                                                        <div class="truncate text-[12.5px] font-medium text-theme-primary">{username}</div>
+                                                        <div class="truncate text-[11px] text-theme-muted">
+                                                            {if is_self { "editing locally" } else { "collaborating" }}
+                                                        </div>
+                                                    </div>
                                                     {if is_self {
-                                                        view! { <span class="text-xs text-theme-muted">"(you)"</span> }.into_any()
+                                                        view! { <span class="badge-default h-[18px] text-[10.5px]">"you"</span> }.into_any()
                                                     } else {
-                                                        view! { <span></span> }.into_any()
+                                                        view! { <span class="h-1.5 w-1.5 rounded-full bg-theme-accent"></span> }.into_any()
                                                     }}
                                                 </div>
                                             }
@@ -335,29 +376,50 @@ pub fn LiveSharePanel() -> impl IntoView {
                                     }}
                                 </div>
                             </div>
+
+                            <div class="flex items-center justify-between border-t border-theme-primary px-4 py-3">
+                                <span class="flex items-center gap-1.5 text-[11px] text-theme-muted">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-theme-accent"></span>
+                                    "CRDT · snapshots enabled"
+                                </span>
+                                <button type="button" class="btn-icon btn-sm" title="LiveShare settings">
+                                    <Icon name=icons::SETTINGS class="icon-text" />
+                                </button>
+                            </div>
                         </div>
                     }.into_any()
                 } else {
                     // Disconnected view - join/create form
                     view! {
-                        <div class="mt-2 w-80 card shadow-theme-xl overflow-hidden">
+                        <div class="mt-2 w-[360px] overflow-hidden rounded-xl border border-theme-primary bg-theme-surface shadow-theme-xl">
+                            <div class="flex items-center gap-2 border-b border-theme-primary px-4 py-3">
+                                <Icon name=icons::USERS class="w-3.5 h-3.5 text-theme-accent" />
+                                <span class="text-sm font-semibold text-theme-primary">"LiveShare"</span>
+                                <span class="chip h-[22px]" style=move || connection_chip_style(connection_state.get())>
+                                    <span class="h-1.5 w-1.5 rounded-full" style=move || connection_dot_style(connection_state.get())></span>
+                                    {move || connection_label(connection_state.get())}
+                                </span>
+                            </div>
+
                             // Tab selector
-                            <div class="flex divider-bottom">
+                            <div class="m-4 mb-0 flex gap-1 rounded-lg border border-theme-primary bg-theme-tertiary p-1">
                                 <button
+                                    type="button"
                                     class={move || if mode.get() == "join" {
-                                        "flex-1 px-4 py-3 text-sm font-medium text-theme-accent border-b-2 border-theme-accent bg-theme-accent-light theme-transition"
+                                        "flex-1 btn btn-sm bg-theme-surface text-theme-primary border-theme-accent"
                                     } else {
-                                        "flex-1 px-4 py-3 text-sm font-medium text-theme-muted hover:text-theme-secondary theme-transition"
+                                        "flex-1 btn btn-sm btn-ghost text-theme-tertiary"
                                     }}
                                     on:click=move |_| set_mode.set("join")
                                 >
                                     "Join Room"
                                 </button>
                                 <button
+                                    type="button"
                                     class={move || if mode.get() == "create" {
-                                        "flex-1 px-4 py-3 text-sm font-medium text-theme-accent border-b-2 border-theme-accent bg-theme-accent-light theme-transition"
+                                        "flex-1 btn btn-sm bg-theme-surface text-theme-primary border-theme-accent"
                                     } else {
-                                        "flex-1 px-4 py-3 text-sm font-medium text-theme-muted hover:text-theme-secondary theme-transition"
+                                        "flex-1 btn btn-sm btn-ghost text-theme-tertiary"
                                     }}
                                     on:click=move |_| set_mode.set("create")
                                 >
@@ -366,24 +428,26 @@ pub fn LiveSharePanel() -> impl IntoView {
                             </div>
 
                             // Form content
-                            <div class="p-4 space-y-4">
+                            <div class="space-y-4 p-4">
                                 // Error message
                                 {move || error.get().map(|err| view! {
-                                    <div class="error-message">
+                                    <div class="error-message rounded-lg border border-theme-error bg-theme-error p-3">
                                         <Icon name=icons::ALERT_CIRCLE class="icon-text"/>
                                         <span>{err}</span>
                                     </div>
                                 })}
 
                                 // Room ID input
-                                <div>
+                                <div class="space-y-1.5">
                                     <label class="label">
                                         "Room ID"
                                     </label>
                                     <div class="flex gap-2">
                                         <input
                                             type="text"
-                                            class="flex-1 input-base input-sm"
+                                            class="input-base input-lg flex-1 font-mono"
+                                            autocomplete="off"
+                                            spellcheck="false"
                                             placeholder="Enter room ID or UUID"
                                             prop:value=move || room_id_input.get()
                                             on:input=move |ev| set_room_id_input.set(event_target_value(&ev))
@@ -391,7 +455,8 @@ pub fn LiveSharePanel() -> impl IntoView {
                                         {move || if mode.get() == "create" {
                                             view! {
                                                 <button
-                                                    class="btn-icon btn-sm"
+                                                    type="button"
+                                                    class="btn-icon"
                                                     on:click=generate_room_id
                                                     title="Generate random ID"
                                                 >
@@ -407,14 +472,16 @@ pub fn LiveSharePanel() -> impl IntoView {
                                 // Room name (create mode only)
                                 {move || if mode.get() == "create" {
                                     view! {
-                                        <div>
+                                        <div class="space-y-1.5">
                                             <label class="label">
                                                 "Room Name " <span class="text-theme-muted">"(optional)"</span>
                                             </label>
                                             <input
                                                 type="text"
-                                                class="input-base input-sm"
-                                                placeholder="My awesome project"
+                                                class="input-base input-lg"
+                                                autocomplete="off"
+                                                spellcheck="false"
+                                                placeholder="Architecture review"
                                                 prop:value=move || room_name.get()
                                                 on:input=move |ev| set_room_name.set(event_target_value(&ev))
                                             />
@@ -425,13 +492,14 @@ pub fn LiveSharePanel() -> impl IntoView {
                                 }}
 
                                 // Password input
-                                <div>
+                                <div class="space-y-1.5">
                                     <label class="label">
                                         "Password " <span class="text-theme-muted">"(optional)"</span>
                                     </label>
                                     <input
                                         type="password"
-                                        class="input-base input-sm"
+                                        class="input-base input-lg"
+                                        autocomplete="current-password"
                                         placeholder={move || if mode.get() == "create" { "Set a password" } else { "Enter room password" }}
                                         prop:value=move || password.get()
                                         on:input=move |ev| set_password.set(event_target_value(&ev))
@@ -444,7 +512,8 @@ pub fn LiveSharePanel() -> impl IntoView {
                                     let join_room = join_room;
                                     view! {
                                         <button
-                                            class="w-full btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                            type="button"
+                                            class="btn-primary btn-lg w-full disabled:cursor-not-allowed disabled:opacity-50"
                                             disabled=move || connection_state.get() == ConnectionState::Connecting
                                             on:click=move |ev| {
                                                 if mode.get() == "create" {
@@ -469,8 +538,8 @@ pub fn LiveSharePanel() -> impl IntoView {
                             </div>
 
                             // Help text
-                            <div class="px-4 pb-4">
-                                <p class="text-xs text-theme-muted text-center">
+                            <div class="border-t border-theme-primary px-4 py-3">
+                                <p class="text-center text-xs text-theme-muted">
                                     {move || if mode.get() == "create" {
                                         "Share the Room ID with others to collaborate in real-time"
                                     } else {

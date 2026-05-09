@@ -4,6 +4,12 @@ use leptos::html::Div;
 use leptos::prelude::*;
 use leptos::web_sys;
 
+pub const TABLE_NODE_WIDTH: f64 = 280.0;
+pub const TABLE_HEADER_HEIGHT: f64 = 42.0;
+pub const TABLE_ROW_HEIGHT: f64 = 30.0;
+pub const TABLE_BODY_PADDING_Y: f64 = 6.0;
+pub const TABLE_EDGE_GAP: f64 = 30.0;
+
 #[component]
 pub fn TableNodeView(
     node: TableNode,
@@ -27,12 +33,12 @@ pub fn TableNodeView(
 
     // No CSS transition for position - we use requestAnimationFrame interpolation for smooth remote updates
     // is_being_dragged disables any remaining transitions for both local and remote drags
-    let table_class = if is_selected {
-        "absolute bg-theme-surface border-2 border-blue-500 shadow-theme-xl select-none theme-transition ring-2 ring-blue-400 ring-opacity-50"
-    } else {
-        "absolute bg-theme-surface border-2 border-theme-primary shadow-theme-lg select-none hover:shadow-theme-xl theme-transition"
+    let table_class = match (is_selected, is_being_dragged) {
+        (true, true) => "schema-table-card is-selected is-dragging",
+        (true, false) => "schema-table-card is-selected",
+        (false, true) => "schema-table-card is-dragging",
+        (false, false) => "schema-table-card",
     };
-    let _ = is_being_dragged; // Used in canvas.rs to track dragging state
 
     view! {
         <div
@@ -40,27 +46,26 @@ pub fn TableNodeView(
             class=table_class
             style:left=format!("{}px", x)
             style:top=format!("{}px", y)
-            style:width="280px"
+            style:width=format!("{}px", TABLE_NODE_WIDTH)
             style:user-select="none"
-            style:z-index="10"
-            style:border-radius="8px"
+            style:z-index=if is_selected { "12" } else { "10" }
         >
             // Заголовок таблицы
             <div
-                class="text-white px-4 py-3 font-bold cursor-move flex items-center justify-between"
-                style="background: linear-gradient(to right, var(--accent-primary), var(--accent-secondary)); border-radius: 6px 6px 0 0;"
+                class="schema-table-header"
+                style:height=format!("{}px", TABLE_HEADER_HEIGHT)
                 on:mousedown=move |ev| on_mouse_down.run(ev)
                 on:click=move |ev| on_click.run(ev)
             >
-                <span class="text-lg">{table_name}</span>
-                <Icon name=icons::GRIP_HORIZONTAL class="w-5 h-5 text-gray-400"/>
+                <span class="schema-table-title">{table_name}</span>
+                <Icon name=icons::GRIP_HORIZONTAL class="w-4 h-4 schema-table-grip"/>
             </div>
 
             // Список колонок
-            <div class="p-2 max-h-96 overflow-y-auto">
+            <div class="schema-table-body scroll">
                 {if !has_columns {
                     view! {
-                        <div class="text-center py-4 text-theme-muted text-sm">
+                        <div class="rounded-md border border-theme bg-theme-tertiary/20 py-4 text-center text-sm text-theme-muted">
                             "No columns"
                             <div class="text-xs mt-1 text-theme-tertiary">"Use sidebar to add"</div>
                         </div>
@@ -85,42 +90,38 @@ pub fn TableNodeView(
 /// instead of multiple into_any() calls for conditional rendering
 #[component]
 fn ColumnRow(column: Column) -> impl IntoView {
-    // Pre-compute CSS classes and text content to avoid runtime branching in view
-    let pk_class = if column.is_primary_key {
-        "text-yellow-500 font-bold mr-2 text-xs flex-shrink-0"
-    } else {
-        "w-6 inline-block"
-    };
-    let pk_text = if column.is_primary_key { "PK" } else { "" };
-
-    // NOT NULL indicator - use visibility instead of conditional render
-    let not_null_class = if !column.is_nullable {
-        "text-red-500 text-xs ml-1 flex-shrink-0"
-    } else {
-        "hidden"
-    };
-
-    // UNIQUE indicator
-    let unique_class = if column.is_unique {
-        "text-blue-500 text-xs ml-1 flex-shrink-0"
-    } else {
-        "hidden"
-    };
-
-    // Clone data_type once for display
     let data_type_display = column.data_type.clone();
+    let column_name = column.name.clone();
 
     view! {
-        <div class="flex items-center justify-between py-2 px-2 hover:bg-theme-secondary rounded text-sm border-b border-theme-primary last:border-b-0 theme-transition">
-            <div class="flex items-center flex-1 min-w-0">
-                <span class=pk_class title="Primary Key">{pk_text}</span>
-                <span class="font-medium text-theme-primary truncate">{column.name}</span>
-                <span class=not_null_class title="NOT NULL">"*"</span>
-                <span class=unique_class title="UNIQUE">"U"</span>
+        <div class="schema-table-row" style:height=format!("{}px", TABLE_ROW_HEIGHT)>
+            <div class="column-inline-main">
+                <span class="column-inline-name schema-table-column-name" title=column_name.clone()>{column_name.clone()}</span>
+                <span class="column-inline-badges">
+                {if column.is_primary_key {
+                    view! {
+                        <span class="schema-table-badge schema-table-badge-pk" title="Primary Key">"PK"</span>
+                    }.into_any()
+                } else {
+                    view! { <span></span> }.into_any()
+                }}
+                {if !column.is_nullable {
+                    view! {
+                        <span class="schema-table-badge schema-table-badge-nn" title="NOT NULL">"NN"</span>
+                    }.into_any()
+                } else {
+                    view! { <span></span> }.into_any()
+                }}
+                {if column.is_unique {
+                    view! {
+                        <span class="schema-table-badge schema-table-badge-uq" title="UNIQUE">"UQ"</span>
+                    }.into_any()
+                } else {
+                    view! { <span></span> }.into_any()
+                }}
+                </span>
             </div>
-            <div class="flex items-center space-x-2">
-                <span class="text-theme-tertiary text-xs ml-2 flex-shrink-0">{data_type_display}</span>
-            </div>
+            <span class="column-inline-type schema-table-column-type" title=data_type_display.clone()>{data_type_display.clone()}</span>
         </div>
     }
 }

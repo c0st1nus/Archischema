@@ -96,14 +96,13 @@ pub fn LoginForm(
     };
 
     let form_content = view! {
-        <form on:submit=on_submit class="space-y-6">
-            // Header
-            <div class="text-center">
-                <h2 class="text-2xl font-bold text-theme-primary">
-                    "Welcome Back"
-                </h2>
-                <p class="mt-2 text-sm text-theme-secondary">
-                    "Sign in to your account to continue"
+        <form on:submit=on_submit class="space-y-[18px]" aria-busy=move || auth.loading.get()>
+            <div class="mt-3">
+                <h1 class="m-0 text-[26px] font-semibold tracking-[-0.02em] text-theme-primary">
+                    "Welcome back"
+                </h1>
+                <p class="mt-1.5 text-[13px] text-theme-muted">
+                    "Sign in to keep modeling."
                 </p>
             </div>
 
@@ -111,8 +110,8 @@ pub fn LoginForm(
             {move || {
                 auth.error.get().map(|error| {
                     view! {
-                        <div class="p-3 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-lg">
-                            <p class="text-sm text-red-700 dark:text-red-300">{error}</p>
+                        <div class="rounded-lg border border-theme-error bg-theme-error p-3">
+                            <p class="text-sm text-theme-error">{error}</p>
                         </div>
                     }
                 })
@@ -120,7 +119,7 @@ pub fn LoginForm(
 
             // Email field
             <div>
-                <label for="email" class="block text-sm font-medium text-theme-primary mb-1">
+                <label for="email" class="field-label">
                     "Email"
                 </label>
                 <input
@@ -128,12 +127,12 @@ pub fn LoginForm(
                     id="email"
                     name="email"
                     autocomplete="email"
+                    spellcheck="false"
                     placeholder="you@example.com"
-                    class="w-full px-3 py-2 bg-theme-secondary border border-theme rounded-lg
-                           text-theme-primary placeholder-theme-tertiary
-                           focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent
-                           transition-colors"
-                    class:border-red-500=move || email_error.get().is_some()
+                    class="input input-lg"
+                    class:border-theme-error=move || email_error.get().is_some()
+                    aria-invalid=move || email_error.get().is_some()
+                    aria-describedby="email-error"
                     prop:value=move || email.get()
                     on:input=move |ev| {
                         email.set(event_target_value(&ev));
@@ -144,7 +143,7 @@ pub fn LoginForm(
                 {move || {
                     email_error.get().map(|error| {
                         view! {
-                            <p class="mt-1 text-sm text-red-500">{error}</p>
+                            <p id="email-error" class="mt-1 text-xs text-theme-error">{error}</p>
                         }
                     })
                 }}
@@ -152,9 +151,12 @@ pub fn LoginForm(
 
             // Password field
             <div>
-                <label for="password" class="block text-sm font-medium text-theme-primary mb-1">
-                    "Password"
-                </label>
+                <div class="mb-1 flex items-center justify-between">
+                    <label for="password" class="field-label mb-0">
+                        "Password"
+                    </label>
+                    <span class="text-[11.5px] text-theme-muted">"Password reset soon"</span>
+                </div>
                 <div class="relative">
                     <input
                         type=move || if show_password.get() { "text" } else { "password" }
@@ -162,11 +164,10 @@ pub fn LoginForm(
                         name="password"
                         autocomplete="current-password"
                         placeholder="Enter your password"
-                        class="w-full px-3 py-2 pr-10 bg-theme-secondary border border-theme rounded-lg
-                               text-theme-primary placeholder-theme-tertiary
-                               focus:outline-none focus:ring-2 focus:ring-accent-primary focus:border-transparent
-                               transition-colors"
-                        class:border-red-500=move || password_error.get().is_some()
+                        class="input input-lg pr-10"
+                        class:border-theme-error=move || password_error.get().is_some()
+                        aria-invalid=move || password_error.get().is_some()
+                        aria-describedby="password-error"
                         prop:value=move || password.get()
                         on:input=move |ev| {
                             password.set(event_target_value(&ev));
@@ -176,17 +177,18 @@ pub fn LoginForm(
                     />
                     <button
                         type="button"
-                        class="absolute inset-y-0 right-0 pr-3 flex items-center text-theme-tertiary hover:text-theme-secondary"
+                        class="btn-icon absolute right-1 top-1/2 -translate-y-1/2"
                         on:click=move |_| show_password.update(|v| *v = !*v)
+                        aria-label=move || if show_password.get() { "Hide password" } else { "Show password" }
                     >
                         {move || {
                             if show_password.get() {
                                 view! {
-                                    <Icon name=icons::EYE_CLOSED class="h-5 w-5" />
+                                    <Icon name=icons::EYE_CLOSED class="h-4 w-4" />
                                 }.into_any()
                             } else {
                                 view! {
-                                    <Icon name=icons::EYE class="h-5 w-5" />
+                                    <Icon name=icons::EYE class="h-4 w-4" />
                                 }.into_any()
                             }
                         }}
@@ -195,7 +197,7 @@ pub fn LoginForm(
                 {move || {
                     password_error.get().map(|error| {
                         view! {
-                            <p class="mt-1 text-sm text-red-500">{error}</p>
+                            <p id="password-error" class="mt-1 text-xs text-theme-error">{error}</p>
                         }
                     })
                 }}
@@ -204,40 +206,36 @@ pub fn LoginForm(
             // Submit button
             <button
                 type="submit"
-                class="w-full py-2.5 px-4 bg-accent-primary hover:bg-accent-primary-hover
-                       text-white font-medium rounded-lg
-                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-primary
-                       disabled:opacity-50 disabled:cursor-not-allowed
-                       transition-colors"
+                class="btn btn-primary btn-lg w-full"
                 disabled=move || auth.loading.get()
             >
                 {move || {
                     if auth.loading.get() {
                         view! {
-                            <span class="flex items-center justify-center">
-                                <Icon name=icons::LOADER class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" />
+                            <span class="flex items-center justify-center gap-2">
+                                <Icon name=icons::LOADER class="icon-spin h-4 w-4" />
                                 "Signing in..."
                             </span>
                         }.into_any()
                     } else {
-                        view! { <span class="block">"Sign In"</span> }.into_any()
+                        view! { <span>"Sign in to ArchiSchema"</span> }.into_any()
                     }
                 }}
             </button>
 
             // Register link
-            <div class="text-center text-sm text-theme-secondary">
-                "Don't have an account? "
+            <div class="text-center text-xs text-theme-muted">
+                "New here? "
                 <button
                     type="button"
-                    class="text-accent-primary hover:text-accent-primary-hover font-medium"
+                    class="btn-link"
                     on:click=move |_| {
                         if let Some(callback) = on_register_click.as_ref() {
                             callback.run(());
                         }
                     }
                 >
-                    "Sign up"
+                    "Create an account"
                 </button>
             </div>
         </form>
@@ -257,7 +255,7 @@ pub fn LoginForm(
                 ></div>
 
                 // Modal content
-                <div class="relative w-full max-w-md bg-theme-primary rounded-xl shadow-xl p-6 border border-theme">
+                <div class="surface-elev relative w-full max-w-md p-6 shadow-theme-xl">
                     // Close button
                     <button
                         type="button"
@@ -277,9 +275,10 @@ pub fn LoginForm(
         }.into_any()
     } else {
         view! {
-            <div class="w-full max-w-md mx-auto bg-theme-primary rounded-xl shadow-lg p-6 border border-theme">
+            <div class="w-full">
                 {form_content}
             </div>
-        }.into_any()
+        }
+        .into_any()
     }
 }

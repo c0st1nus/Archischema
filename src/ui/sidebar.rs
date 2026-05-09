@@ -9,96 +9,7 @@ use crate::ui::source_editor::{EditorMode, EditorModeSwitcher};
 use crate::ui::table_editor::TableEditor;
 use leptos::prelude::*;
 use leptos::web_sys;
-use leptos_router::components::A;
 use petgraph::graph::NodeIndex;
-
-/// Diagram name editor component - extracted to reduce nesting depth
-#[component]
-fn DiagramNameEditor(
-    name_signal: RwSignal<String>,
-    is_demo: bool,
-    #[prop(default = None)] on_name_change: Option<Callback<String>>,
-) -> impl IntoView {
-    let is_editing = RwSignal::new(false);
-    let edit_value = RwSignal::new(name_signal.with_untracked(|v| v.clone()));
-
-    view! {
-        {move || {
-            if is_editing.get() {
-                view! {
-                    <input
-                        type="text"
-                        class="flex-1 min-w-0 px-2 py-1 text-sm font-medium bg-theme-surface border border-theme-primary rounded text-theme-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
-                        prop:value=move || edit_value.get()
-                        on:input=move |ev| edit_value.set(event_target_value(&ev))
-                        on:keydown=move |ev: web_sys::KeyboardEvent| {
-                            if ev.key() == "Enter" {
-                                let new_name = edit_value.get();
-                                if !new_name.trim().is_empty() {
-                                    name_signal.set(new_name.clone());
-                                    if let Some(cb) = on_name_change.as_ref() {
-                                        cb.run(new_name);
-                                    }
-                                }
-                                is_editing.set(false);
-                            } else if ev.key() == "Escape" {
-                                edit_value.set(name_signal.get());
-                                is_editing.set(false);
-                            }
-                        }
-                        on:blur=move |_| {
-                            let new_name = edit_value.get();
-                            if !new_name.trim().is_empty() && new_name != name_signal.get() {
-                                name_signal.set(new_name.clone());
-                                if let Some(cb) = on_name_change.as_ref() {
-                                    cb.run(new_name);
-                                }
-                            }
-                            is_editing.set(false);
-                        }
-                        autofocus
-                    />
-                }.into_any()
-            } else {
-                let current_name = name_signal.get();
-                view! {
-                    <div class="flex items-center gap-2 flex-1 min-w-0 group">
-                        <h1
-                            class="text-sm font-semibold text-theme-primary truncate cursor-pointer hover:text-accent-primary transition-colors"
-                            title=current_name.clone()
-                            on:click=move |_| {
-                                if !is_demo {
-                                    edit_value.set(name_signal.get());
-                                    is_editing.set(true);
-                                }
-                            }
-                        >
-                            {move || name_signal.get()}
-                        </h1>
-                        {if !is_demo {
-                            view! {
-                                <button
-                                    class="flex-shrink-0 p-1 text-theme-muted hover:text-theme-primary opacity-0 group-hover:opacity-100 transition-all"
-                                    on:click=move |_| {
-                                        edit_value.set(name_signal.get());
-                                        is_editing.set(true);
-                                    }
-                                    title="Rename diagram"
-                                >
-                                    <Icon name=icons::EDIT class="w-3.5 h-3.5" />
-                                </button>
-                            }.into_any()
-                        } else {
-                            view! {
-                                <span class="flex-shrink-0 text-xs text-yellow-500 px-1.5 py-0.5 bg-yellow-500/10 rounded">"Demo"</span>
-                            }.into_any()
-                        }}
-                    </div>
-                }.into_any()
-            }
-        }}
-    }
-}
 
 #[derive(Clone, Debug, PartialEq)]
 enum EditingMode {
@@ -116,15 +27,6 @@ pub fn Sidebar(
     editor_mode: RwSignal<EditorMode>,
     /// Sidebar collapsed state (shared with parent for layout coordination)
     is_collapsed: RwSignal<bool>,
-    /// Diagram name (editable)
-    #[prop(default = None)]
-    diagram_name: Option<RwSignal<String>>,
-    /// Whether this is demo mode
-    #[prop(default = false)]
-    is_demo: bool,
-    /// Callback when diagram name changes
-    #[prop(default = None)]
-    on_name_change: Option<Callback<String>>,
 ) -> impl IntoView {
     // Get LiveShare context for sync
     let liveshare_ctx = use_liveshare_context();
@@ -167,16 +69,16 @@ pub fn Sidebar(
     view! {
         <div class=move || {
             if is_collapsed.get() {
-                "fixed left-0 top-0 h-screen w-14 bg-theme-surface border-r border-theme-primary shadow-theme-lg z-20 transition-all duration-300 theme-transition"
+                "editor-sidebar collapsed"
             } else {
-                "fixed left-0 top-0 h-screen w-96 bg-theme-surface border-r border-theme-primary shadow-theme-xl z-20 transition-all duration-300 theme-transition"
+                "editor-sidebar"
             }
         }>
         {move || {
             if is_collapsed.get() {
                 // Свернутый вид
                 view! {
-                    <div class="h-full flex flex-col items-center py-4 bg-theme-surface theme-transition">
+                    <div class="flex h-full flex-col items-center gap-4 py-4">
                         <button
                             class="btn-icon"
                             on:click=move |_| set_is_collapsed.set(false)
@@ -190,46 +92,19 @@ pub fn Sidebar(
             } else {
                 // Развернутый вид
                 view! {
-                    <div class="h-full flex flex-col bg-theme-surface theme-transition">
-                        // Navigation header with diagram name
-                        <div class="px-4 py-3 border-b border-theme-primary bg-theme-tertiary theme-transition">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center gap-2 flex-1 min-w-0">
-                                    <A
-                                        href="/dashboard"
-                                        attr:class="btn-icon"
-                                        attr:title="Back to Dashboard"
-                                    >
-                                        <Icon name=icons::ARROW_LEFT class="icon-standalone"/>
-                                    </A>
-
-                                    {if let Some(name_signal) = diagram_name {
-                                        view! {
-                                            <DiagramNameEditor
-                                                name_signal=name_signal
-                                                is_demo=is_demo
-                                                on_name_change=on_name_change
-                                            />
-                                        }.into_any()
-                                    } else {
-                                        view! {
-                                            <span class="text-sm font-semibold text-theme-primary">"Schema Editor"</span>
-                                        }.into_any()
-                                    }}
-                                </div>
+                    <div class="flex h-full flex-col">
+                        // Editor Mode Switcher
+                        <div class="border-b border-theme-primary bg-theme-surface px-3 py-3 theme-transition">
+                            <div class="flex items-center gap-2">
+                                <EditorModeSwitcher mode=editor_mode />
                                 <button
-                                    class="btn-icon"
+                                    class="btn-icon flex-shrink-0"
                                     on:click=move |_| set_is_collapsed.set(true)
                                     title="Collapse sidebar"
                                 >
                                     <Icon name=icons::PANEL_LEFT_CLOSE class="icon-standalone"/>
                                 </button>
                             </div>
-                        </div>
-
-                        // Editor Mode Switcher
-                        <div class="px-6 py-3 border-b border-theme-primary bg-theme-surface theme-transition">
-                            <EditorModeSwitcher mode=editor_mode />
                         </div>
 
                         {move || {
@@ -333,19 +208,19 @@ pub fn Sidebar(
                                             <div class="px-6 py-3 bg-theme-secondary border-b border-theme-primary theme-transition">
                                                 <div class="grid grid-cols-3 gap-3">
                                                     <div class="text-center">
-                                                        <div class="text-2xl font-bold text-blue-500">
+                                                        <div class="font-mono text-xl font-semibold tracking-[-0.02em] text-theme-accent">
                                                             {move || total_tables.get()}
                                                         </div>
                                                         <div class="text-xs text-theme-muted mt-0.5">"Tables"</div>
                                                     </div>
                                                     <div class="text-center">
-                                                        <div class="text-2xl font-bold text-purple-500">
+                                                        <div class="font-mono text-xl font-semibold tracking-[-0.02em] text-theme-primary">
                                                             {move || total_columns.get()}
                                                         </div>
                                                         <div class="text-xs text-theme-muted mt-0.5">"Columns"</div>
                                                     </div>
                                                     <div class="text-center">
-                                                        <div class="text-2xl font-bold text-green-500">
+                                                        <div class="font-mono text-xl font-semibold tracking-[-0.02em] text-theme-warning">
                                                             {move || total_relations.get()}
                                                         </div>
                                                         <div class="text-xs text-theme-muted mt-0.5">"Relations"</div>
@@ -390,19 +265,19 @@ pub fn Sidebar(
                                             <div class="px-6 py-3 bg-theme-secondary border-b border-theme-primary theme-transition">
                                                 <div class="grid grid-cols-3 gap-3">
                                                     <div class="text-center">
-                                                        <div class="text-2xl font-bold text-blue-500">
+                                                        <div class="font-mono text-xl font-semibold tracking-[-0.02em] text-theme-accent">
                                                             {move || total_tables.get()}
                                                         </div>
                                                         <div class="text-xs text-theme-muted mt-0.5">"Tables"</div>
                                                     </div>
                                                     <div class="text-center">
-                                                        <div class="text-2xl font-bold text-purple-500">
+                                                        <div class="font-mono text-xl font-semibold tracking-[-0.02em] text-theme-primary">
                                                             {move || total_columns.get()}
                                                         </div>
                                                         <div class="text-xs text-theme-muted mt-0.5">"Columns"</div>
                                                     </div>
                                                     <div class="text-center">
-                                                        <div class="text-2xl font-bold text-green-500">
+                                                        <div class="font-mono text-xl font-semibold tracking-[-0.02em] text-theme-warning">
                                                             {move || total_relations.get()}
                                                         </div>
                                                         <div class="text-xs text-theme-muted mt-0.5">"Relations"</div>
@@ -425,63 +300,76 @@ pub fn Sidebar(
                                 view! {
                                     <div class="flex-1 flex flex-col overflow-hidden bg-theme-surface theme-transition">
                                         // Поиск
-                                        <div class="px-6 py-4 border-b border-theme-primary">
+                                        <div class="px-3 py-2">
                                             <div class="relative flex items-center">
                                                 <div class="absolute left-3 pointer-events-none flex items-center justify-center">
                                                     <Icon name=icons::SEARCH class="icon-text text-theme-muted"/>
                                                 </div>
                                                 <input
                                                     type="text"
-                                                    class="input-base input-sm pl-10"
+                                                    class="input-base input-sm pl-8 pr-12"
                                                     placeholder="Search tables and columns..."
                                                     prop:value=move || search_query.get()
                                                     on:input=move |ev| {
                                                         set_search_query.set(event_target_value(&ev));
                                                     }
                                                 />
+                                                <span class="kbd absolute right-2 top-1/2 -translate-y-1/2">"/"</span>
                                             </div>
                                         </div>
 
                                         // Статистика
-                                        <div class="px-6 py-3 bg-theme-secondary border-b border-theme-primary theme-transition">
-                                            <div class="grid grid-cols-3 gap-3">
-                                                <div class="text-center">
-                                                    <div class="text-2xl font-bold text-blue-500">
-                                                        {move || total_tables.get()}
-                                                    </div>
-                                                    <div class="text-xs text-theme-muted mt-0.5">"Tables"</div>
+                                        <div class="grid grid-cols-3 gap-px px-3 pb-2 theme-transition">
+                                            <div class="schema-stat-tile">
+                                                <div class="schema-stat-label">
+                                                    <Icon name=icons::DATABASE class="h-3 w-3"/>"Tables"
                                                 </div>
-                                                <div class="text-center">
-                                                    <div class="text-2xl font-bold text-purple-500">
-                                                        {move || total_columns.get()}
-                                                    </div>
-                                                    <div class="text-xs text-theme-muted mt-0.5">"Columns"</div>
+                                                <div class="schema-stat-value">
+                                                    {move || total_tables.get()}
                                                 </div>
-                                                <div class="text-center">
-                                                    <div class="text-2xl font-bold text-green-500">
-                                                        {move || total_relations.get()}
-                                                    </div>
-                                                    <div class="text-xs text-theme-muted mt-0.5">"Relations"</div>
+                                            </div>
+                                            <div class="schema-stat-tile">
+                                                <div class="schema-stat-label">
+                                                    <Icon name=icons::CODE class="h-3 w-3"/>"Columns"
+                                                </div>
+                                                <div class="schema-stat-value">
+                                                    {move || total_columns.get()}
+                                                </div>
+                                            </div>
+                                            <div class="schema-stat-tile">
+                                                <div class="schema-stat-label">
+                                                    <Icon name=icons::LIGHTNING class="h-3 w-3"/>"Relations"
+                                                </div>
+                                                <div class="schema-stat-value">
+                                                    {move || total_relations.get()}
                                                 </div>
                                             </div>
                                         </div>
 
-                                        // Кнопка создания таблицы
-                                        <div class="px-6 py-3 divider-bottom bg-theme-tertiary theme-transition">
+                                        <div class="flex items-center justify-between px-3 py-1.5">
+                                            <span class="eyebrow">"Tables · " {move || total_tables.get()}</span>
                                             <button
-                                                class="w-full px-4 py-3 btn-theme-primary rounded-lg text-sm font-semibold flex items-center justify-center shadow-sm transition-all"
+                                                type="button"
+                                                class="btn-icon btn-sm"
+                                                title="Expand or collapse all tables"
                                                 on:click=move |_| {
-                                                    // Открываем модальный диалог создания новой таблицы
-                                                    set_editing_mode.set(EditingMode::CreatingTable);
+                                                    set_expanded_tables
+                                                        .update(|expanded| {
+                                                            let g = graph.with_untracked(|v| v.clone());
+                                                            if expanded.len() == g.node_count() {
+                                                                expanded.clear();
+                                                            } else {
+                                                                *expanded = g.node_indices().collect();
+                                                            }
+                                                        });
                                                 }
                                             >
-                                                <Icon name=icons::PLUS class="icon-btn"/>
-                                                "New Table"
+                                                <Icon name=icons::EXPAND class="h-3.5 w-3.5"/>
                                             </button>
                                         </div>
 
                                         // Список таблиц
-                                        <div class="flex-1 overflow-y-auto px-3 py-3">
+                                        <div class="scroll flex-1 overflow-y-auto pb-2">
                                             {move || {
                                                 let query = search_query.get().to_lowercase();
                                                 let expanded = expanded_tables.get();
@@ -512,11 +400,11 @@ pub fn Sidebar(
                                                         let is_expanded = expanded.contains(&node_idx);
                                                         let query_clone = query.clone();
                                                         view! {
-                                                            <div class="mb-2 rounded-xl border border-theme-primary overflow-hidden hover:border-theme-accent theme-transition bg-theme-surface">
+                                                            <div class="schema-list-card">
                                                                 // Заголовок таблицы
-                                                                <div class="flex items-center justify-between px-4 py-3 bg-theme-secondary hover:bg-theme-tertiary theme-transition cursor-pointer group">
+                                                                <div class="schema-list-header cursor-pointer group">
                                                                     <div
-                                                                        class="flex items-center flex-1"
+                                                                        class="flex min-w-0 flex-1 items-center"
                                                                         on:click=move |_| {
                                                                             on_table_focus.run(node_idx);
                                                                             if !is_expanded {
@@ -526,7 +414,7 @@ pub fn Sidebar(
                                                                     >
 
                                                                         <button
-                                                                            class="mr-2 text-theme-muted hover:text-theme-accent focus:outline-none transition-colors"
+                                                                            class="btn-icon btn-sm mr-2"
                                                                             on:click=move |ev: web_sys::MouseEvent| {
                                                                                 ev.stop_propagation();
                                                                                 toggle_table(node_idx);
@@ -534,49 +422,42 @@ pub fn Sidebar(
                                                                         >
                                                                             {if is_expanded {
                                                                                 view! {
-                                                                                    <Icon
-                                                                                        name=icons::CHEVRON_DOWN
-                                                                                        class="w-5 h-5 transition-transform"
-                                                                                    />
+                                                                                    <Icon name=icons::CHEVRON_DOWN class="w-4 h-4 transition-transform" />
                                                                                 }
                                                                             } else {
                                                                                 view! {
-                                                                                    <Icon
-                                                                                        name=icons::CHEVRON_RIGHT
-                                                                                        class="w-5 h-5 transition-transform"
-                                                                                    />
+                                                                                    <Icon name=icons::CHEVRON_RIGHT class="w-4 h-4 transition-transform" />
                                                                                 }
                                                                             }}
                                                                         </button>
 
-                                                                        <div class="w-8 h-8 rounded-lg flex items-center justify-center mr-3 shadow-sm" style="background: linear-gradient(to bottom right, var(--accent-primary), var(--accent-secondary));">
-                                                                            <Icon name=icons::TABLE class="w-5 h-5 text-white"/>
+                                                                        <div class="mr-2 flex h-6 w-6 items-center justify-center rounded-md border border-theme bg-theme-accent-light text-theme-accent shadow-theme-sm">
+                                                                            <Icon name=icons::TABLE class="w-3.5 h-3.5"/>
                                                                         </div>
 
-                                                                        <div class="flex-1 min-w-0">
-                                                                            <div class="font-semibold text-theme-primary truncate">
+                                                                        <div class="flex min-w-0 flex-1 items-center gap-2">
+                                                                            <div class="min-w-0 truncate font-semibold text-theme-primary">
                                                                                 {node.name.clone()}
                                                                             </div>
-                                                                            <div class="text-xs text-theme-muted">
-                                                                                {node.columns.len()}
-                                                                                " columns"
-                                                                            </div>
+                                                                            <span class="ml-auto rounded border border-theme bg-theme-tertiary px-1.5 py-0.5 font-mono text-[10px] text-theme-muted">
+                                                                                {node.columns.len()}" cols"
+                                                                            </span>
                                                                         </div>
                                                                     </div>
 
-                                                                    <div class="flex items-center space-x-1">
+                                                                    <div class="flex items-center gap-1">
                                                                         <button
-                                                                            class="p-1.5 text-theme-muted hover:text-purple-500 hover:bg-theme-tertiary rounded-lg transition-colors"
+                                                                            class="btn-icon btn-sm"
                                                                             title="Edit table"
                                                                             on:click=move |ev: web_sys::MouseEvent| {
                                                                                 ev.stop_propagation();
                                                                                 set_editing_mode.set(EditingMode::EditingTable(node_idx));
                                                                             }
                                                                         >
-                                                                            <Icon name=icons::SEARCH class="icon-text"/>
+                                                                            <Icon name=icons::EDIT class="w-3.5 h-3.5"/>
                                                                         </button>
                                                                         <button
-                                                                            class="p-1.5 text-theme-muted hover:text-theme-accent hover:bg-theme-tertiary rounded-lg transition-colors"
+                                                                            class="btn-icon btn-sm"
                                                                             title="Add column"
                                                                             on:click=move |ev: web_sys::MouseEvent| {
                                                                                 ev.stop_propagation();
@@ -584,7 +465,7 @@ pub fn Sidebar(
                                                                                     .set(EditingMode::EditingColumn(node_idx, None));
                                                                             }
                                                                         >
-                                                                            <Icon name=icons::X class="icon-text"/>
+                                                                            <Icon name=icons::PLUS class="w-3.5 h-3.5"/>
                                                                         </button>
                                                                     </div>
                                                                 </div>
@@ -592,13 +473,13 @@ pub fn Sidebar(
                                                                 // Список колонок
                                                                 {if is_expanded {
                                                                     view! {
-                                                                        <div class="bg-theme-tertiary theme-transition">
+                                                                            <div class="border-t border-theme bg-transparent theme-transition">
                                                                             {if node.columns.is_empty() {
                                                                                 view! {
-                                                                                    <div class="px-4 py-6 text-center text-theme-muted text-sm">
+                                                                                    <div class="px-4 py-6 text-center text-sm text-theme-muted">
                                                                                         "No columns yet"
                                                                                         <button
-                                                                                            class="block mx-auto mt-2 text-theme-accent hover:opacity-80 font-medium"
+                                                                                            class="btn-link mx-auto mt-2"
                                                                                             on:click=move |_| {
                                                                                                 set_editing_mode
                                                                                                     .set(EditingMode::EditingColumn(node_idx, None));
@@ -648,40 +529,15 @@ pub fn Sidebar(
                                         </div>
 
                                         // Футер
-                                        <div class="px-6 py-4 border-t border-theme-primary bg-theme-secondary theme-transition">
+                                        <div class="border-t border-theme-primary bg-theme-secondary p-2.5 theme-transition">
                                             <button
-                                                class="w-full px-4 py-2.5 btn-theme-primary rounded-xl text-sm font-medium flex items-center justify-center shadow-sm transition-all"
+                                                class="btn-primary btn-lg w-full"
                                                 on:click=move |_| {
-                                                    set_expanded_tables
-                                                        .update(|expanded| {
-                                                            let g = graph.with_untracked(|v| v.clone());
-                                                            if expanded.len() == g.node_count() {
-                                                                expanded.clear();
-                                                            } else {
-                                                                *expanded = g.node_indices().collect();
-                                                            }
-                                                        });
+                                                    set_editing_mode.set(EditingMode::CreatingTable);
                                                 }
                                             >
-                                                {move || {
-                                                    let g = graph.get();
-                                                    let expanded = expanded_tables.get();
-                                                    if expanded.len() == g.node_count() {
-                                                        view! {
-                                                            <>
-                                                                <Icon name=icons::PLUS class="icon-text"/>
-                                                                "Collapse All"
-                                                            </>
-                                                        }
-                                                    } else {
-                                                        view! {
-                                                            <>
-                                                                <Icon name=icons::EXPAND class="w-4 h-4 mr-2"/>
-                                                                "Expand All"
-                                                            </>
-                                                        }
-                                                    }
-                                                }}
+                                                <Icon name=icons::PLUS class="icon-btn"/>
+                                                "New table"
                                             </button>
                                         </div>
                                     </div>
@@ -705,20 +561,17 @@ pub fn Sidebar(
                     // Создаём таблицу с указанным именем
                     let position = (300.0, 300.0);
                     let table_name = data.table_name.clone();
-                    let pk_name = data.pk_name.clone();
-                    let pk_type = data.pk_type.clone();
+                    let columns = data.columns.clone();
 
                     // Создаём таблицу
                     let result = graph.write().create_table(&table_name, position);
 
                     match result {
                         Ok(new_node_idx) => {
-                            // Добавляем первичный ключ
+                            // Add the preset columns selected in the create-table dialog.
                             graph.update(|g| {
                                 if let Some(node) = g.node_weight_mut(new_node_idx) {
-                                    node.columns.push(
-                                        Column::new(&pk_name, &pk_type).primary_key()
-                                    );
+                                    node.columns.extend(columns.clone());
                                 }
                             });
 
@@ -733,20 +586,22 @@ pub fn Sidebar(
                                 position,
                             });
 
-                            // Отправляем операцию добавления первичного ключа
-                            send_graph_op(GraphOperation::AddColumn {
-                                node_id: new_node_idx.index() as u32,
-                                table_uuid,
-                                column: ColumnData {
-                                    name: pk_name,
-                                    data_type: pk_type,
-                                    is_primary_key: true,
-                                    is_nullable: false,
-                                    is_unique: false,
-                                    default_value: None,
-                                    foreign_key: None,
-                                },
-                            });
+                            // Отправляем операции добавления колонок
+                            for column in columns {
+                                send_graph_op(GraphOperation::AddColumn {
+                                    node_id: new_node_idx.index() as u32,
+                                    table_uuid,
+                                    column: ColumnData {
+                                        name: column.name,
+                                        data_type: column.data_type,
+                                        is_primary_key: column.is_primary_key,
+                                        is_nullable: column.is_nullable,
+                                        is_unique: column.is_unique,
+                                        default_value: column.default_value,
+                                        foreign_key: None,
+                                    },
+                                });
+                            }
 
                             // Раскрываем таблицу в списке
                             set_expanded_tables.update(|expanded| {
@@ -809,18 +664,25 @@ pub fn Sidebar(
 }
 #[component]
 fn ColumnItem(column: Column, #[prop(into)] on_click: Callback<()>) -> impl IntoView {
+    let column_name = column.name.clone();
+    let column_type = column.data_type.clone();
+
     view! {
-        <div
-            class="px-4 py-3 hover:bg-theme-secondary cursor-pointer border-b border-theme-primary last:border-b-0 theme-transition group"
+        <button
+            type="button"
+            class="schema-column-item group"
+            title=format!("{} {}", column_name.clone(), column_type.clone())
             on:click=move |_| on_click.run(())
         >
-            <div class="flex items-start justify-between">
-                <div class="flex-1 min-w-0">
-                    <div class="flex items-center">
+            <div class="column-inline-row">
+                <div class="column-inline-main">
+                    <span class="column-inline-name group-hover:text-theme-accent">
+                        {column_name.clone()}
+                    </span>
+                    <span class="column-inline-badges">
                         {if column.is_primary_key {
                             view! {
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-yellow-100 text-yellow-800 mr-2 border border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200 dark:border-yellow-700">
-                                    <Icon name=icons::KEY class="w-3 h-3 mr-1"/>
+                                <span class="schema-table-badge schema-table-badge-pk" title="Primary key">
                                     "PK"
                                 </span>
                             }
@@ -828,18 +690,10 @@ fn ColumnItem(column: Column, #[prop(into)] on_click: Callback<()>) -> impl Into
                         } else {
                             view! { <span></span> }.into_any()
                         }}
-                        <span class="font-medium text-theme-primary text-sm truncate group-hover:text-theme-accent transition-colors">
-                            {column.name.clone()}
-                        </span>
-                    </div>
-                    <div class="flex flex-wrap items-center gap-2 mt-1.5">
-                        <code class="text-xs bg-theme-tertiary text-theme-secondary px-2 py-0.5 rounded-md font-mono border border-theme-primary">
-                            {column.data_type.clone()}
-                        </code>
                         {if !column.is_nullable {
                             view! {
-                                <span class="inline-flex items-center text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-md border border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800">
-                                    "NOT NULL"
+                                <span class="schema-table-badge schema-table-badge-nn" title="Not null">
+                                    "NN"
                                 </span>
                             }
                                 .into_any()
@@ -848,34 +702,18 @@ fn ColumnItem(column: Column, #[prop(into)] on_click: Callback<()>) -> impl Into
                         }}
                         {if column.is_unique {
                             view! {
-                                <span class="inline-flex items-center text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800">
-                                    "UNIQUE"
+                                <span class="schema-table-badge schema-table-badge-uq" title="Unique">
+                                    "UQ"
                                 </span>
                             }
                                 .into_any()
                         } else {
                             view! { <span></span> }.into_any()
                         }}
-                    </div>
-                    {column
-                        .default_value
-                        .map(|def| {
-                            view! {
-                                <div class="mt-1.5 text-xs text-theme-tertiary">
-                                    <span class="text-theme-muted">"DEFAULT: "</span>
-                                    <code class="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200 font-mono dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800">
-                                        {def}
-                                    </code>
-                                </div>
-                            }
-                        })}
-
+                    </span>
                 </div>
-                <Icon
-                    name=icons::CHEVRON_RIGHT
-                    class="w-5 h-5 text-theme-muted group-hover:text-theme-accent ml-3 flex-shrink-0 transition-colors"
-                />
+                <span class="column-inline-type" title=column_type.clone()>{column_type.clone()}</span>
             </div>
-        </div>
+        </button>
     }
 }

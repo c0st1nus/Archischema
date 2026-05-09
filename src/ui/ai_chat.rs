@@ -84,14 +84,12 @@ pub fn AiChatPanel(
         set_config.set(new_config);
     };
 
-    // Toggle mode
-    let toggle_mode = move |_| {
+    // Set assistant mode from the compact composer segmented control.
+    let set_mode = move |new_mode: AiMode| {
         let current = config.get();
-        let new_mode = if current.mode == AiMode::Ask {
-            AiMode::Write
-        } else {
-            AiMode::Ask
-        };
+        if current.mode == new_mode {
+            return;
+        }
         let new_config = AiConfig {
             mode: new_mode,
             ..current
@@ -394,156 +392,110 @@ pub fn AiChatPanel(
     }
 
     view! {
-        <div
-            class=move || {
-                if is_open.get() {
-                    "fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-all duration-300"
-                } else {
-                    "fixed inset-0 z-50 flex items-center justify-center bg-black/0 backdrop-blur-0 transition-all duration-300 pointer-events-none opacity-0"
-                }
-            }
-            on:click=move |e| {
-                // Close when clicking backdrop
-                #[cfg(not(feature = "ssr"))]
-                {
-                    let target = e.target();
-                    if let Some(el) = target {
-                        if let Some(element) = el.dyn_ref::<web_sys::Element>() {
-                            if element.class_list().contains("backdrop-blur-sm") {
-                                is_open.set(false);
-                            }
-                        }
-                    }
-                }
-                #[cfg(feature = "ssr")]
-                {
-                    let _ = e;
-                }
-            }
-        >
-            // Main chat panel
-            <div class="w-full max-w-2xl h-[80vh] max-h-[700px] bg-theme-surface rounded-2xl shadow-theme-xl flex flex-col overflow-hidden theme-transition">
-                // Header
-                <div class="flex items-center justify-between px-6 py-4 border-b border-theme-primary bg-theme-secondary">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: linear-gradient(to bottom right, var(--accent-primary), var(--accent-secondary));">
-                            <Icon name=icons::BOT class="w-6 h-6 text-white"/>
-                        </div>
-                        <div>
-                            <h2 class="text-lg font-semibold text-theme-primary">"AI Assistant"</h2>
-                            <p class="text-xs text-theme-tertiary">
-                                {move || config.get().mode.description()}
-                            </p>
+        <aside class=move || if is_open.get() { "ai-dock-panel" } else { "hidden" }>
+            <div class="ai-panel-shell theme-transition">
+                <div class="ai-panel-header">
+                    <span class="ai-mark">
+                        <Icon name=icons::SPARKLES class="icon-text"/>
+                    </span>
+                    <div class="min-w-0 flex-1">
+                        <div class="ai-title">"Assistant"</div>
+                        <div class="ai-thread-meta">
+                            {move || format!("Current diagram - {} turns", messages.get().len())}
                         </div>
                     </div>
-                    <div class="flex items-center gap-2">
-                        // Mode toggle button
-                        <button
-                            class=move || {
-                                let mode = config.get().mode;
-                                if mode == AiMode::Write {
-                                    "btn-sm transition-colors bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                                } else {
-                                    "btn-sm transition-colors bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-                                }
-                            }
-                            on:click=toggle_mode
-                            title="Toggle AI mode"
-                        >
-                            {move || config.get().mode.display_name()}
-                        </button>
-                        // Settings button
-                        <button
-                            class="btn-icon"
-                            on:click=open_settings
-                            title="AI Settings"
-                        >
-                            <Icon name=icons::SETTINGS class="icon-standalone"/>
-                        </button>
-                        // Clear chat button
-                        <button
-                            class="btn-icon hover:text-red-500"
-                            on:click=clear_chat
-                            title="Clear chat"
-                        >
-                            <Icon name=icons::TRASH class="icon-standalone"/>
-                        </button>
-                        // Close button
-                        <button
-                            class="btn-icon"
-                            on:click=move |_| is_open.set(false)
-                            title="Close"
-                        >
-                            <Icon name=icons::X class="icon-standalone"/>
-                        </button>
-                    </div>
+                    <button class="btn-icon btn-sm" on:click=clear_chat title="New thread">
+                        <Icon name=icons::PLUS class="icon-btn"/>
+                    </button>
+                    <button class="btn-icon btn-sm" on:click=open_settings title="AI settings">
+                        <Icon name=icons::SETTINGS class="icon-btn"/>
+                    </button>
+                    <button class="btn-icon btn-sm" on:click=move |_| is_open.set(false) title="Close assistant">
+                        <Icon name=icons::X class="icon-btn"/>
+                    </button>
                 </div>
 
-                // Settings panel (overlay)
                 {move || {
                     if show_settings.get() {
                         view! {
-                            <div class="absolute inset-0 bg-theme-surface z-10 flex flex-col">
-                                <div class="flex items-center justify-between px-6 py-4 border-b border-theme-primary">
-                                    <h3 class="title-lg">"AI Settings"</h3>
-                                    <button
-                                        class="btn-icon"
-                                        on:click=move |_| set_show_settings.set(false)
-                                    >
-                                        <Icon name=icons::X class="icon-standalone"/>
+                            <div class="ai-settings-overlay">
+                                <div class="ai-panel-header">
+                                    <span class="ai-mark"><Icon name=icons::SETTINGS class="icon-text"/></span>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="ai-title">"AI assistant settings"</div>
+                                        <div class="ai-thread-meta">"OpenRouter-compatible proxy - stored locally"</div>
+                                    </div>
+                                    <button class="btn-icon btn-sm" on:click=move |_| set_show_settings.set(false) title="Close settings">
+                                        <Icon name=icons::X class="icon-btn"/>
                                     </button>
                                 </div>
-                                <div class="flex-1 overflow-y-auto p-6 space-y-4">
-                                    // API Key
-                                    <div>
-                                        <label class="label">"API Key"</label>
+                                <div class="ai-settings-body scroll">
+                                    <div class="ai-settings-field">
+                                        <label class="label" for="ai-provider">"Provider"</label>
+                                        <div id="ai-provider" class="flex flex-wrap gap-2">
+                                            <button class="btn-sm btn-secondary" disabled=true>"OpenRouter"</button>
+                                            <button class="btn-sm btn-secondary" disabled=true>"Custom"</button>
+                                            <button class="btn-sm btn-secondary" disabled=true>"Local (soon)"</button>
+                                        </div>
+                                        <p class="subtitle mt-2">"Provider switching is UI-only in this pass; the existing proxy remains unchanged."</p>
+                                    </div>
+
+                                    <div class="ai-settings-field">
+                                        <label class="label" for="ai-api-key">"API key"</label>
                                         <input
+                                            id="ai-api-key"
                                             type="password"
-                                            class="input-base"
+                                            autocomplete="off"
+                                            class="input-base input-lg"
                                             placeholder="sk-or-v1-..."
                                             prop:value=move || settings_api_key.get()
                                             on:input=move |e| set_settings_api_key.set(event_target_value(&e))
                                         />
-                                        <p class="mt-1 text-xs text-theme-muted">"Your OpenRouter API key. Leave empty to use server default."</p>
+                                        <p class="subtitle mt-2">"Leave empty to use the server default. This value is saved in localStorage."</p>
                                     </div>
-                                    // Model
-                                    <div>
-                                        <label class="label">"Model"</label>
+
+                                    <div class="ai-settings-field">
+                                        <label class="label" for="ai-model">"Model"</label>
                                         <input
+                                            id="ai-model"
                                             type="text"
-                                            class="input-base"
+                                            autocomplete="off"
+                                            class="input-base input-lg mono"
                                             placeholder="google/gemini-2.5-flash-lite"
                                             prop:value=move || settings_model.get()
                                             on:input=move |e| set_settings_model.set(event_target_value(&e))
                                         />
-                                        <p class="mt-1 text-xs text-theme-muted">"Model identifier (e.g., openai/gpt-4o, anthropic/claude-3-opus)"</p>
+                                        <p class="subtitle mt-2">"Use any OpenRouter model id supported by the current API key."</p>
                                     </div>
-                                    // API Base URL
-                                    <div>
-                                        <label class="label">"API Base URL"</label>
+
+                                    <div class="ai-settings-field">
+                                        <label class="label" for="ai-api-base">"Base URL"</label>
                                         <input
-                                            type="text"
-                                            class="input-base"
+                                            id="ai-api-base"
+                                            type="url"
+                                            autocomplete="off"
+                                            class="input-base input-lg mono"
                                             placeholder="https://openrouter.ai/api/v1/chat/completions"
                                             prop:value=move || settings_api_base.get()
                                             on:input=move |e| set_settings_api_base.set(event_target_value(&e))
                                         />
-                                        <p class="mt-1 text-xs text-theme-muted">"OpenRouter-compatible API endpoint"</p>
+                                        <p class="subtitle mt-2">"Kept for compatibility with the existing config shape."</p>
+                                    </div>
+
+                                    <div class="ai-settings-field">
+                                        <div class="label">"Tool permissions"</div>
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <span class="ai-permission-chip can-write"><Icon name=icons::DATABASE class="icon-text"/>"Read schema"</span>
+                                            <span class="ai-permission-chip can-write"><Icon name=icons::PLUS class="icon-text"/>"Create tables"</span>
+                                            <span class="ai-permission-chip can-write"><Icon name=icons::EDIT class="icon-text"/>"Add columns"</span>
+                                            <span class="ai-permission-chip"><Icon name=icons::LOCK class="icon-text"/>"Run migrations"</span>
+                                        </div>
+                                        <p class="subtitle mt-2">"Effective access is still controlled by Ask/Write mode and existing tool checks."</p>
                                     </div>
                                 </div>
-                                <div class="divider-top px-6 py-4 flex justify-end gap-3">
-                                    <button
-                                        class="btn-secondary"
-                                        on:click=move |_| set_show_settings.set(false)
-                                    >
-                                        "Cancel"
-                                    </button>
-                                    <button
-                                        class="btn-primary"
-                                        on:click=save_settings
-                                    >
-                                        "Save"
-                                    </button>
+                                <div class="ai-settings-footer">
+                                    <button class="btn-secondary" on:click=move |_| set_show_settings.set(false)>"Cancel"</button>
+                                    <button class="btn-primary" on:click=save_settings>"Save settings"</button>
                                 </div>
                             </div>
                         }.into_any()
@@ -552,38 +504,29 @@ pub fn AiChatPanel(
                     }
                 }}
 
-                // Messages area
-                <div class="flex-1 overflow-y-auto p-4 space-y-4">
-                    // Empty state
+                <div class="ai-conversation scroll">
                     {move || {
                         if messages.get().is_empty() {
                             view! {
-                                <div class="h-full flex flex-col items-center justify-center text-center px-8">
-                                    <div class="w-16 h-16 mb-4 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-full flex items-center justify-center">
-                                        <Icon name=icons::BOT class="icon-lg"/>
-                                    </div>
-                                    <h3 class="title-lg mb-2">"How can I help you?"</h3>
-                                    <p class="subtitle max-w-md">
-                                        "I can help you design your database schema. Ask me to create tables, add columns, explain relationships, or suggest improvements."
+                                <div class="ai-empty-card">
+                                    <span class="ai-empty-icon"><Icon name=icons::BOT class="icon-lg"/></span>
+                                    <div class="eyebrow mb-2">"Copilot ready"</div>
+                                    <h3 class="title-lg">"Ask about the schema, or describe a change."</h3>
+                                    <p class="subtitle mt-2">
+                                        "Ask is read-only. Write may call tools that update the current diagram and sync through LiveShare."
                                     </p>
-                                    <div class="mt-6 flex flex-wrap gap-2 justify-center">
-                                        <button
-                                            class="btn-sm btn-secondary"
-                                            on:click=move |_| set_input_value.set("What tables are in the schema?".to_string())
-                                        >
-                                            "What tables exist?"
+                                    <div class="ai-suggestion-grid">
+                                        <button class="ai-suggestion-card" on:click=move |_| set_input_value.set("List the tables and relationships in this diagram".to_string())>
+                                            <Icon name=icons::SEARCH class="icon-text"/>
+                                            <span><strong>"Summarize schema"</strong><br/><span class="subtitle">"Tables, columns, relationships"</span></span>
                                         </button>
-                                        <button
-                                            class="btn-sm btn-secondary"
-                                            on:click=move |_| set_input_value.set("Create a users table with common fields".to_string())
-                                        >
-                                            "Create users table"
+                                        <button class="ai-suggestion-card" on:click=move |_| set_input_value.set("Add audit columns to every table".to_string())>
+                                            <Icon name=icons::SPARKLES class="icon-text"/>
+                                            <span><strong>"Add audit columns"</strong><br/><span class="subtitle">"created_at, updated_at, deleted_at"</span></span>
                                         </button>
-                                        <button
-                                            class="btn-sm btn-secondary"
-                                            on:click=move |_| set_input_value.set("Show me the schema as SQL".to_string())
-                                        >
-                                            "Export as SQL"
+                                        <button class="ai-suggestion-card" on:click=move |_| set_input_value.set("Show me the schema as SQL".to_string())>
+                                            <Icon name=icons::CODE class="icon-text"/>
+                                            <span><strong>"Export SQL"</strong><br/><span class="subtitle">"Generate DDL from canvas"</span></span>
                                         </button>
                                     </div>
                                 </div>
@@ -593,7 +536,6 @@ pub fn AiChatPanel(
                         }
                     }}
 
-                    // Message list
                     <For
                         each=move || messages.get().into_iter().enumerate()
                         key=|(i, _)| *i
@@ -601,75 +543,119 @@ pub fn AiChatPanel(
                             let is_user = message.role == MessageRole::User;
                             let is_tool = message.role == MessageRole::Tool;
                             let is_assistant = message.role == MessageRole::Assistant;
-                            let has_tool_calls = message.tool_calls.is_some();
                             let content = message.content.clone();
+                            let tool_calls = message.tool_calls.clone().unwrap_or_default();
+                            let tool_call_count = tool_calls.len();
+                            let role_label = if is_user {
+                                "You"
+                            } else if is_tool {
+                                "Tool result"
+                            } else {
+                                "Assistant"
+                            };
+                            let tool_failed = content.contains("\"success\":false")
+                                || content.contains("\"success\": false")
+                                || content.contains("\"error\":");
+                            let tool_summary = if is_tool {
+                                serde_json::from_str::<serde_json::Value>(&content)
+                                    .ok()
+                                    .and_then(|value| {
+                                        value
+                                            .get("message")
+                                            .and_then(|v| v.as_str())
+                                            .or_else(|| value.get("error").and_then(|v| v.as_str()))
+                                            .map(str::to_string)
+                                    })
+                                    .unwrap_or_else(|| content.clone())
+                            } else {
+                                content.clone()
+                            };
 
                             view! {
-                                <div class=move || {
-                                    if is_user {
-                                        "flex justify-end"
-                                    } else {
-                                        "flex justify-start"
-                                    }
-                                }>
-                                    <div class=move || {
-                                        if is_user {
-                                            "max-w-[85%] px-4 py-2.5 rounded-2xl bg-theme-accent text-white rounded-br-md"
-                                        } else if is_tool {
-                                            "max-w-[85%] px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-xs font-mono text-theme-tertiary"
-                                        } else {
-                                            "max-w-[85%] px-4 py-3 rounded-2xl bg-theme-tertiary text-theme-primary rounded-bl-md"
-                                        }
-                                    }>
-                                        {if has_tool_calls {
-                                            view! {
-                                                <div class="text-xs text-theme-muted mb-2 flex items-center gap-1">
-                                                    <Icon name=icons::LIGHTNING class="icon-text"/>
-                                                    "Using tools..."
+                                <div class=if is_user { "ai-message-wrap ai-message-wrap-user" } else { "ai-message-wrap" }>
+                                    <span class="ai-message-eyebrow">{role_label}</span>
+                                    {if is_tool {
+                                        let class_name = if tool_failed { "ai-tool-card ai-tool-card-error" } else { "ai-tool-card ai-tool-card-success" };
+                                        let status_icon = if tool_failed { icons::ALERT_CIRCLE } else { icons::CHECK };
+                                        view! {
+                                            <div class=class_name>
+                                                <div class="ai-tool-card-head">
+                                                    <Icon name=status_icon class="icon-text"/>
+                                                    <span>"Tool response"</span>
                                                 </div>
-                                            }.into_any()
-                                        } else {
-                                            view! { <span></span> }.into_any()
-                                        }}
-                                        {if is_assistant && !content.is_empty() {
-                                            view! {
+                                                <div class="ai-tool-card-meta">{tool_summary.clone()}</div>
+                                            </div>
+                                        }.into_any()
+                                    } else if is_assistant && !content.is_empty() {
+                                        view! {
+                                            <div class="ai-message">
                                                 <Markdown content=content.clone() />
-                                            }.into_any()
-                                        } else {
-                                            view! {
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <div class=if is_user { "ai-message ai-message-user" } else { "ai-message" }>
                                                 <p class="whitespace-pre-wrap break-words">{content.clone()}</p>
-                                            }.into_any()
-                                        }}
-                                    </div>
+                                            </div>
+                                        }.into_any()
+                                    }}
+
+                                    {if !tool_calls.is_empty() {
+                                        view! {
+                                            <div class="ai-tool-stack">
+                                                <span class="ai-message-eyebrow">
+                                                    {format!("Assistant - {} tool call{}", tool_call_count, if tool_call_count == 1 { "" } else { "s" })}
+                                                </span>
+                                                <For
+                                                    each=move || tool_calls.clone().into_iter()
+                                                    key=|tool_call| tool_call.id.clone()
+                                                    children=move |tool_call| {
+                                                        let tool_name = tool_call.function.name.replace('_', " ");
+                                                        let arguments = tool_call.function.arguments.clone();
+                                                        view! {
+                                                            <div class="ai-tool-card ai-tool-card-plan">
+                                                                <div class="ai-tool-card-head">
+                                                                    <Icon name=icons::GIT_BRANCH class="icon-text"/>
+                                                                    <span class="mono">{tool_name}</span>
+                                                                    <span class="ai-context-chip">"tool call"</span>
+                                                                </div>
+                                                                <div class="ai-tool-card-meta">{arguments}</div>
+                                                            </div>
+                                                        }
+                                                    }
+                                                />
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! { <span></span> }.into_any()
+                                    }}
                                 </div>
                             }
                         }
                     />
 
-                    // Streaming content display
                     {move || {
                         let content = streaming_content.get();
                         if is_loading.get() && !content.is_empty() {
                             view! {
-                                <div class="flex justify-start">
-                                    <div class="max-w-[85%] px-4 py-3 rounded-2xl bg-theme-tertiary text-theme-primary rounded-bl-md">
+                                <div class="ai-message-wrap">
+                                    <span class="ai-message-eyebrow">"Assistant - streaming"</span>
+                                    <div class="ai-message">
                                         <Markdown content=content />
-                                        <span class="inline-block w-2 h-4 bg-theme-accent animate-pulse ml-1"></span>
+                                        <span class="ai-stream-caret"></span>
                                     </div>
                                 </div>
                             }.into_any()
                         } else if is_loading.get() {
                             view! {
-                                <div class="flex justify-start">
-                                    <div class="max-w-[85%] px-4 py-3 rounded-2xl bg-theme-tertiary text-theme-primary rounded-bl-md">
-                                        <div class="flex items-center gap-2">
-                                            <div class="flex gap-1">
-                                                <span class="w-2 h-2 bg-theme-accent rounded-full animate-bounce" style="animation-delay: 0ms"></span>
-                                                <span class="w-2 h-2 bg-theme-accent rounded-full animate-bounce" style="animation-delay: 150ms"></span>
-                                                <span class="w-2 h-2 bg-theme-accent rounded-full animate-bounce" style="animation-delay: 300ms"></span>
-                                            </div>
-                                            <span class="text-sm text-theme-tertiary">"Thinking..."</span>
+                                <div class="ai-message-wrap">
+                                    <span class="ai-message-eyebrow">"Assistant"</span>
+                                    <div class="ai-tool-card ai-tool-card-running">
+                                        <div class="ai-tool-card-head">
+                                            <Icon name=icons::LOADER class="icon-text icon-spin"/>
+                                            <span>"Reading context"</span>
                                         </div>
+                                        <div class="ai-tool-card-meta">"Waiting for the first streamed token..."</div>
                                     </div>
                                 </div>
                             }.into_any()
@@ -678,14 +664,14 @@ pub fn AiChatPanel(
                         }
                     }}
 
-                    // Error message
                     {move || {
                         if let Some(err) = error_message.get() {
                             view! {
-                                <div class="flex justify-center">
-                                    <div class="error-message">
-                                        <Icon name=icons::ALERT_CIRCLE class="icon-text"/>
-                                        <span>{err}</span>
+                                <div class="ai-error-card">
+                                    <Icon name=icons::ALERT_CIRCLE class="icon-text"/>
+                                    <div>
+                                        <strong>"Request failed"</strong>
+                                        <div>{err}</div>
                                     </div>
                                 </div>
                             }.into_any()
@@ -695,54 +681,81 @@ pub fn AiChatPanel(
                     }}
                 </div>
 
-                // Input area
-                <div class="px-4 py-3 border-t border-theme-primary bg-theme-secondary">
-                    <div class="flex items-end gap-2">
-                        <div class="flex-1 relative">
-                            <textarea
-                                class="input-base resize-none rounded-xl"
-                                placeholder="Ask about your schema..."
-                                rows="1"
-                                prop:value=move || input_value.get()
-                                on:input=move |e| set_input_value.set(event_target_value(&e))
-                                on:keydown=move |e| {
-                                    if e.key() == "Enter" && !e.shift_key() {
-                                        e.prevent_default();
-                                        send_message(());
-                                    }
-                                }
-                            />
-                        </div>
-                        <button
-                            class=move || {
-                                if is_loading.get() || input_value.get().trim().is_empty() {
-                                    "p-3 rounded-xl bg-theme-accent/50 text-white cursor-not-allowed"
-                                } else {
-                                    "p-3 rounded-xl bg-theme-accent text-white hover:opacity-90 transition-opacity"
+                {move || {
+                    if messages.get().is_empty() {
+                        view! { <div class="hidden"></div> }.into_any()
+                    } else {
+                        view! {
+                            <div class="ai-suggestion-strip">
+                                <button class="chip" on:click=move |_| set_input_value.set("Index hot foreign keys".to_string())>
+                                    <Icon name=icons::SPARKLES class="icon-text"/>"Index hot FKs"
+                                </button>
+                                <button class="chip" on:click=move |_| set_input_value.set("Add audit columns".to_string())>
+                                    <Icon name=icons::CLOCK class="icon-text"/>"Add audit columns"
+                                </button>
+                                <button class="chip" on:click=move |_| set_input_value.set("Convert this schema to PostgreSQL DDL".to_string())>
+                                    <Icon name=icons::CODE class="icon-text"/>"Postgres DDL"
+                                </button>
+                            </div>
+                        }.into_any()
+                    }
+                }}
+
+                <div class="ai-composer-wrap">
+                    <div class="ai-composer-shell">
+                        <textarea
+                            class="ai-composer-input"
+                            placeholder="Ask anything, or describe a schema change..."
+                            rows="2"
+                            prop:value=move || input_value.get()
+                            on:input=move |e| set_input_value.set(event_target_value(&e))
+                            on:keydown=move |e| {
+                                if e.key() == "Enter" && !e.shift_key() {
+                                    e.prevent_default();
+                                    send_message(());
                                 }
                             }
-                            on:click=move |_| send_message(())
-                            disabled=move || is_loading.get() || input_value.get().trim().is_empty()
-                            title="Send message"
-                        >
-                            <span class="flex items-center justify-center">
-                                <Icon name=icons::SEND class="icon-standalone"/>
+                        />
+                        <div class="ai-composer-toolbar">
+                            <div class="ai-mode-switch" aria-label="Assistant mode">
+                                <button
+                                    class=move || if config.get().mode == AiMode::Ask { "ai-mode-option is-active" } else { "ai-mode-option" }
+                                    type="button"
+                                    on:click=move |_| set_mode(AiMode::Ask)
+                                >
+                                    <Icon name=icons::SEARCH class="icon-text"/>"Ask"
+                                </button>
+                                <button
+                                    class=move || if config.get().mode == AiMode::Write { "ai-mode-option is-active" } else { "ai-mode-option" }
+                                    type="button"
+                                    on:click=move |_| set_mode(AiMode::Write)
+                                >
+                                    <Icon name=icons::EDIT class="icon-text"/>"Write"
+                                </button>
+                            </div>
+                            <span class="ai-context-chip"><Icon name=icons::DATABASE class="icon-text"/>"schema"</span>
+                            <span class=move || if config.get().mode == AiMode::Write { "ai-permission-chip can-write" } else { "ai-permission-chip" }>
+                                {move || if config.get().mode == AiMode::Write { "tools enabled" } else { "read only" }}
                             </span>
-                        </button>
+                            <div class="flex-1"></div>
+                            <button
+                                class=move || if is_loading.get() || input_value.get().trim().is_empty() { "ai-send-button is-disabled" } else { "ai-send-button" }
+                                type="button"
+                                on:click=move |_| send_message(())
+                                disabled=move || is_loading.get() || input_value.get().trim().is_empty()
+                                title="Send message"
+                            >
+                                <Icon name=icons::SEND class="icon-btn"/>
+                            </button>
+                        </div>
                     </div>
-                    <p class="mt-2 text-xs text-theme-muted text-center">
-                        {move || {
-                            let mode = config.get().mode;
-                            if mode == AiMode::Write {
-                                "⚠️ Write mode enabled - AI can modify your schema"
-                            } else {
-                                "Press Enter to send • Shift+Enter for new line"
-                            }
-                        }}
-                    </p>
+                    <div class="ai-composer-meta">
+                        <span>{move || config.get().model}</span>
+                        <span>"Enter send - Shift+Enter newline"</span>
+                    </div>
                 </div>
             </div>
-        </div>
+        </aside>
     }
 }
 

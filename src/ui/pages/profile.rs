@@ -9,6 +9,7 @@ use leptos_router::components::A;
 use leptos_router::hooks::use_navigate;
 
 use crate::ui::auth::{AuthState, User, logout, use_auth_context};
+use crate::ui::common::{AvatarInitials, BrandMark};
 use crate::ui::icon::{Icon, icons};
 use crate::ui::theme::{ThemeMode, use_theme_context};
 
@@ -117,7 +118,7 @@ pub fn ProfilePage() -> impl IntoView {
     };
 
     view! {
-        <div class="min-h-screen bg-theme-primary">
+        <div class="min-h-screen bg-theme-primary bg-grid-pattern">
             // Header
             <ProfileHeader theme=theme />
 
@@ -203,7 +204,7 @@ pub fn ProfilePage() -> impl IntoView {
                                     <ProfileCard user=user_for_profile />
 
                                     // Account Settings Section
-                                    <section class="bg-theme-secondary/30 rounded-xl p-6 border border-theme">
+                                    <section class="surface-elev p-6 shadow-theme-sm">
                                         <h2 class="text-lg font-semibold text-theme-primary mb-6">"Account Settings"</h2>
 
                                         <div class="space-y-6">
@@ -356,7 +357,7 @@ pub fn ProfilePage() -> impl IntoView {
                                     </section>
 
                                     // Preferences Section
-                                    <section class="bg-theme-secondary/30 rounded-xl p-6 border border-theme">
+                                    <section class="surface-elev p-6 shadow-theme-sm">
                                         <h2 class="text-lg font-semibold text-theme-primary mb-6">"Preferences"</h2>
 
                                         <div class="space-y-6">
@@ -393,8 +394,8 @@ pub fn ProfilePage() -> impl IntoView {
                                     </section>
 
                                     // Danger Zone
-                                    <section class="bg-red-50 dark:bg-red-900/10 rounded-xl p-6 border border-red-200 dark:border-red-800">
-                                        <h2 class="text-lg font-semibold text-red-600 dark:text-red-400 mb-4">"Danger Zone"</h2>
+                                    <section class="rounded-xl border border-theme-error bg-theme-error p-6">
+                                        <h2 class="mb-4 text-lg font-semibold text-theme-error">"Danger Zone"</h2>
 
                                         <div class="space-y-4">
                                             <div class="flex items-center justify-between">
@@ -403,8 +404,7 @@ pub fn ProfilePage() -> impl IntoView {
                                                     <p class="text-xs text-theme-tertiary">"Sign out of your account on this device"</p>
                                                 </div>
                                                 <button
-                                                    class="px-4 py-2 text-sm font-medium text-red-600 border border-red-300
-                                                           hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                                                    class="btn-danger"
                                                     on:click=handle_logout
                                                 >
                                                     "Sign Out"
@@ -418,8 +418,7 @@ pub fn ProfilePage() -> impl IntoView {
                                                         <p class="text-xs text-theme-tertiary">"Permanently delete your account and all data"</p>
                                                     </div>
                                                     <button
-                                                        class="px-4 py-2 text-sm font-medium text-white bg-red-600
-                                                               hover:bg-red-700 rounded-lg transition-colors"
+                                                        class="btn-danger"
                                                         disabled=true
                                                         title="Account deletion is not yet available"
                                                     >
@@ -530,34 +529,26 @@ pub fn ProfilePage() -> impl IntoView {
 #[component]
 fn ProfileHeader(theme: crate::ui::theme::ThemeContext) -> impl IntoView {
     view! {
-        <header class="border-b border-theme bg-theme-primary">
+        <header class="border-b border-theme bg-theme-primary/80 backdrop-blur-md">
             <div class="max-w-4xl mx-auto px-4">
                 <div class="flex items-center justify-between h-16">
                     // Logo
                     <A href="/" attr:class="flex items-center gap-3 hover:opacity-80 transition-opacity">
-                        <div class="w-8 h-8 bg-accent-primary rounded-lg flex items-center justify-center">
-                            <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                      d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                      d="M9 12h6M12 9v6" />
-                            </svg>
-                        </div>
-                        <span class="text-xl font-bold text-theme-primary">"Archischema"</span>
+                        <BrandMark with_label=true />
                     </A>
 
                     <div class="flex items-center gap-4">
                         // Back to Dashboard
                         <A
                             href="/dashboard"
-                            attr:class="text-sm font-medium text-theme-secondary hover:text-theme-primary transition-colors"
+                            attr:class="btn-secondary"
                         >
                             "← Dashboard"
                         </A>
 
                         // Theme toggle
                         <button
-                            class="p-2 rounded-lg hover:bg-theme-secondary transition-colors text-theme-secondary"
+                            class="btn-icon"
                             on:click=move |_| theme.toggle()
                             title="Toggle theme"
                         >
@@ -583,33 +574,8 @@ fn ProfileHeader(theme: crate::ui::theme::ThemeContext) -> impl IntoView {
 /// Profile card showing user avatar and basic info
 #[component]
 fn ProfileCard(user: User) -> impl IntoView {
-    // Generate avatar color from username
-    let hash = user
-        .username
-        .bytes()
-        .fold(0u32, |acc, b| acc.wrapping_add(b as u32));
-    let colors = [
-        "bg-blue-500",
-        "bg-green-500",
-        "bg-yellow-500",
-        "bg-red-500",
-        "bg-purple-500",
-        "bg-pink-500",
-        "bg-indigo-500",
-        "bg-teal-500",
-    ];
-    let color = colors[(hash as usize) % colors.len()];
-
-    let initials = user
-        .username
-        .chars()
-        .next()
-        .unwrap_or('?')
-        .to_uppercase()
-        .to_string();
-
     view! {
-        <section class="bg-theme-secondary/30 rounded-xl p-6 border border-theme">
+        <section class="surface-elev p-6 shadow-theme-sm">
             <div class="flex items-center gap-6">
                 // Large avatar
                 {if let Some(avatar_url) = &user.avatar_url {
@@ -622,9 +588,7 @@ fn ProfileCard(user: User) -> impl IntoView {
                     }.into_any()
                 } else {
                     view! {
-                        <div class=format!("w-24 h-24 rounded-full flex items-center justify-center text-white font-bold text-3xl ring-4 ring-theme {}", color)>
-                            {initials}
-                        </div>
+                        <AvatarInitials name=user.username.clone() class="h-24 w-24 text-3xl".to_string() ring=true />
                     }.into_any()
                 }}
 
@@ -638,8 +602,7 @@ fn ProfileCard(user: User) -> impl IntoView {
 
                 // Edit avatar button (placeholder)
                 <button
-                    class="p-2 text-theme-tertiary hover:text-theme-primary hover:bg-theme-secondary
-                           rounded-lg transition-colors"
+                    class="btn-icon"
                     title="Change avatar (coming soon)"
                     disabled=true
                 >
