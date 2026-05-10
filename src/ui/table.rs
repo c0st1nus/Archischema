@@ -23,6 +23,9 @@ pub fn TableNodeView(
     /// Whether this table is selected (highlights all its relationships)
     #[prop(default = false)]
     is_selected: bool,
+    /// Index of the column currently open in the floating editor.
+    #[prop(default = None)]
+    active_column_index: Option<usize>,
 ) -> impl IntoView {
     let (x, y) = node.position;
     let node_ref = NodeRef::<Div>::new();
@@ -75,8 +78,9 @@ pub fn TableNodeView(
                     node
                         .columns
                         .into_iter()
-                        .map(|column| {
-                            view! { <ColumnRow column=column/> }
+                        .enumerate()
+                        .map(|(column_index, column)| {
+                            view! { <ColumnRow column=column is_active=active_column_index == Some(column_index)/> }
                         })
                         .collect_view()
                         .into_any()
@@ -89,12 +93,15 @@ pub fn TableNodeView(
 /// Optimized ColumnRow component using CSS-based conditional styling
 /// instead of multiple into_any() calls for conditional rendering
 #[component]
-fn ColumnRow(column: Column) -> impl IntoView {
+fn ColumnRow(column: Column, #[prop(default = false)] is_active: bool) -> impl IntoView {
     let data_type_display = column.data_type.clone();
     let column_name = column.name.clone();
 
     view! {
-        <div class="schema-table-row" style:height=format!("{}px", TABLE_ROW_HEIGHT)>
+        <div
+            class=if is_active { "schema-table-row is-active" } else { "schema-table-row" }
+            style:height=format!("{}px", TABLE_ROW_HEIGHT)
+        >
             <div class="column-inline-main">
                 <span class="column-inline-name schema-table-column-name" title=column_name.clone()>{column_name.clone()}</span>
                 <span class="column-inline-badges">

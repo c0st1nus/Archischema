@@ -1,9 +1,10 @@
-use crate::core::{Column, MySqlDataType, RelationshipOps, RelationshipType, SchemaGraph};
+use crate::core::{Column, RelationshipOps, RelationshipType, SchemaGraph};
 use crate::ui::liveshare_client::{
     ColumnData, ConnectionState, GraphOperation, RelationshipData, use_liveshare_context,
 };
 use crate::ui::{ErrorMessage, Icon, icons};
 use leptos::prelude::*;
+use leptos::web_sys;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
@@ -27,12 +28,113 @@ fn dispatch_save_event(_reason: &str) {
     // No-op on server
 }
 
-const TYPE_GROUPS: &[(&str, &[&str])] = &[
-    ("Identity", &["INT", "BIGINT", "UUID"]),
-    ("Text", &["VARCHAR(255)", "TEXT", "JSON"]),
-    ("Time", &["DATE", "DATETIME", "TIMESTAMP", "TIMESTAMPTZ"]),
-    ("Flags", &["BOOLEAN", "ENUM"]),
+const TYPE_OPTIONS: &[(&str, &str, &str)] = &[
+    ("uuid", "Identity", "128-bit RFC 4122"),
+    ("bigserial", "Identity", "auto-incrementing 8B"),
+    ("int", "Numeric", "4 bytes"),
+    ("bigint", "Numeric", "8 bytes"),
+    ("numeric(10,2)", "Numeric", "exact decimal"),
+    ("real", "Numeric", "4-byte float"),
+    ("boolean", "Flags", "true / false"),
+    ("varchar(255)", "Text", "variable with limit"),
+    ("text", "Text", "unbounded text"),
+    ("jsonb", "Text", "binary JSON"),
+    ("date", "Time", "calendar date"),
+    ("timestamp", "Time", "without time zone"),
+    ("timestamptz", "Time", "with time zone"),
+    ("inet", "Network", "IPv4 / IPv6"),
+    ("bytea", "Binary", "binary data"),
 ];
+
+const DEFAULT_VALUE_OPTIONS: &[(&str, &str)] = &[
+    ("NULL", "explicit null"),
+    ("now()", "current timestamp"),
+    ("current_timestamp", "SQL timestamp"),
+    ("gen_random_uuid()", "pgcrypto UUID"),
+    ("true", "boolean true"),
+    ("false", "boolean false"),
+    ("''", "empty string"),
+    ("'{}'::jsonb", "empty jsonb object"),
+];
+
+const REFERENTIAL_ACTIONS: &[(&str, &str)] = &[
+    ("NO ACTION", "No action"),
+    ("RESTRICT", "Restrict"),
+    ("CASCADE", "Cascade"),
+    ("SET NULL", "Set null"),
+    ("SET DEFAULT", "Set default"),
+];
+
+fn option_matches(query: &str, value: &str, group: &str, hint: &str) -> bool {
+    let query = query.trim().to_ascii_lowercase();
+    query.is_empty()
+        || value.to_ascii_lowercase().contains(&query)
+        || group.to_ascii_lowercase().contains(&query)
+        || hint.to_ascii_lowercase().contains(&query)
+}
+
+fn has_forbidden_sql_fragment(value: &str) -> bool {
+    value.contains(';') || value.contains("--") || value.contains("/*") || value.contains("*/")
+}
+
+fn has_balanced_parentheses(value: &str) -> bool {
+    let mut depth = 0_i32;
+    for ch in value.chars() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth < 0 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
+fn validate_default_expression(expression: &str) -> Result<(), String> {
+    let value = expression.trim();
+    if value.is_empty() {
+        return Ok(());
+    }
+    if has_forbidden_sql_fragment(value) {
+        return Err(
+            "Default expression cannot contain SQL statement separators or comments".to_string(),
+        );
+    }
+    if !has_balanced_parentheses(value) {
+        return Err("Default expression has unbalanced parentheses".to_string());
+    }
+    if !value.matches('\'').count().is_multiple_of(2) {
+        return Err("Default expression has an unterminated string literal".to_string());
+    }
+    let lower = value.to_ascii_lowercase();
+    if [
+        "drop ",
+        "alter ",
+        "insert ",
+        "update ",
+        "delete ",
+        "truncate ",
+        "create ",
+    ]
+    .iter()
+    .any(|keyword| lower.contains(keyword))
+    {
+        return Err("Default expression cannot contain DDL or DML statements".to_string());
+    }
+    Ok(())
+}
+
+fn normalize_action(action: &str) -> String {
+    REFERENTIAL_ACTIONS
+        .iter()
+        .find(|(value, _)| value.eq_ignore_ascii_case(action.trim()))
+        .map(|(value, _)| (*value).to_string())
+        .unwrap_or_else(|| "NO ACTION".to_string())
+}
 
 #[component]
 pub fn ColumnEditor(
@@ -59,13 +161,28 @@ pub fn ColumnEditor(
     /// Текущая таблица (для создания FK)
     #[prop(optional)]
     current_table: Option<NodeIndex>,
+    /// Draft-mode save callback. When provided, the editor returns a Column and
+    /// does not mutate SchemaGraph or send LiveShare operations.
+    #[prop(optional, into)]
+    on_column_save: Option<Callback<Column>>,
+    /// Optional duplicate-name check scoped by the parent.
+    #[prop(optional, into)]
+    column_name_exists: Option<Callback<String, bool>>,
+    /// Navigate to the previous existing column in the current table.
+    #[prop(optional, into)]
+    on_previous: Option<Callback<()>>,
+    /// Navigate to the next existing column in the current table.
+    #[prop(optional, into)]
+    on_next: Option<Callback<()>>,
+    #[prop(default = false)] can_previous: bool,
+    #[prop(default = false)] can_next: bool,
 ) -> impl IntoView {
     // Состояние формы
     let (name, set_name) = signal(column.as_ref().map(|c| c.name.clone()).unwrap_or_default());
     let initial_data_type = column
         .as_ref()
         .map(|c| c.data_type.clone())
-        .unwrap_or_else(|| "INT".to_string());
+        .unwrap_or_else(|| "uuid".to_string());
     let (data_type, set_data_type) = signal(initial_data_type.clone());
     let (is_primary_key, set_is_primary_key) =
         signal(column.as_ref().map(|c| c.is_primary_key).unwrap_or(false));
@@ -81,7 +198,14 @@ pub fn ColumnEditor(
     let (error, set_error) = signal::<Option<String>>(None);
 
     // Определяем начальное состояние FK из существующих связей
-    let (initial_fk, initial_fk_table, initial_fk_column, initial_fk_type) = {
+    let (
+        initial_fk,
+        initial_fk_table,
+        initial_fk_column,
+        initial_fk_type,
+        initial_fk_on_delete,
+        initial_fk_on_update,
+    ) = {
         if let (Some(g), Some(current_node), Some(col)) = (graph, current_table, column.as_ref()) {
             let graph_val = g.with_untracked(|v| v.clone());
             // Ищем связь, исходящую из текущей таблицы с этой колонкой
@@ -89,6 +213,8 @@ pub fn ColumnEditor(
             let mut found_table: Option<NodeIndex> = None;
             let mut found_column: Option<String> = None;
             let mut found_type = RelationshipType::ManyToOne;
+            let mut found_on_delete = "NO ACTION".to_string();
+            let mut found_on_update = "NO ACTION".to_string();
 
             for edge_ref in graph_val.edges(current_node) {
                 let rel = edge_ref.weight();
@@ -97,12 +223,28 @@ pub fn ColumnEditor(
                     found_table = Some(edge_ref.target());
                     found_column = Some(rel.to_column.clone());
                     found_type = rel.relationship_type.clone();
+                    found_on_delete = rel.on_delete.clone();
+                    found_on_update = rel.on_update.clone();
                     break;
                 }
             }
-            (found_fk, found_table, found_column, found_type)
+            (
+                found_fk,
+                found_table,
+                found_column,
+                found_type,
+                found_on_delete,
+                found_on_update,
+            )
         } else {
-            (false, None, None, RelationshipType::ManyToOne)
+            (
+                false,
+                None,
+                None,
+                RelationshipType::ManyToOne,
+                "NO ACTION".to_string(),
+                "NO ACTION".to_string(),
+            )
         }
     };
 
@@ -111,16 +253,22 @@ pub fn ColumnEditor(
     let (fk_target_table, set_fk_target_table) = signal::<Option<NodeIndex>>(initial_fk_table);
     let (fk_target_column, set_fk_target_column) = signal::<Option<String>>(initial_fk_column);
     let (fk_relationship_type, set_fk_relationship_type) = signal(initial_fk_type);
+    let (fk_on_delete, set_fk_on_delete) = signal(normalize_action(&initial_fk_on_delete));
+    let (fk_on_update, set_fk_on_update) = signal(normalize_action(&initial_fk_on_update));
+    let (show_type_suggestions, set_show_type_suggestions) = signal(false);
+    let (show_default_suggestions, set_show_default_suggestions) = signal(false);
 
     // Сохраняем начальное имя колонки для обновления связей при переименовании
     let original_column_name = column.as_ref().map(|c| c.name.clone());
     let is_editing_column = column.is_some();
-
-    let available_types = MySqlDataType::all_types();
+    let show_navigation = is_editing_column && (on_previous.is_some() || on_next.is_some());
+    let on_previous_nav = on_previous.clone();
+    let on_next_nav = on_next.clone();
+    let on_cancel_backdrop = on_cancel.clone();
 
     let handle_save = move |_| {
-        let name_value = name.get();
-        let data_type_value = data_type.get();
+        let name_value = name.get().trim().to_string();
+        let data_type_value = data_type.get().trim().to_string();
 
         // Валидация
         if let Err(e) = Column::validate_name(&name_value) {
@@ -129,6 +277,19 @@ pub fn ColumnEditor(
         }
 
         if let Err(e) = Column::validate_data_type(&data_type_value) {
+            set_error.set(Some(e));
+            return;
+        }
+
+        if let Some(exists_fn) = column_name_exists.as_ref()
+            && exists_fn.run(name_value.clone())
+        {
+            set_error.set(Some(format!("Column '{}' already exists", name_value)));
+            return;
+        }
+
+        let default = default_value.get().trim().to_string();
+        if let Err(e) = validate_default_expression(&default) {
             set_error.set(Some(e));
             return;
         }
@@ -145,9 +306,14 @@ pub fn ColumnEditor(
             new_column = new_column.unique();
         }
 
-        let default = default_value.get();
         if !default.is_empty() {
             new_column = new_column.with_default(default);
+        }
+
+        if let Some(save_column) = on_column_save.as_ref() {
+            save_column.run(new_column);
+            on_save.run(());
+            return;
         }
 
         // Собираем все данные FK до update()
@@ -155,6 +321,45 @@ pub fn ColumnEditor(
         let target_table = fk_target_table.get();
         let target_col = fk_target_column.get();
         let rel_type = fk_relationship_type.get();
+        let on_delete_action = normalize_action(&fk_on_delete.get());
+        let on_update_action = normalize_action(&fk_on_update.get());
+
+        if is_fk {
+            if graph.is_none() || current_table.is_none() {
+                set_error.set(Some(
+                    "Foreign keys can only be configured for an existing table".to_string(),
+                ));
+                return;
+            }
+            if target_table.is_none() {
+                set_error.set(Some("Foreign key target table is required".to_string()));
+                return;
+            }
+            if target_col
+                .as_ref()
+                .map(|value| value.trim().is_empty())
+                .unwrap_or(true)
+            {
+                set_error.set(Some("Foreign key target column is required".to_string()));
+                return;
+            }
+            if (on_delete_action == "SET NULL" || on_update_action == "SET NULL")
+                && !new_column.is_nullable
+            {
+                set_error.set(Some(
+                    "SET NULL action requires the column to be nullable".to_string(),
+                ));
+                return;
+            }
+            if (on_delete_action == "SET DEFAULT" || on_update_action == "SET DEFAULT")
+                && new_column.default_value.is_none()
+            {
+                set_error.set(Some(
+                    "SET DEFAULT action requires a default value".to_string(),
+                ));
+                return;
+            }
+        }
 
         // Обработка FK связей - все в одном update() для правильной реактивности
         if let (Some(g), Some(current_node)) = (graph, current_table) {
@@ -190,6 +395,8 @@ pub fn ColumnEditor(
             let fk_target = target_table;
             let fk_col = target_col.clone();
             let fk_rel_type = rel_type.clone();
+            let fk_on_delete = on_delete_action.clone();
+            let fk_on_update = on_update_action.clone();
             let fk_enabled = is_fk;
             let col_idx = column_index;
             let column_to_save = new_column.clone();
@@ -236,7 +443,8 @@ pub fn ColumnEditor(
                         fk_rel_type.clone(),
                         from_col.clone(),
                         to_col.clone(),
-                    );
+                    )
+                    .with_actions(fk_on_delete.clone(), fk_on_update.clone());
 
                     if let Ok(edge_idx) =
                         graph_mut.create_relationship(current_node, target_node, relationship)
@@ -252,6 +460,8 @@ pub fn ColumnEditor(
                                     relationship_type: fk_rel_type.to_string(),
                                     from_column: from_col,
                                     to_column: to_col,
+                                    on_delete: fk_on_delete,
+                                    on_update: fk_on_update,
                                 },
                             });
                         }
@@ -312,27 +522,51 @@ pub fn ColumnEditor(
     };
 
     let form_content = view! {
-        <div class=if inline { "column-editor-panel" } else { "column-editor-panel column-editor-floating" }>
+        <div
+            class=if inline { "column-editor-panel" } else { "column-editor-panel column-editor-floating" }
+            on:mousedown=move |ev: web_sys::MouseEvent| ev.stop_propagation()
+        >
             <div class="column-editor-head">
-                <div class="min-w-0">
-                    <div class="column-editor-breadcrumb">
-                        <span>"Schema"</span>
-                        <span>"/"</span>
-                        <span>{if is_editing_column { "Edit column" } else { "New column" }}</span>
-                    </div>
-                    <div class="mt-2 flex min-w-0 items-center gap-2">
-                        <h3 class="column-editor-title">
-                            <span class="truncate">{move || name.get()}</span>
-                            <span class="text-theme-muted">" : "</span>
-                            <span class="text-theme-accent">{move || data_type.get()}</span>
-                        </h3>
-                    </div>
-                    <p class="subtitle mt-1">"Name, type, constraints, default value, and FK relationship are persisted by the current model."</p>
-                </div>
-                <div class="column-editor-nav">
-                    <button type="button" class="btn-secondary btn-sm" disabled=true title="Column navigation is planned for a later pass">"Prev"</button>
-                    <button type="button" class="btn-secondary btn-sm" disabled=true title="Column navigation is planned for a later pass">"Next"</button>
-                </div>
+                <h3 class="column-editor-title">
+                    {if is_editing_column { "Edit column" } else { "New column" }}
+                </h3>
+                {if show_navigation {
+                    view! {
+                        <div class="column-editor-nav" aria-label="Column navigation">
+                            <button
+                                type="button"
+                                class="btn-icon"
+                                disabled=!can_previous
+                                title="Previous column"
+                                aria-label="Previous column"
+                                on:click=move |_| {
+                                    if can_previous && let Some(callback) = on_previous_nav.as_ref() {
+                                        callback.run(());
+                                    }
+                                }
+                            >
+                                <Icon name=icons::CHEVRON_LEFT class="h-4 w-4"/>
+                            </button>
+                            <button
+                                type="button"
+                                class="btn-icon"
+                                disabled=!can_next
+                                title="Next column"
+                                aria-label="Next column"
+                                on:click=move |_| {
+                                    if can_next && let Some(callback) = on_next_nav.as_ref() {
+                                        callback.run(());
+                                    }
+                                }
+                            >
+                                <Icon name=icons::CHEVRON_RIGHT class="h-4 w-4"/>
+                            </button>
+                        </div>
+                    }.into_any()
+                } else {
+                    view! { <span></span> }.into_any()
+                }}
+
             </div>
 
             <div class="column-editor-body scroll">
@@ -363,75 +597,74 @@ pub fn ColumnEditor(
 
                         <label class="block">
                             <span class="field-label">"Data type" <span class="text-theme-error">"*"</span></span>
-                            <input
-                                type="text"
-                                autocomplete="off"
-                                spellcheck="false"
-                                class="input-base mt-1 font-mono"
-                                placeholder="VARCHAR(255)"
-                                prop:value=move || data_type.get()
-                                on:input=move |ev| {
-                                    set_data_type.set(event_target_value(&ev));
-                                    set_error.set(None);
-                                }
-                            />
-                            <span class="field-help">"Custom SQL types are allowed."</span>
+                            <div class="suggestion-field mt-1">
+                                <input
+                                    type="text"
+                                    autocomplete="off"
+                                    spellcheck="false"
+                                    class="input-base font-mono"
+                                    placeholder="varchar(255)"
+                                    prop:value=move || data_type.get()
+                                    on:focus=move |_| set_show_type_suggestions.set(true)
+                                    on:blur=move |_| set_show_type_suggestions.set(false)
+                                    on:input=move |ev| {
+                                        set_data_type.set(event_target_value(&ev));
+                                        set_show_type_suggestions.set(true);
+                                        set_error.set(None);
+                                    }
+                                />
+                                {move || {
+                                    if show_type_suggestions.get() {
+                                        let query = data_type.get();
+                                        let matches = TYPE_OPTIONS
+                                            .iter()
+                                            .filter(|option| option_matches(&query, option.0, option.1, option.2))
+                                            .take(14)
+                                            .collect::<Vec<_>>();
+
+                                        view! {
+                                            <div class="suggestion-popover">
+                                                {if matches.is_empty() {
+                                                    view! {
+                                                        <div class="suggestion-empty">
+                                                            "No preset match. Enter a supported SQL type."
+                                                        </div>
+                                                    }.into_any()
+                                                } else {
+                                                    matches.into_iter().map(|option| {
+                                                        let value = option.0.to_string();
+                                                        let value_for_click = value.clone();
+                                                        let active_value = value.clone();
+                                                        view! {
+                                                            <button
+                                                                type="button"
+                                                                class=move || if data_type.get().eq_ignore_ascii_case(&active_value) { "suggestion-option is-active" } else { "suggestion-option" }
+                                                                on:mousedown=move |ev: web_sys::MouseEvent| {
+                                                                    ev.prevent_default();
+                                                                    set_data_type.set(value_for_click.clone());
+                                                                    set_show_type_suggestions.set(false);
+                                                                    set_error.set(None);
+                                                                }
+                                                            >
+                                                                <span class="suggestion-main">
+                                                                    <span class="font-mono">{value}</span>
+                                                                    <span class="suggestion-group">{option.1}</span>
+                                                                </span>
+                                                                <span class="suggestion-hint">{option.2}</span>
+                                                            </button>
+                                                        }
+                                                    }).collect_view().into_any()
+                                                }}
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! { <div></div> }.into_any()
+                                    }
+                                }}
+                            </div>
+                            <span class="field-help">"Focus to browse presets, type to filter, or enter a supported SQL type."</span>
                         </label>
                     </div>
-                </section>
-
-                <section class="surface p-3">
-                    <div class="form-section-head form-section-head-compact">
-                        <span class="eyebrow">"Type picker"</span>
-                        <code class="badge badge-outline normal-case">{move || data_type.get()}</code>
-                    </div>
-
-                    <div class="type-picker-grid">
-                        {TYPE_GROUPS.iter().map(|(group, types)| {
-                            view! {
-                                <div class="type-picker-group">
-                                    <div class="type-picker-label">{*group}</div>
-                                    <div class="type-picker-options">
-                                        {types.iter().map(|type_name| {
-                                            let value = (*type_name).to_string();
-                                            let active_value = value.clone();
-                                            let click_value = value.clone();
-                                            view! {
-                                                <button
-                                                    type="button"
-                                                    class=move || if data_type.get().eq_ignore_ascii_case(&active_value) { "type-option is-active" } else { "type-option" }
-                                                    on:click=move |_| set_data_type.set(click_value.clone())
-                                                >
-                                                    {value}
-                                                </button>
-                                            }
-                                        }).collect_view()}
-                                    </div>
-                                </div>
-                            }
-                        }).collect_view()}
-                    </div>
-
-                    <label class="mt-3 block">
-                        <span class="field-label">"More types"</span>
-                        <select
-                            class="select-base input-sm mt-1"
-                            on:change=move |ev| {
-                                let value = event_target_value(&ev);
-                                if !value.is_empty() {
-                                    set_data_type.set(value);
-                                }
-                            }
-                        >
-                            <option value="">"Choose from built-in MySQL types"</option>
-                            {available_types
-                                .iter()
-                                .map(|&dt| {
-                                    view! { <option value=dt>{dt}</option> }
-                                })
-                                .collect_view()}
-                        </select>
-                    </label>
                 </section>
 
                 <section class="surface p-3">
@@ -457,8 +690,8 @@ pub fn ColumnEditor(
                         </button>
                         <button
                             type="button"
-                            class=move || if is_nullable.get() && !is_primary_key.get() { "constraint-pill is-active" } else { "constraint-pill" }
-                            aria-pressed=move || is_nullable.get() && !is_primary_key.get()
+                            class=move || if !is_nullable.get() { "constraint-pill is-active" } else { "constraint-pill" }
+                            aria-pressed=move || !is_nullable.get()
                             disabled=move || is_primary_key.get()
                             title="Primary keys are always not nullable"
                             on:click=move |_| {
@@ -467,7 +700,7 @@ pub fn ColumnEditor(
                                 }
                             }
                         >
-                            <span>"Nullable"</span>
+                            <span>"Not null"</span>
                         </button>
                         <button
                             type="button"
@@ -477,37 +710,35 @@ pub fn ColumnEditor(
                         >
                             <span>"Unique"</span>
                         </button>
+                        <button
+                            type="button"
+                            class=move || if is_foreign_key.get() { "constraint-pill is-active" } else { "constraint-pill" }
+                            aria-pressed=move || is_foreign_key.get()
+                            disabled=move || graph.is_none() || current_table.is_none()
+                            title=if graph.is_some() && current_table.is_some() {
+                                "Configure foreign key"
+                            } else {
+                                "Foreign keys are available after the table exists"
+                            }
+                            on:click=move |_| {
+                                if graph.is_some() && current_table.is_some() {
+                                    set_is_foreign_key.update(|value| *value = !*value);
+                                }
+                            }
+                        >
+                            <Icon name=icons::GIT_BRANCH class="h-3.5 w-3.5"/>
+                            <span>"Foreign key"</span>
+                        </button>
                         <button type="button" class="constraint-pill" disabled=true title="CHECK constraints are not part of the current model">"Check"</button>
                         <button type="button" class="constraint-pill" disabled=true title="Generated columns are not part of the current model">"Generated"</button>
                         <button type="button" class="constraint-pill" disabled=true title="Column comments are preview-only in this pass">"Comment"</button>
                     </div>
-                    <p class="field-help">"Disabled pills are design placeholders and are not persisted."</p>
-                </section>
-
-                <section class="surface p-3">
-                    <div class="form-section-head form-section-head-compact">
-                        <span class="eyebrow">"Default value"</span>
-                        <span class="text-xs text-theme-muted">"Raw SQL"</span>
-                    </div>
-                    <label class="block">
-                        <span class="field-label">"Expression"</span>
-                        <input
-                            type="text"
-                            autocomplete="off"
-                            spellcheck="false"
-                            class="input-base mt-1 font-mono"
-                            placeholder="now()"
-                            prop:value=move || default_value.get()
-                            on:input=move |ev| {
-                                set_default_value.set(event_target_value(&ev));
-                            }
-                        />
-                        <span class="field-help">"Stored as raw SQL text, matching the existing model."</span>
-                    </label>
+                    <p class="field-help">"Foreign key opens settings below. Disabled pills are not part of the current model."</p>
                 </section>
 
                 {move || {
-                    if graph.is_some() && current_table.is_some() {
+                    if graph.is_some() && current_table.is_some() && is_foreign_key.get() {
+                        let g = graph.unwrap();
                         view! {
                             <section class="surface p-3">
                                 <div class="form-section-head form-section-head-compact">
@@ -515,168 +746,174 @@ pub fn ColumnEditor(
                                         <div class="eyebrow mb-1">"Foreign key"</div>
                                         <p class="text-xs text-theme-muted">"Creates or updates the current graph relationship."</p>
                                     </div>
-                                    <button
-                                        type="button"
-                                        class=move || if is_foreign_key.get() { "constraint-pill is-active" } else { "constraint-pill" }
-                                        aria-pressed=move || is_foreign_key.get()
-                                        on:click=move |_| set_is_foreign_key.update(|value| *value = !*value)
-                                    >
-                                        {move || if is_foreign_key.get() { "Enabled" } else { "Disabled" }}
-                                    </button>
                                 </div>
 
-                                {move || {
-                                    if is_foreign_key.get() {
-                                        let g = graph.unwrap();
-                                        view! {
-                                            <div class="fk-editor-card">
-                                                <div class="grid gap-3 md:grid-cols-2">
-                                                    <label class="block">
-                                                        <span class="field-label">"References table"</span>
+                                <div class="fk-editor-card">
+                                    <div class="grid gap-3 md:grid-cols-2">
+                                        <label class="block">
+                                            <span class="field-label">"References table"</span>
+                                            <select
+                                                class="select-base input-sm mt-1"
+                                                prop:value=move || {
+                                                    fk_target_table.get()
+                                                        .map(|idx| idx.index().to_string())
+                                                        .unwrap_or_default()
+                                                }
+                                                on:change=move |ev| {
+                                                    let value = event_target_value(&ev);
+                                                    if !value.is_empty() {
+                                                        if let Ok(idx) = value.parse::<usize>() {
+                                                            set_fk_target_table.set(Some(NodeIndex::new(idx)));
+                                                            set_fk_target_column.set(None);
+                                                        }
+                                                    } else {
+                                                        set_fk_target_table.set(None);
+                                                        set_fk_target_column.set(None);
+                                                    }
+                                                }
+                                            >
+                                                <option value="">"Select table"</option>
+                                                {move || {
+                                                    let graph_val = g.get();
+                                                    graph_val
+                                                        .node_indices()
+                                                        .filter(|&idx| Some(idx) != current_table)
+                                                        .map(|idx| {
+                                                            let table = graph_val.node_weight(idx).unwrap();
+                                                            view! {
+                                                                <option value=idx.index().to_string()>
+                                                                    {table.name.clone()}
+                                                                </option>
+                                                            }
+                                                        })
+                                                        .collect_view()
+                                                }}
+                                            </select>
+                                        </label>
+
+                                        <label class="block">
+                                            <span class="field-label">"Relationship type"</span>
+                                            <select
+                                                class="select-base input-sm mt-1"
+                                                prop:value=move || {
+                                                    match fk_relationship_type.get() {
+                                                        RelationshipType::OneToOne => "1:1",
+                                                        RelationshipType::ManyToOne => "N:1",
+                                                        RelationshipType::OneToMany => "1:N",
+                                                        RelationshipType::ManyToMany => "N:M",
+                                                    }
+                                                }
+                                                on:change=move |ev| {
+                                                    let value = event_target_value(&ev);
+                                                    let rel_type = match value.as_str() {
+                                                        "1:1" => RelationshipType::OneToOne,
+                                                        "1:N" => RelationshipType::OneToMany,
+                                                        "N:M" => RelationshipType::ManyToMany,
+                                                        _ => RelationshipType::ManyToOne,
+                                                    };
+                                                    set_fk_relationship_type.set(rel_type);
+                                                }
+                                            >
+                                                <option value="N:1">"Many to one (N:1)"</option>
+                                                <option value="1:N">"One to many (1:N)"</option>
+                                                <option value="1:1">"One to one (1:1)"</option>
+                                                <option value="N:M">"Many to many (N:M)"</option>
+                                            </select>
+                                        </label>
+                                    </div>
+
+                                    {move || {
+                                        if let Some(target_idx) = fk_target_table.get() {
+                                            let graph_val = g.get();
+                                            if let Some(target_table) = graph_val.node_weight(target_idx) {
+                                                let temp_col = Column::new(name.get(), data_type.get());
+                                                let compatible_columns: Vec<Column> = target_table
+                                                    .columns
+                                                    .iter()
+                                                    .filter(|c| temp_col.is_type_compatible_with(c))
+                                                    .cloned()
+                                                    .collect();
+                                                let is_empty = compatible_columns.is_empty();
+
+                                                view! {
+                                                    <label class="mt-3 block">
+                                                        <span class="field-label">"References column"</span>
                                                         <select
                                                             class="select-base input-sm mt-1"
-                                                            prop:value=move || {
-                                                                fk_target_table.get()
-                                                                    .map(|idx| idx.index().to_string())
-                                                                    .unwrap_or_default()
-                                                            }
+                                                            prop:value=move || fk_target_column.get().unwrap_or_default()
                                                             on:change=move |ev| {
                                                                 let value = event_target_value(&ev);
                                                                 if !value.is_empty() {
-                                                                    if let Ok(idx) = value.parse::<usize>() {
-                                                                        set_fk_target_table.set(Some(NodeIndex::new(idx)));
-                                                                        set_fk_target_column.set(None);
-                                                                    }
+                                                                    set_fk_target_column.set(Some(value));
                                                                 } else {
-                                                                    set_fk_target_table.set(None);
                                                                     set_fk_target_column.set(None);
                                                                 }
                                                             }
                                                         >
-                                                            <option value="">"Select table"</option>
-                                                            {move || {
-                                                                let graph_val = g.get();
-                                                                graph_val
-                                                                    .node_indices()
-                                                                    .filter(|&idx| Some(idx) != current_table)
-                                                                    .map(|idx| {
-                                                                        let table = graph_val.node_weight(idx).unwrap();
-                                                                        view! {
-                                                                            <option value=idx.index().to_string()>
-                                                                                {table.name.clone()}
-                                                                            </option>
-                                                                        }
-                                                                    })
-                                                                    .collect_view()
-                                                            }}
+                                                            <option value="">"Select column"</option>
+                                                            {compatible_columns
+                                                                .into_iter()
+                                                                .map(|col| {
+                                                                    let col_name = col.name.clone();
+                                                                    let col_name2 = col.name.clone();
+                                                                    let col_type = col.data_type.clone();
+                                                                    view! {
+                                                                        <option value=col_name>
+                                                                            {col_name2} " (" {col_type} ")"
+                                                                        </option>
+                                                                    }
+                                                                })
+                                                                .collect_view()}
                                                         </select>
-                                                    </label>
-
-                                                    <label class="block">
-                                                        <span class="field-label">"Relationship type"</span>
-                                                        <select
-                                                            class="select-base input-sm mt-1"
-                                                            prop:value=move || {
-                                                                match fk_relationship_type.get() {
-                                                                    RelationshipType::OneToOne => "1:1",
-                                                                    RelationshipType::ManyToOne => "N:1",
-                                                                    RelationshipType::OneToMany => "1:N",
-                                                                    RelationshipType::ManyToMany => "N:1",
-                                                                }
+                                                        {move || {
+                                                            if is_empty {
+                                                                view! {
+                                                                    <p class="mt-1 text-xs text-theme-warning">
+                                                                        "No compatible columns found in target table."
+                                                                    </p>
+                                                                }.into_any()
+                                                            } else {
+                                                                view! { <span></span> }.into_any()
                                                             }
-                                                            on:change=move |ev| {
-                                                                let value = event_target_value(&ev);
-                                                                let rel_type = match value.as_str() {
-                                                                    "1:1" => RelationshipType::OneToOne,
-                                                                    "1:N" => RelationshipType::OneToMany,
-                                                                    _ => RelationshipType::ManyToOne,
-                                                                };
-                                                                set_fk_relationship_type.set(rel_type);
-                                                            }
-                                                        >
-                                                            <option value="N:1">"Many to one (N:1)"</option>
-                                                            <option value="1:N">"One to many (1:N)"</option>
-                                                            <option value="1:1">"One to one (1:1)"</option>
-                                                        </select>
+                                                        }}
                                                     </label>
-                                                </div>
-
-                                                {move || {
-                                                    if let Some(target_idx) = fk_target_table.get() {
-                                                        let graph_val = g.get();
-                                                        if let Some(target_table) = graph_val.node_weight(target_idx) {
-                                                            let temp_col = Column::new(name.get(), data_type.get());
-                                                            let compatible_columns: Vec<Column> = target_table
-                                                                .columns
-                                                                .iter()
-                                                                .filter(|c| temp_col.is_type_compatible_with(c))
-                                                                .cloned()
-                                                                .collect();
-                                                            let is_empty = compatible_columns.is_empty();
-
-                                                            view! {
-                                                                <label class="mt-3 block">
-                                                                    <span class="field-label">"References column"</span>
-                                                                    <select
-                                                                        class="select-base input-sm mt-1"
-                                                                        prop:value=move || fk_target_column.get().unwrap_or_default()
-                                                                        on:change=move |ev| {
-                                                                            let value = event_target_value(&ev);
-                                                                            if !value.is_empty() {
-                                                                                set_fk_target_column.set(Some(value));
-                                                                            } else {
-                                                                                set_fk_target_column.set(None);
-                                                                            }
-                                                                        }
-                                                                    >
-                                                                        <option value="">"Select column"</option>
-                                                                        {compatible_columns
-                                                                            .into_iter()
-                                                                            .map(|col| {
-                                                                                let col_name = col.name.clone();
-                                                                                let col_name2 = col.name.clone();
-                                                                                let col_type = col.data_type.clone();
-                                                                                view! {
-                                                                                    <option value=col_name>
-                                                                                        {col_name2} " (" {col_type} ")"
-                                                                                    </option>
-                                                                                }
-                                                                            })
-                                                                            .collect_view()}
-                                                                    </select>
-                                                                    {move || {
-                                                                        if is_empty {
-                                                                            view! {
-                                                                                <p class="mt-1 text-xs text-theme-warning">
-                                                                                    "No compatible columns found in target table."
-                                                                                </p>
-                                                                            }.into_any()
-                                                                        } else {
-                                                                            view! { <span></span> }.into_any()
-                                                                        }
-                                                                    }}
-                                                                </label>
-                                                            }.into_any()
-                                                        } else {
-                                                            view! { <div></div> }.into_any()
-                                                        }
-                                                    } else {
-                                                        view! { <div></div> }.into_any()
-                                                    }
-                                                }}
-
-                                                <div class="mt-3 grid gap-2 sm:grid-cols-2">
-                                                    <button type="button" class="constraint-pill" disabled=true title="FK actions are not persisted yet">"On delete: no action"</button>
-                                                    <button type="button" class="constraint-pill" disabled=true title="FK actions are not persisted yet">"On update: no action"</button>
-                                                </div>
-                                                <span class="field-help">"Many-to-many still requires a junction table."</span>
-                                            </div>
+                                                }.into_any()
+                                            } else {
+                                                view! { <div></div> }.into_any()
+                                            }
+                                        } else {
+                                            view! { <div></div> }.into_any()
                                         }
-                                            .into_any()
-                                    } else {
-                                        view! { <div></div> }.into_any()
-                                    }
-                                }}
+                                    }}
+
+                                    <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                                        <label class="block">
+                                            <span class="field-label">"On delete"</span>
+                                            <select
+                                                class="select-base input-sm mt-1"
+                                                prop:value=move || fk_on_delete.get()
+                                                on:change=move |ev| set_fk_on_delete.set(normalize_action(&event_target_value(&ev)))
+                                            >
+                                                {REFERENTIAL_ACTIONS.iter().map(|(value, label)| {
+                                                    view! { <option value=*value>{*label}</option> }
+                                                }).collect_view()}
+                                            </select>
+                                        </label>
+                                        <label class="block">
+                                            <span class="field-label">"On update"</span>
+                                            <select
+                                                class="select-base input-sm mt-1"
+                                                prop:value=move || fk_on_update.get()
+                                                on:change=move |ev| set_fk_on_update.set(normalize_action(&event_target_value(&ev)))
+                                            >
+                                                {REFERENTIAL_ACTIONS.iter().map(|(value, label)| {
+                                                    view! { <option value=*value>{*label}</option> }
+                                                }).collect_view()}
+                                            </select>
+                                        </label>
+                                    </div>
+                                    <span class="field-help">"SET NULL requires a nullable column. SET DEFAULT requires a default value."</span>
+                                </div>
                             </section>
                         }
                             .into_any()
@@ -684,6 +921,82 @@ pub fn ColumnEditor(
                         view! { <div></div> }.into_any()
                     }
                 }}
+
+                <section class="surface p-3">
+                    <div class="form-section-head form-section-head-compact">
+                        <span class="eyebrow">"Default value"</span>
+                        <span class="text-xs text-theme-muted">"Raw SQL or literal"</span>
+                    </div>
+                    <label class="block">
+                        <span class="field-label">"Expression"</span>
+                        <div class="suggestion-field mt-1">
+                            <input
+                                type="text"
+                                autocomplete="off"
+                                spellcheck="false"
+                                class="input-base font-mono"
+                                placeholder="now(), 0, 'draft', NULL"
+                                prop:value=move || default_value.get()
+                                on:focus=move |_| set_show_default_suggestions.set(true)
+                                on:blur=move |_| set_show_default_suggestions.set(false)
+                                on:input=move |ev| {
+                                    set_default_value.set(event_target_value(&ev));
+                                    set_show_default_suggestions.set(true);
+                                    set_error.set(None);
+                                }
+                            />
+                            {move || {
+                                if show_default_suggestions.get() {
+                                    let query = default_value.get();
+                                    let matches = DEFAULT_VALUE_OPTIONS
+                                        .iter()
+                                        .filter(|(value, hint)| option_matches(&query, value, "default", hint))
+                                        .take(10)
+                                        .collect::<Vec<_>>();
+
+                                    view! {
+                                        <div class="suggestion-popover">
+                                            {if matches.is_empty() {
+                                                view! {
+                                                    <div class="suggestion-empty">
+                                                        "No command match. Literal or custom SQL expression will be used."
+                                                    </div>
+                                                }.into_any()
+                                            } else {
+                                                matches.into_iter().map(|option| {
+                                                    let value = option.0.to_string();
+                                                    let value_for_click = value.clone();
+                                                    let active_value = value.clone();
+                                                    view! {
+                                                        <button
+                                                            type="button"
+                                                            class=move || if default_value.get().eq_ignore_ascii_case(&active_value) { "suggestion-option is-active" } else { "suggestion-option" }
+                                                            on:mousedown=move |ev: web_sys::MouseEvent| {
+                                                                ev.prevent_default();
+                                                                set_default_value.set(value_for_click.clone());
+                                                                set_show_default_suggestions.set(false);
+                                                                set_error.set(None);
+                                                            }
+                                                        >
+                                                            <span class="suggestion-main">
+                                                                <span class="font-mono">{value}</span>
+                                                                <span class="suggestion-group">"command"</span>
+                                                            </span>
+                                                            <span class="suggestion-hint">{option.1}</span>
+                                                        </button>
+                                                    }
+                                                }).collect_view().into_any()
+                                            }}
+                                        </div>
+                                    }.into_any()
+                                } else {
+                                    view! { <div></div> }.into_any()
+                                }
+                            }}
+                        </div>
+                        <span class="field-help">"Use a suggested command or type any valid Postgres literal/expression."</span>
+                    </label>
+                </section>
             </div>
 
             <div class="column-editor-footer">
@@ -730,7 +1043,10 @@ pub fn ColumnEditor(
         form_content.into_any()
     } else {
         view! {
-            <div class="fixed inset-0 modal-backdrop-theme flex items-center justify-center z-50">
+            <div
+                class="column-editor-backdrop fixed inset-0 flex items-center justify-center"
+                on:mousedown=move |_| on_cancel_backdrop.run(())
+            >
                 {form_content}
             </div>
         }

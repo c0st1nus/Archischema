@@ -517,6 +517,14 @@ pub struct RelationshipData {
     pub relationship_type: String,
     pub from_column: String,
     pub to_column: String,
+    #[serde(default = "default_referential_action")]
+    pub on_delete: String,
+    #[serde(default = "default_referential_action")]
+    pub on_update: String,
+}
+
+fn default_referential_action() -> String {
+    "NO ACTION".to_string()
 }
 
 /// Full graph state snapshot for initial sync
@@ -1326,6 +1334,8 @@ mod tests {
             relationship_type: "one_to_many".to_string(),
             from_column: "id".to_string(),
             to_column: "user_id".to_string(),
+            on_delete: "NO ACTION".to_string(),
+            on_update: "NO ACTION".to_string(),
         };
 
         let op = GraphOperation::CreateRelationship {
@@ -1479,6 +1489,8 @@ mod tests {
                     relationship_type: "one_to_many".to_string(),
                     from_column: "id".to_string(),
                     to_column: "user_id".to_string(),
+                    on_delete: "NO ACTION".to_string(),
+                    on_update: "NO ACTION".to_string(),
                 },
             }],
         };

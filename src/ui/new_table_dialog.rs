@@ -1,5 +1,5 @@
 use crate::core::Column;
-use crate::ui::{Dialog, ErrorMessage, Icon, icons};
+use crate::ui::{ColumnEditor, Dialog, ErrorMessage, Icon, icons};
 use leptos::prelude::*;
 use leptos::web_sys;
 
@@ -107,6 +107,9 @@ pub fn NewTableDialog(
     let (folder_name, set_folder_name) = signal("Current diagram".to_string());
     let (description, set_description) = signal(String::new());
     let (preset, set_preset) = signal(StarterPreset::Identity);
+    let (columns, set_columns) = signal(preset_columns(StarterPreset::Identity));
+    let (editing_column_index, set_editing_column_index) = signal::<Option<usize>>(None);
+    let (is_column_editor_open, set_is_column_editor_open) = signal(false);
     let (error, set_error) = signal::<Option<String>>(None);
     let (is_creating, set_is_creating) = signal(false);
 
@@ -163,8 +166,8 @@ pub fn NewTableDialog(
         set_is_creating.set(true);
         set_error.set(None);
 
-        let columns = preset_columns(preset.get());
-        let first_pk = columns.iter().find(|column| column.is_primary_key);
+        let draft_columns = columns.get();
+        let first_pk = draft_columns.iter().find(|column| column.is_primary_key);
         let result = on_create.run(NewTableData {
             table_name: name.clone(),
             pk_name: first_pk
@@ -173,12 +176,20 @@ pub fn NewTableDialog(
             pk_type: first_pk
                 .map(|column| column.data_type.clone())
                 .unwrap_or_else(|| "uuid".to_string()),
-            columns,
+            columns: draft_columns,
         });
 
         match result {
             CreateTableResult::Success => {
                 set_is_creating.set(false);
+                set_table_name.set(String::new());
+                set_schema_name.set("public".to_string());
+                set_folder_name.set("Current diagram".to_string());
+                set_description.set(String::new());
+                set_preset.set(StarterPreset::Identity);
+                set_columns.set(preset_columns(StarterPreset::Identity));
+                set_is_column_editor_open.set(false);
+                set_editing_column_index.set(None);
             }
             CreateTableResult::Error(err) => {
                 set_is_creating.set(false);
@@ -190,6 +201,8 @@ pub fn NewTableDialog(
     let handle_cancel = move || {
         set_error.set(None);
         set_is_creating.set(false);
+        set_is_column_editor_open.set(false);
+        set_editing_column_index.set(None);
         on_cancel.run(());
     };
 
@@ -302,7 +315,12 @@ pub fn NewTableDialog(
                                     type="button"
                                     class="preset-card"
                                     attr:data-active=move || if preset.get() == option_for_active { "true" } else { "false" }
-                                    on:click=move |_| set_preset.set(option_for_click)
+                                    on:click=move |_| {
+                                        set_preset.set(option_for_click);
+                                        set_columns.set(preset_columns(option_for_click));
+                                        set_editing_column_index.set(None);
+                                        set_is_column_editor_open.set(false);
+                                    }
                                 >
                                     <span class="font-semibold text-theme-primary">{option.label()}</span>
                                     <span class="text-xs text-theme-muted">{option.description()}</span>
@@ -314,8 +332,16 @@ pub fn NewTableDialog(
 
                 <section class="surface overflow-hidden">
                     <div class="form-section-head">
-                        <span class="eyebrow">"Columns · " {move || preset_columns(preset.get()).len()}</span>
-                        <button type="button" class="btn-ghost btn-sm" disabled=true title="Detailed column editing happens in the table inspector">
+                        <span class="eyebrow">"Columns · " {move || columns.with(|cols| cols.len())}</span>
+                        <button
+                            type="button"
+                            class="btn-ghost btn-sm"
+                            on:click=move |_| {
+                                set_editing_column_index.set(None);
+                                set_is_column_editor_open.set(true);
+                            }
+                            disabled=move || is_creating.get()
+                        >
                             <Icon name=icons::PLUS class="h-3 w-3" />
                             "Add column"
                         </button>
@@ -331,15 +357,25 @@ pub fn NewTableDialog(
                     </div>
                     <div class="max-h-[260px] overflow-y-auto scroll">
                         {move || {
-                            let columns = preset_columns(preset.get());
-                            if columns.is_empty() {
+                            let draft_columns = columns.get();
+                            if draft_columns.is_empty() {
                                 view! {
                                     <div class="rounded-md border border-dashed border-theme p-5 text-center text-xs text-theme-muted">
-                                        "No columns. Add them later from the table inspector."
+                                        <div>"No columns yet."</div>
+                                        <button
+                                            type="button"
+                                            class="btn-link mx-auto mt-2"
+                                            on:click=move |_| {
+                                                set_editing_column_index.set(None);
+                                                set_is_column_editor_open.set(true);
+                                            }
+                                        >
+                                            "+ Add first column"
+                                        </button>
                                     </div>
                                 }.into_any()
                             } else {
-                                columns.into_iter().map(|column| {
+                                draft_columns.into_iter().enumerate().map(|(column_idx, column)| {
                                     let name = column.name.clone();
                                     let data_type = column.data_type.clone();
                                     let default = column.default_value.clone().unwrap_or_else(|| "-".to_string());
@@ -360,7 +396,37 @@ pub fn NewTableDialog(
                                             <span class="form-column-check">{if !column.is_nullable { "✓" } else { "-" }}</span>
                                             <span class="form-column-check">{if column.is_unique { "✓" } else { "-" }}</span>
                                             <span class="form-column-default" title=default.clone()>{default.clone()}</span>
-                                            <span class="text-theme-muted">"..."</span>
+                                            <span class="form-column-actions">
+                                                <button
+                                                    type="button"
+                                                    class="btn-icon btn-sm"
+                                                    title="Edit column"
+                                                    on:click=move |_| {
+                                                        set_editing_column_index.set(Some(column_idx));
+                                                        set_is_column_editor_open.set(true);
+                                                    }
+                                                >
+                                                    <Icon name=icons::EDIT class="h-3.5 w-3.5" />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    class="btn-icon btn-sm"
+                                                    title="Delete column"
+                                                    on:click=move |_| {
+                                                        set_columns.update(|draft| {
+                                                            if column_idx < draft.len() {
+                                                                draft.remove(column_idx);
+                                                            }
+                                                        });
+                                                        if editing_column_index.get() == Some(column_idx) {
+                                                            set_editing_column_index.set(None);
+                                                            set_is_column_editor_open.set(false);
+                                                        }
+                                                    }
+                                                >
+                                                    <Icon name=icons::TRASH class="h-3.5 w-3.5" />
+                                                </button>
+                                            </span>
                                         </div>
                                     }
                                 }).collect_view().into_any()
@@ -368,12 +434,72 @@ pub fn NewTableDialog(
                         }}
                     </div>
                 </section>
+
+                {move || {
+                    if is_column_editor_open.get() {
+                        let edit_idx = editing_column_index.get();
+                        let draft_column = columns.with(|draft| {
+                            edit_idx.and_then(|idx| draft.get(idx).cloned())
+                        });
+
+                        view! {
+                            <section class="create-table-column-editor">
+                                <ColumnEditor
+                                    column=draft_column
+                                    column_index=edit_idx
+                                    inline=true
+                                    on_column_save=Callback::new(move |column: Column| {
+                                        set_columns.update(|draft| {
+                                            if let Some(idx) = edit_idx {
+                                                if idx < draft.len() {
+                                                    draft[idx] = column;
+                                                } else {
+                                                    draft.push(column);
+                                                }
+                                            } else {
+                                                draft.push(column);
+                                            }
+                                        });
+                                    })
+                                    column_name_exists=Callback::new(move |candidate: String| {
+                                        columns.with(|draft| {
+                                            draft.iter().enumerate().any(|(idx, column)| {
+                                                Some(idx) != edit_idx && column.name == candidate
+                                            })
+                                        })
+                                    })
+                                    on_save=move || {
+                                        set_is_column_editor_open.set(false);
+                                        set_editing_column_index.set(None);
+                                    }
+                                    on_cancel=move || {
+                                        set_is_column_editor_open.set(false);
+                                        set_editing_column_index.set(None);
+                                    }
+                                    on_delete=move || {
+                                        if let Some(idx) = edit_idx {
+                                            set_columns.update(|draft| {
+                                                if idx < draft.len() {
+                                                    draft.remove(idx);
+                                                }
+                                            });
+                                        }
+                                        set_is_column_editor_open.set(false);
+                                        set_editing_column_index.set(None);
+                                    }
+                                />
+                            </section>
+                        }.into_any()
+                    } else {
+                        view! { <div></div> }.into_any()
+                    }
+                }}
             </div>
 
             <div class="form-dialog-footer">
                 <div class="text-xs text-theme-muted">
                     <span class="font-medium text-theme-secondary">"Will emit 1 CREATE TABLE"</span>
-                    " · preset columns only"
+                    " · " {move || columns.with(|draft| draft.len())} " columns"
                 </div>
                 <div class="flex items-center justify-end gap-2">
                     <button class="btn-secondary" on:click=move |_| handle_cancel() disabled=move || is_creating.get()>

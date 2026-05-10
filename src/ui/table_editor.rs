@@ -34,6 +34,8 @@ pub fn TableEditor(
     #[prop(into)] on_save: Callback<()>,
     #[prop(into)] on_cancel: Callback<()>,
     #[prop(into)] on_delete: Callback<()>,
+    #[prop(into)] on_add_column: Callback<NodeIndex>,
+    #[prop(into)] on_edit_column: Callback<usize>,
 ) -> impl IntoView {
     // Get LiveShare context for sync
     let liveshare_ctx = use_liveshare_context();
@@ -221,7 +223,12 @@ pub fn TableEditor(
                 <section class="surface overflow-hidden">
                     <div class="form-section-head">
                         <span class="eyebrow">"Columns · " {move || column_count()}</span>
-                        <button type="button" class="btn-ghost btn-sm" disabled=true title="Use the sidebar table row + button to add a column">
+                        <button
+                            type="button"
+                            class="btn-ghost btn-sm"
+                            title="Add column"
+                            on:click=move |_| on_add_column.run(node_idx)
+                        >
                             <Icon name=icons::PLUS class="h-3 w-3" />
                             "Add"
                         </button>
@@ -236,7 +243,7 @@ pub fn TableEditor(
                                     </div>
                                 }.into_any()
                             } else {
-                                columns.into_iter().map(|column| {
+                                columns.into_iter().enumerate().map(|(column_idx, column)| {
                                     let name = column.name.clone();
                                     let data_type = column.data_type.clone();
                                     view! {
@@ -264,8 +271,13 @@ pub fn TableEditor(
                                                     view! { <span></span> }.into_any()
                                                 }}
                                             </span>
-                                            <button type="button" class="btn-icon btn-sm" disabled=true title="Column row actions are handled from the sidebar list">
-                                                <Icon name=icons::ELLIPSIS class="h-3.5 w-3.5" />
+                                            <button
+                                                type="button"
+                                                class="btn-icon btn-sm"
+                                                title="Edit column"
+                                                on:click=move |_| on_edit_column.run(column_idx)
+                                            >
+                                                <Icon name=icons::EDIT class="h-3.5 w-3.5" />
                                             </button>
                                         </div>
                                     }

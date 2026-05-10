@@ -15,7 +15,6 @@ use petgraph::graph::NodeIndex;
 enum EditingMode {
     None,
     CreatingTable,
-    EditingColumn(NodeIndex, Option<usize>),
     EditingTable(NodeIndex),
 }
 
@@ -23,6 +22,8 @@ enum EditingMode {
 pub fn Sidebar(
     graph: RwSignal<SchemaGraph>,
     #[prop(into)] on_table_focus: Callback<NodeIndex>,
+    /// Shared target for the floating column editor and canvas/sidebar highlight.
+    column_editor_target: RwSignal<Option<(NodeIndex, Option<usize>)>>,
     /// Editor mode signal (Visual/Source)
     editor_mode: RwSignal<EditorMode>,
     /// Sidebar collapsed state (shared with parent for layout coordination)
@@ -37,6 +38,7 @@ pub fn Sidebar(
 
     // Состояние для редактора (колонка или таблица)
     let (editing_mode, set_editing_mode) = signal(EditingMode::None);
+    let set_column_editor_target = column_editor_target;
 
     // Helper to send graph operation when connected
     let send_graph_op = move |op: GraphOperation| {
@@ -109,78 +111,6 @@ pub fn Sidebar(
 
                         {move || {
                             match editing_mode.get() {
-                                EditingMode::EditingColumn(node_idx, col_idx) => {
-                                    // Режим редактирования колонки
-                                    let g = graph.get();
-                                    let node = g.node_weight(node_idx).cloned();
-                                    let column = col_idx.and_then(|idx| {
-                                        node.as_ref().and_then(|n| n.columns.get(idx).cloned())
-                                    });
-                                    let table_name = node.map(|n| n.name.clone()).unwrap_or_default();
-                                    view! {
-                                        <div class="flex-1 flex flex-col overflow-hidden">
-                                            // Хлебные крошки
-                                            <div class="px-6 py-3 divider-bottom bg-theme-secondary theme-transition">
-                                                <button
-                                                    class="nav-back"
-                                                    on:click=move |_| set_editing_mode.set(EditingMode::None)
-                                                >
-                                                    <Icon name=icons::CHEVRON_LEFT class="icon-text"/>
-                                                    "Back to tables"
-                                                </button>
-                                                <div class="mt-1 breadcrumb">
-                                                    <span class="font-medium text-theme-secondary">{table_name}</span>
-                                                    {if col_idx.is_some() {
-                                                        " → Edit Column"
-                                                    } else {
-                                                        " → New Column"
-                                                    }}
-                                                </div>
-                                            </div>
-
-                                            // Редактор колонки в сайдбаре
-                                            <div class="flex-1 overflow-y-auto px-6 py-4 bg-theme-surface theme-transition">
-                                                <ColumnEditor
-                                                    column=column
-                                                    column_index=col_idx
-                                                    inline=true
-                                                    graph=graph
-                                                    current_table=node_idx
-                                                    on_save=move || {
-                                                        // ColumnEditor теперь сам сохраняет колонку и FK в одном update()
-                                                        set_editing_mode.set(EditingMode::None);
-                                                    }
-
-                                                    on_cancel=move || {
-                                                        set_editing_mode.set(EditingMode::None);
-                                                    }
-
-                                                    on_delete=move || {
-                                                        if let Some(idx) = col_idx {
-                                                            graph
-                                                                .update(|g| {
-                                                                    if let Some(node) = g.node_weight_mut(node_idx) && idx < node.columns.len() {
-                                                                        node.columns.remove(idx);
-                                                                    }
-                                                                });
-                                                            // Send sync op
-                                                            let table_uuid = graph.with(|g| {
-                                                                g.node_weight(node_idx).map(|n| n.uuid).unwrap_or_else(uuid::Uuid::new_v4)
-                                                            });
-                                                            send_graph_op(GraphOperation::DeleteColumn {
-                                                                node_id: node_idx.index() as u32,
-                                                                table_uuid,
-                                                                column_index: idx,
-                                                            });
-                                                        }
-                                                        set_editing_mode.set(EditingMode::None);
-                                                    }
-                                                />
-                                            </div>
-                                        </div>
-                                    }
-                                        .into_any()
-                                }
                                 EditingMode::EditingTable(_node_idx) => {
                                     // Режим редактирования таблицы - показываем обычный список таблиц
                                     // Сам диалог отрисовывается модально в конце компонента
@@ -373,6 +303,7 @@ pub fn Sidebar(
                                             {move || {
                                                 let query = search_query.get().to_lowercase();
                                                 let expanded = expanded_tables.get();
+                                                let active_column = column_editor_target.get();
 
                                                 // Используем мемоизированные индексы и with вместо get
                                                 node_indices.get()
@@ -461,8 +392,7 @@ pub fn Sidebar(
                                                                             title="Add column"
                                                                             on:click=move |ev: web_sys::MouseEvent| {
                                                                                 ev.stop_propagation();
-                                                                                set_editing_mode
-                                                                                    .set(EditingMode::EditingColumn(node_idx, None));
+                                                                                set_column_editor_target.set(Some((node_idx, None)));
                                                                             }
                                                                         >
                                                                             <Icon name=icons::PLUS class="w-3.5 h-3.5"/>
@@ -481,8 +411,7 @@ pub fn Sidebar(
                                                                                         <button
                                                                                             class="btn-link mx-auto mt-2"
                                                                                             on:click=move |_| {
-                                                                                                set_editing_mode
-                                                                                                    .set(EditingMode::EditingColumn(node_idx, None));
+                                                                                                set_column_editor_target.set(Some((node_idx, None)));
                                                                                             }
                                                                                         >
 
@@ -502,12 +431,13 @@ pub fn Sidebar(
                                                                                             || col.data_type.to_lowercase().contains(&query_clone)
                                                                                     })
                                                                                     .map(|(col_idx, column)| {
+                                                                                        let is_active = active_column == Some((node_idx, Some(col_idx)));
                                                                                         view! {
                                                                                             <ColumnItem
                                                                                                 column=column.clone()
+                                                                                                is_active=is_active
                                                                                                 on_click=move || {
-                                                                                                    set_editing_mode
-                                                                                                        .set(EditingMode::EditingColumn(node_idx, Some(col_idx)));
+                                                                                                    set_column_editor_target.set(Some((node_idx, Some(col_idx))));
                                                                                                 }
                                                                                             />
                                                                                         }
@@ -653,6 +583,87 @@ pub fn Sidebar(
                                 });
                                 set_editing_mode.set(EditingMode::None);
                             }
+                            on_add_column=move |target_node_idx: NodeIndex| {
+                                set_column_editor_target.set(Some((target_node_idx, None)));
+                            }
+                            on_edit_column=move |column_idx: usize| {
+                                set_column_editor_target.set(Some((node_idx, Some(column_idx))));
+                            }
+                        />
+                    }.into_any()
+                } else {
+                    view! { <div></div> }.into_any()
+                }
+            }}
+
+            {move || {
+                if let Some((node_idx, col_idx)) = column_editor_target.get() {
+                    let g = graph.get();
+                    let node = g.node_weight(node_idx).cloned();
+                    let column = col_idx.and_then(|idx| {
+                        node.as_ref().and_then(|n| n.columns.get(idx).cloned())
+                    });
+                    let column_count = node.as_ref().map(|n| n.columns.len()).unwrap_or(0);
+                    let can_previous = col_idx.is_some_and(|idx| idx > 0);
+                    let can_next = col_idx.is_some_and(|idx| idx + 1 < column_count);
+
+                    view! {
+                        <ColumnEditor
+                            column=column
+                            column_index=col_idx
+                            inline=false
+                            graph=graph
+                            current_table=node_idx
+                            can_previous=can_previous
+                            can_next=can_next
+                            on_previous=Callback::new(move |_| {
+                                if let Some(idx) = col_idx && idx > 0 {
+                                    set_column_editor_target.set(Some((node_idx, Some(idx - 1))));
+                                }
+                            })
+                            on_next=Callback::new(move |_| {
+                                if let Some(idx) = col_idx && idx + 1 < column_count {
+                                    set_column_editor_target.set(Some((node_idx, Some(idx + 1))));
+                                }
+                            })
+                            column_name_exists=Callback::new(move |candidate: String| {
+                                graph.with(|g| {
+                                    g.node_weight(node_idx)
+                                        .map(|node| {
+                                            node.columns.iter().enumerate().any(|(idx, column)| {
+                                                Some(idx) != col_idx && column.name == candidate
+                                            })
+                                        })
+                                        .unwrap_or(false)
+                                })
+                            })
+                            on_save=move || {
+                                set_column_editor_target.set(None);
+                            }
+
+                            on_cancel=move || {
+                                set_column_editor_target.set(None);
+                            }
+
+                            on_delete=move || {
+                                if let Some(idx) = col_idx {
+                                    graph
+                                        .update(|g| {
+                                            if let Some(node) = g.node_weight_mut(node_idx) && idx < node.columns.len() {
+                                                node.columns.remove(idx);
+                                            }
+                                        });
+                                    let table_uuid = graph.with(|g| {
+                                        g.node_weight(node_idx).map(|n| n.uuid).unwrap_or_else(uuid::Uuid::new_v4)
+                                    });
+                                    send_graph_op(GraphOperation::DeleteColumn {
+                                        node_id: node_idx.index() as u32,
+                                        table_uuid,
+                                        column_index: idx,
+                                    });
+                                }
+                                set_column_editor_target.set(None);
+                            }
                         />
                     }.into_any()
                 } else {
@@ -663,14 +674,19 @@ pub fn Sidebar(
     }
 }
 #[component]
-fn ColumnItem(column: Column, #[prop(into)] on_click: Callback<()>) -> impl IntoView {
+fn ColumnItem(
+    column: Column,
+    #[prop(default = false)] is_active: bool,
+    #[prop(into)] on_click: Callback<()>,
+) -> impl IntoView {
     let column_name = column.name.clone();
     let column_type = column.data_type.clone();
 
     view! {
         <button
             type="button"
-            class="schema-column-item group"
+            class=if is_active { "schema-column-item group is-active" } else { "schema-column-item group" }
+            aria-current=if is_active { "true" } else { "false" }
             title=format!("{} {}", column_name.clone(), column_type.clone())
             on:click=move |_| on_click.run(())
         >

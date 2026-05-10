@@ -38,6 +38,14 @@ pub struct ExportedRelationship {
     pub from_column: String,
     pub to_table: String,
     pub to_column: String,
+    #[serde(default = "default_referential_action")]
+    pub on_delete: String,
+    #[serde(default = "default_referential_action")]
+    pub on_update: String,
+}
+
+fn default_referential_action() -> String {
+    "NO ACTION".to_string()
 }
 
 /// Export format options
@@ -133,6 +141,8 @@ impl SchemaExporter {
                 from_column: rel.from_column.clone(),
                 to_table,
                 to_column: rel.to_column.clone(),
+                on_delete: rel.on_delete.clone(),
+                on_update: rel.on_update.clone(),
             });
         }
 
@@ -252,9 +262,14 @@ impl SchemaExporter {
         for rel in &schema.relationships {
             if rel.from_table == table.name {
                 let fk_name = format!("fk_{}_{}", table.name, rel.to_column);
-                column_defs.push(format!(
-                    "    CONSTRAINT `{}` FOREIGN KEY (`{}`) REFERENCES `{}`(`{}`)",
-                    fk_name, rel.from_column, rel.to_table, rel.to_column
+                column_defs.push(Self::format_fk_constraint(
+                    &fk_name,
+                    &rel.from_column,
+                    &rel.to_table,
+                    &rel.to_column,
+                    &rel.on_delete,
+                    &rel.on_update,
+                    "    ",
                 ));
             }
         }
@@ -278,12 +293,36 @@ impl SchemaExporter {
         for rel in &schema.relationships {
             let fk_name = format!("fk_{}_{}_{}", rel.from_table, rel.from_column, rel.to_table);
             sql.push_str(&format!(
-                "ALTER TABLE `{}` ADD CONSTRAINT `{}` FOREIGN KEY (`{}`) REFERENCES `{}`(`{}`);\n",
-                rel.from_table, fk_name, rel.from_column, rel.to_table, rel.to_column
+                "ALTER TABLE `{}` ADD {};\n",
+                rel.from_table,
+                Self::format_fk_constraint(
+                    &fk_name,
+                    &rel.from_column,
+                    &rel.to_table,
+                    &rel.to_column,
+                    &rel.on_delete,
+                    &rel.on_update,
+                    "",
+                )
             ));
         }
 
         sql
+    }
+
+    fn format_fk_constraint(
+        fk_name: &str,
+        from_column: &str,
+        to_table: &str,
+        to_column: &str,
+        on_delete: &str,
+        on_update: &str,
+        indent: &str,
+    ) -> String {
+        format!(
+            "{}CONSTRAINT `{}` FOREIGN KEY (`{}`) REFERENCES `{}`(`{}`) ON DELETE {} ON UPDATE {}",
+            indent, fk_name, from_column, to_table, to_column, on_delete, on_update
+        )
     }
 
     /// Export to CSV format
@@ -335,16 +374,18 @@ impl SchemaExporter {
         }
 
         csv.push_str("\n# RELATIONSHIPS\n");
-        csv.push_str("name,type,from_table,from_column,to_table,to_column\n");
+        csv.push_str("name,type,from_table,from_column,to_table,to_column,on_delete,on_update\n");
         for rel in &schema.relationships {
             csv.push_str(&format!(
-                "{},{},{},{},{},{}\n",
+                "{},{},{},{},{},{},{},{}\n",
                 Self::escape_csv(&rel.name),
                 Self::escape_csv(&rel.relationship_type),
                 Self::escape_csv(&rel.from_table),
                 Self::escape_csv(&rel.from_column),
                 Self::escape_csv(&rel.to_table),
-                Self::escape_csv(&rel.to_column)
+                Self::escape_csv(&rel.to_column),
+                Self::escape_csv(&rel.on_delete),
+                Self::escape_csv(&rel.on_update)
             ));
         }
 
@@ -407,7 +448,8 @@ impl SchemaImporter {
             };
 
             let relationship =
-                super::Relationship::new(&rel.name, rel_type, &rel.from_column, &rel.to_column);
+                super::Relationship::new(&rel.name, rel_type, &rel.from_column, &rel.to_column)
+                    .with_actions(&rel.on_delete, &rel.on_update);
 
             graph
                 .create_relationship(*from_idx, *to_idx, relationship)
@@ -445,6 +487,22 @@ mod tests {
 
         assert!(sql.contains("CREATE TABLE"));
         assert!(sql.contains("PRIMARY KEY"));
+    }
+
+    #[test]
+    fn test_export_sql_foreign_key_actions() {
+        let mut graph = create_demo_graph();
+        let relationship = graph.edge_weights_mut().next().unwrap();
+        relationship.on_delete = "CASCADE".to_string();
+        relationship.on_update = "RESTRICT".to_string();
+
+        let options = ExportOptions {
+            format: ExportFormat::Sql,
+            ..Default::default()
+        };
+        let sql = SchemaExporter::export_sql(&graph, &options).unwrap();
+
+        assert!(sql.contains("ON DELETE CASCADE ON UPDATE RESTRICT"));
     }
 
     #[test]

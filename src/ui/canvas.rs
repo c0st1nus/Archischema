@@ -100,6 +100,8 @@ pub fn SchemaCanvas(
     let highlighted_edges: RwSignal<HashSet<EdgeIndex>> = RwSignal::new(HashSet::new());
     // State for selected table (to highlight all its edges)
     let selected_table: RwSignal<Option<NodeIndex>> = RwSignal::new(None);
+    // Shared column editor target used for sidebar and canvas row highlighting.
+    let active_column_editor: RwSignal<Option<(NodeIndex, Option<usize>)>> = RwSignal::new(None);
     // Track if mouse moved during drag (to prevent selection on drag)
     let was_dragged: RwSignal<bool> = RwSignal::new(false);
 
@@ -896,6 +898,7 @@ pub fn SchemaCanvas(
                     <Sidebar
                         graph=graph
                         on_table_focus=handle_table_focus
+                        column_editor_target=active_column_editor
                         editor_mode=editor_mode
                         is_collapsed=sidebar_collapsed
                     />
@@ -1073,6 +1076,7 @@ pub fn SchemaCanvas(
                     // Get which tables are being remotely dragged (for disabling CSS transitions)
                     let current_remote_dragging = remote_dragging_nodes.get();
                     let current_selected_table = selected_table.get();
+                    let current_active_column = active_column_editor.get();
 
                     node_indices.get()
                         .into_iter()
@@ -1087,12 +1091,15 @@ pub fn SchemaCanvas(
                                     let is_remote_dragging = current_remote_dragging.contains(&(idx.index() as u32));
                                     let is_dragging = is_local_dragging || is_remote_dragging;
                                     let is_selected = current_selected_table == Some(idx);
+                                    let active_column_index = current_active_column
+                                        .and_then(|(active_node, active_col)| if active_node == idx { active_col } else { None });
 
                                     view! {
                                         <TableNodeView
                                             node=node_clone
                                             is_being_dragged=is_dragging
                                             is_selected=is_selected
+                                            active_column_index=active_column_index
                                             on_mouse_down=Callback::new(move |ev: web_sys::MouseEvent| {
                                                 if ev.button() != 0 {
                                                     return;
@@ -2037,7 +2044,8 @@ fn apply_remote_graph_op(graph: RwSignal<SchemaGraph>, op: GraphOperation) {
                         rel_type,
                         &relationship.from_column,
                         &relationship.to_column,
-                    );
+                    )
+                    .with_actions(&relationship.on_delete, &relationship.on_update);
 
                     g.add_edge(from_idx, to_idx, rel);
                 }
@@ -2138,7 +2146,8 @@ fn apply_graph_state_internal(g: &mut SchemaGraph, state: GraphStateSnapshot) {
                 rel_type,
                 &rel_snap.data.from_column,
                 &rel_snap.data.to_column,
-            );
+            )
+            .with_actions(&rel_snap.data.on_delete, &rel_snap.data.on_update);
 
             g.add_edge(from_idx, to_idx, rel);
         }
@@ -2211,6 +2220,8 @@ fn create_graph_snapshot_internal(g: &SchemaGraph) -> GraphStateSnapshot {
                     relationship_type: edge.relationship_type.to_string(),
                     from_column: edge.from_column.clone(),
                     to_column: edge.to_column.clone(),
+                    on_delete: edge.on_delete.clone(),
+                    on_update: edge.on_update.clone(),
                 },
                 version: 0,
                 last_modified_at: 0,

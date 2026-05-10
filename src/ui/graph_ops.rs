@@ -386,6 +386,8 @@ mod tests {
             relationship_type: "one_to_many".to_string(),
             from_column: "id".to_string(),
             to_column: "user_id".to_string(),
+            on_delete: "NO ACTION".to_string(),
+            on_update: "NO ACTION".to_string(),
         };
 
         let op = GraphOperation::CreateRelationship {
@@ -471,6 +473,8 @@ mod tests {
             relationship_type: "one_to_many".to_string(),
             from_column: "id".to_string(),
             to_column: "author_id".to_string(),
+            on_delete: "NO ACTION".to_string(),
+            on_update: "NO ACTION".to_string(),
         };
 
         assert_eq!(rel.name, "posts_author");
@@ -484,6 +488,8 @@ mod tests {
             relationship_type: "many_to_many".to_string(),
             from_column: "user_id".to_string(),
             to_column: "role_id".to_string(),
+            on_delete: "NO ACTION".to_string(),
+            on_update: "NO ACTION".to_string(),
         };
 
         assert_eq!(rel.relationship_type, "many_to_many");

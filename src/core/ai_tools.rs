@@ -1222,6 +1222,8 @@ impl ToolExecutor {
                         relationship_type: input.relationship_type,
                         from_column: input.from_column,
                         to_column: input.to_column,
+                        on_delete: "NO ACTION".to_string(),
+                        on_update: "NO ACTION".to_string(),
                     },
                 }],
             ),

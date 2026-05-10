@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn test_theme_mode_default() {
         let mode = ThemeMode::default();
-        assert_eq!(mode, ThemeMode::Auto);
+        assert_eq!(mode, ThemeMode::Dark);
     }
 
     #[test]
@@ -315,9 +315,9 @@ mod tests {
 
     #[test]
     fn test_load_persisted_theme_ssr() {
-        // In SSR mode (which is the default for tests), this should return Auto
+        // In SSR mode (which is the default for tests), this should return Dark
         let theme = load_persisted_theme();
-        assert_eq!(theme, ThemeMode::Auto);
+        assert_eq!(theme, ThemeMode::Dark);
     }
 
     #[test]

@@ -201,81 +201,10 @@ pub fn SourceEditor(
 
     view! {
         <div class="source-shell theme-transition">
-            <div class="source-topbar">
-                <div class="flex min-w-0 items-center gap-2 text-[12.5px] text-theme-muted">
-                    <Icon name=icons::FOLDER class="h-3 w-3" />
-                    <span class="hidden sm:inline">"Client work"</span>
-                    <Icon name=icons::CHEVRON_RIGHT class="h-3 w-3" />
-                    <span class="font-medium text-theme-primary">"schema.sql"</span>
-                    <span class="chip h-[18px] text-[10.5px]">"DDL"</span>
-                    <span class="chip h-[18px] text-[10.5px]">"MySQL"</span>
-                </div>
-
-                <div class="flex flex-1 items-center justify-end gap-3 text-[11.5px] text-theme-muted">
-                    <span class="mono">{move || format!("{} lines", line_count.get())}</span>
-                    {move || {
-                        if is_modified.get() {
-                            view! {
-                                <span class="source-status source-status-warning">
-                                    <span class="status-dot status-dot-pending"></span>"Modified"
-                                </span>
-                            }.into_any()
-                        } else {
-                            view! {
-                                <span class="source-status">
-                                    <span class="status-dot status-dot-live"></span>"Synced"
-                                </span>
-                            }.into_any()
-                        }
-                    }}
-                    {move || {
-                        validation_result.get().map(|result| {
-                            view! {
-                                <span class=if result.is_valid { "source-status source-status-success" } else { "source-status source-status-error" }>
-                                    {if result.is_valid { "Valid".to_string() } else { format!("{} errors", result.stats.error_count) }}
-                                </span>
-                            }
-                        })
-                    }}
-                    <span class="hairline-v h-[18px]"></span>
-                    <button type="button" class="btn-secondary btn-sm" disabled=true title="Formatting is not implemented yet">
-                        <Icon name=icons::CODE class="h-3 w-3" />"Format"
-                    </button>
-                    <button type="button" class="btn-secondary btn-sm" disabled=true title="Diff confirmation is planned for a later model pass">
-                        "Diff"
-                    </button>
-                    <button
-                        type="button"
-                        class="btn-secondary btn-sm"
-                        on:click=reset_changes
-                        disabled=move || readonly || !is_modified.get()
-                    >
-                        <Icon name=icons::X class="h-3 w-3" />"Reset"
-                    </button>
-                    <button
-                        type="button"
-                        class="btn-primary btn-sm"
-                        on:click=on_save_click
-                        disabled=move || readonly || !is_modified.get() || is_saving.get()
-                    >
-                        {move || {
-                            if is_saving.get() {
-                                view! { <Icon name=icons::LOADER class="h-3 w-3 animate-spin" /> }.into_any()
-                            } else {
-                                view! { <Icon name=icons::CHECK class="h-3 w-3" /> }.into_any()
-                            }
-                        }}
-                        "Apply changes"
-                    </button>
-                </div>
-            </div>
-
             <div class="source-body">
                 <SourceModeSidebar
                     graph=graph
                     editor_mode=editor_mode
-                    line_count=line_count
-                    validation_result=validation_result
                 />
 
                 <main class="source-code-pane">
@@ -363,16 +292,64 @@ pub fn SourceEditor(
             </div>
 
             <div class="source-footer">
-                <span>{move || format!("{} tables", graph.with(|g| g.node_count()))}</span>
-                <span>{move || format!("{} columns", graph.with(|g| g.node_weights().map(|n| n.columns.len()).sum::<usize>()))}</span>
-                <span>{move || format!("{} relations", graph.with(|g| g.edge_count()))}</span>
-                <span class="hairline-v h-3.5"></span>
-                <span class="text-theme-accent">"schema.sql"</span>
-                <span>"MySQL DDL"</span>
-                <div class="flex-1"></div>
-                <span>"UTF-8"</span>
-                <span>"LF"</span>
-                <span>{move || if is_modified.get() { "Unsaved" } else { "Saved" }}</span>
+                <div class="source-footer-meta">
+                    <span class="mono">{move || format!("{} lines", line_count.get())}</span>
+                    {move || {
+                        if is_modified.get() {
+                            view! {
+                                <span class="source-status source-status-warning">
+                                    <span class="status-dot status-dot-pending"></span>"Modified"
+                                </span>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <span class="source-status">
+                                    <span class="status-dot status-dot-live"></span>"Synced"
+                                </span>
+                            }.into_any()
+                        }
+                    }}
+                    {move || {
+                        validation_result.get().map(|result| {
+                            view! {
+                                <span class=if result.is_valid { "source-status source-status-success" } else { "source-status source-status-error" }>
+                                    {if result.is_valid { "Valid".to_string() } else { format!("{} errors", result.stats.error_count) }}
+                                </span>
+                            }
+                        })
+                    }}
+                </div>
+                <div class="source-footer-actions">
+                    <button type="button" class="btn-secondary btn-sm" disabled=true title="Formatting is not implemented yet">
+                        <Icon name=icons::CODE class="h-3 w-3" />"Format"
+                    </button>
+                    <button type="button" class="btn-secondary btn-sm" disabled=true title="Diff confirmation is planned for a later model pass">
+                        "Diff"
+                    </button>
+                    <button
+                        type="button"
+                        class="btn-secondary btn-sm"
+                        on:click=reset_changes
+                        disabled=move || readonly || !is_modified.get()
+                    >
+                        <Icon name=icons::X class="h-3 w-3" />"Reset"
+                    </button>
+                    <button
+                        type="button"
+                        class="btn-primary btn-sm"
+                        on:click=on_save_click
+                        disabled=move || readonly || !is_modified.get() || is_saving.get()
+                    >
+                        {move || {
+                            if is_saving.get() {
+                                view! { <Icon name=icons::LOADER class="h-3 w-3 animate-spin" /> }.into_any()
+                            } else {
+                                view! { <Icon name=icons::CHECK class="h-3 w-3" /> }.into_any()
+                            }
+                        }}
+                        "Apply changes"
+                    </button>
+                </div>
             </div>
         </div>
     }
@@ -382,32 +359,10 @@ pub fn SourceEditor(
 fn SourceModeSidebar(
     graph: RwSignal<SchemaGraph>,
     editor_mode: Option<RwSignal<EditorMode>>,
-    line_count: Memo<usize>,
-    validation_result: ReadSignal<Option<SqlValidationResult>>,
 ) -> impl IntoView {
     view! {
         <aside class="source-sidebar">
-            <div class="source-sidebar-head">
-                <div>
-                    <div class="text-[13px] font-semibold text-theme-primary">"Source mode"</div>
-                    <div class="mt-0.5 flex items-center gap-1 text-[10.5px] text-theme-muted">
-                        <span class="status-dot status-dot-pending"></span>
-                        {move || {
-                            validation_result.get()
-                                .map(|result| {
-                                    if result.is_valid {
-                                        "Ready to apply".to_string()
-                                    } else {
-                                        format!("{} errors", result.stats.error_count)
-                                    }
-                                })
-                                .unwrap_or_else(|| "Not validated".to_string())
-                        }}
-                    </div>
-                </div>
-            </div>
-
-            <div class="px-3 pb-3">
+            <div class="border-b border-theme-primary bg-theme-surface px-3 py-3 theme-transition">
                 {if let Some(mode) = editor_mode {
                     view! { <EditorModeSwitcher mode=mode /> }.into_any()
                 } else {
@@ -454,14 +409,6 @@ fn SourceModeSidebar(
                 </div>
             </div>
 
-            <div class="mt-auto source-sidebar-section border-t border-theme-primary">
-                <div class="eyebrow mb-1.5">"File"</div>
-                <div class="source-file-stat"><span>"Path"</span><span>"schema.sql"</span></div>
-                <div class="source-file-stat"><span>"Lines"</span><span>{move || line_count.get()}</span></div>
-                <div class="source-file-stat"><span>"Tables"</span><span>{move || graph.with(|g| g.node_count())}</span></div>
-                <div class="source-file-stat"><span>"Relations"</span><span>{move || graph.with(|g| g.edge_count())}</span></div>
-                <div class="source-file-stat"><span>"Diagnostics"</span><span>{move || validation_result.get().map(|r| r.diagnostics.len()).unwrap_or(0)}</span></div>
-            </div>
         </aside>
     }
 }

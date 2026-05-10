@@ -7,6 +7,85 @@ use uuid::Uuid;
 
 use super::validation;
 
+const SUPPORTED_SQL_TYPE_BASES: &[&str] = &[
+    "BIGINT",
+    "BIGSERIAL",
+    "BINARY",
+    "BIT",
+    "BIT VARYING",
+    "BLOB",
+    "BOOL",
+    "BOOLEAN",
+    "BYTEA",
+    "BYTES",
+    "CHAR",
+    "CHAR LARGE OBJECT",
+    "CHAR VARYING",
+    "CHARACTER",
+    "CHARACTER LARGE OBJECT",
+    "CHARACTER VARYING",
+    "CIDR",
+    "CLOB",
+    "DATE",
+    "DATETIME",
+    "DEC",
+    "DECIMAL",
+    "DOUBLE",
+    "DOUBLE PRECISION",
+    "ENUM",
+    "FLOAT",
+    "FLOAT4",
+    "FLOAT8",
+    "INET",
+    "INT",
+    "INT2",
+    "INT4",
+    "INT8",
+    "INTEGER",
+    "INTERVAL",
+    "JSON",
+    "JSONB",
+    "LONGBLOB",
+    "LONGTEXT",
+    "MACADDR",
+    "MACADDR8",
+    "MEDIUMBLOB",
+    "MEDIUMINT",
+    "MEDIUMTEXT",
+    "MONEY",
+    "NCHAR",
+    "NUMERIC",
+    "NVARCHAR",
+    "REAL",
+    "REGCLASS",
+    "SERIAL",
+    "SERIAL4",
+    "SERIAL8",
+    "SET",
+    "SMALLINT",
+    "SMALLSERIAL",
+    "STRING",
+    "TEXT",
+    "TIME",
+    "TIME WITH TIME ZONE",
+    "TIME WITHOUT TIME ZONE",
+    "TIMESTAMP",
+    "TIMESTAMP WITH TIME ZONE",
+    "TIMESTAMP WITHOUT TIME ZONE",
+    "TIMESTAMPTZ",
+    "TIMETZ",
+    "TINYBLOB",
+    "TINYINT",
+    "TINYTEXT",
+    "TSQUERY",
+    "TSVECTOR",
+    "UUID",
+    "VARBINARY",
+    "VARBIT",
+    "VARCHAR",
+    "YEAR",
+];
+
 /// Стандартные типы данных MySQL
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum MySqlDataType {
@@ -260,9 +339,136 @@ impl Column {
 
     /// Валидация типа данных
     pub fn validate_data_type(data_type: &str) -> Result<(), String> {
-        if data_type.is_empty() {
+        let value = data_type.trim();
+        if value.is_empty() {
             return Err("Data type cannot be empty".to_string());
         }
+
+        if Self::has_forbidden_sql_fragment(value) {
+            return Err(
+                "Data type cannot contain SQL statement separators or comments".to_string(),
+            );
+        }
+
+        if !Self::has_balanced_parentheses(value) {
+            return Err("Data type has unbalanced parentheses".to_string());
+        }
+
+        if !Self::has_balanced_quotes(value) {
+            return Err("Data type has an unterminated string literal".to_string());
+        }
+
+        if !value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, '_' | ' ' | ',' | '(' | ')' | '[' | ']' | '.' | '\'')
+        }) {
+            return Err("Data type contains unsupported characters".to_string());
+        }
+
+        let base_type = Self::base_data_type(value);
+        if !SUPPORTED_SQL_TYPE_BASES.contains(&base_type.as_str()) {
+            return Err(format!(
+                "Unsupported data type '{}'. Use a supported SQL type such as integer, text, timestamp, uuid, jsonb, or varchar(255).",
+                value
+            ));
+        }
+
+        Self::validate_type_arguments(value, &base_type)?;
+
+        Ok(())
+    }
+
+    fn has_forbidden_sql_fragment(value: &str) -> bool {
+        value.contains(';') || value.contains("--") || value.contains("/*") || value.contains("*/")
+    }
+
+    fn has_balanced_parentheses(value: &str) -> bool {
+        let mut depth = 0_i32;
+        for ch in value.chars() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth < 0 {
+                        return false;
+                    }
+                }
+                _ => {}
+            }
+        }
+        depth == 0
+    }
+
+    fn has_balanced_quotes(value: &str) -> bool {
+        let mut escaped = false;
+        let mut in_quote = false;
+
+        for ch in value.chars() {
+            if ch == '\\' && in_quote {
+                escaped = !escaped;
+                continue;
+            }
+
+            if ch == '\'' && !escaped {
+                in_quote = !in_quote;
+            }
+
+            escaped = false;
+        }
+
+        !in_quote
+    }
+
+    fn collapse_ascii_whitespace(value: &str) -> String {
+        value.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    fn base_data_type(data_type: &str) -> String {
+        let mut normalized = Self::collapse_ascii_whitespace(data_type).to_ascii_uppercase();
+
+        while normalized.ends_with("[]") {
+            normalized.truncate(normalized.len() - 2);
+            normalized = normalized.trim_end().to_string();
+        }
+
+        let mut base = normalized
+            .find('(')
+            .map(|paren_pos| normalized[..paren_pos].trim().to_string())
+            .unwrap_or_else(|| normalized.trim().to_string());
+
+        for suffix in [" ZEROFILL", " UNSIGNED", " SIGNED"] {
+            while base.ends_with(suffix) {
+                base.truncate(base.len() - suffix.len());
+                base = base.trim_end().to_string();
+            }
+        }
+
+        base
+    }
+
+    fn validate_type_arguments(data_type: &str, base_type: &str) -> Result<(), String> {
+        let Some(open_pos) = data_type.find('(') else {
+            return Ok(());
+        };
+        let close_pos = data_type
+            .rfind(')')
+            .ok_or_else(|| "Data type has unbalanced parentheses".to_string())?;
+        let args = data_type[open_pos + 1..close_pos].trim();
+
+        if matches!(base_type, "ENUM" | "SET") {
+            if args.is_empty() {
+                return Err(format!("{} requires at least one value", base_type));
+            }
+            return Ok(());
+        }
+
+        if !args
+            .chars()
+            .all(|ch| ch.is_ascii_digit() || ch == ',' || ch.is_ascii_whitespace())
+        {
+            return Err("Data type length or precision must use numeric arguments".to_string());
+        }
+
         Ok(())
     }
 
@@ -334,6 +540,16 @@ pub struct Relationship {
     pub from_column: String,
     /// Имя колонки в таблице-цели
     pub to_column: String,
+    /// FK action emitted as `ON DELETE ...`.
+    #[serde(default = "default_referential_action")]
+    pub on_delete: String,
+    /// FK action emitted as `ON UPDATE ...`.
+    #[serde(default = "default_referential_action")]
+    pub on_update: String,
+}
+
+fn default_referential_action() -> String {
+    "NO ACTION".to_string()
 }
 
 impl Relationship {
@@ -348,7 +564,19 @@ impl Relationship {
             relationship_type,
             from_column: from_column.into(),
             to_column: to_column.into(),
+            on_delete: default_referential_action(),
+            on_update: default_referential_action(),
         }
+    }
+
+    pub fn with_actions(
+        mut self,
+        on_delete: impl Into<String>,
+        on_update: impl Into<String>,
+    ) -> Self {
+        self.on_delete = on_delete.into();
+        self.on_update = on_update.into();
+        self
     }
 }
 

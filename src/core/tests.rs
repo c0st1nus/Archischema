@@ -155,8 +155,15 @@ fn test_column_validate_name() {
 #[test]
 fn test_column_validate_data_type() {
     assert!(Column::validate_data_type("INT").is_ok());
+    assert!(Column::validate_data_type("INTEGER").is_ok());
     assert!(Column::validate_data_type("VARCHAR(255)").is_ok());
+    assert!(Column::validate_data_type("NUMERIC(10, 2)").is_ok());
+    assert!(Column::validate_data_type("TIMESTAMPTZ").is_ok());
+    assert!(Column::validate_data_type("TEXT[]").is_ok());
     assert!(Column::validate_data_type("").is_err()); // empty
+    assert!(Column::validate_data_type("tss").is_err());
+    assert!(Column::validate_data_type("VARCHAR(foo)").is_err());
+    assert!(Column::validate_data_type("INT; DROP TABLE users").is_err());
 }
 
 #[test]

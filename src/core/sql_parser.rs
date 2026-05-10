@@ -720,7 +720,7 @@ impl SchemaValidator {
             }
 
             // Validate column data type
-            self.validate_data_type(&column.data_type, result);
+            self.validate_data_type(&column.name.value, &column.data_type, result);
         }
 
         // Validate foreign key constraints
@@ -817,7 +817,27 @@ impl SchemaValidator {
     }
 
     /// Validate data type
-    fn validate_data_type(&self, data_type: &DataType, result: &mut SqlValidationResult) {
+    fn validate_data_type(
+        &self,
+        column_name: &str,
+        data_type: &DataType,
+        result: &mut SqlValidationResult,
+    ) {
+        let data_type_text = data_type.to_string();
+        if let Err(error) = Column::validate_data_type(&data_type_text) {
+            let mut validation_error = SqlValidationError::error(error, "E007_UNSUPPORTED_DATA_TYPE")
+                .with_suggestion("Use a supported SQL type, for example INTEGER, TEXT, TIMESTAMP, UUID, JSONB, or VARCHAR(255)");
+
+            if let Some(span) = self.find_column_type_position(column_name, &data_type_text) {
+                validation_error = validation_error.with_span(span);
+            } else if let Some(span) = self.find_position_in_source(&data_type_text) {
+                validation_error = validation_error.with_span(span);
+            }
+
+            result.add_error(validation_error);
+            return;
+        }
+
         // Check for common data type issues
         match data_type {
             DataType::Varchar(Some(sqlparser::ast::CharacterLength::IntegerLength {
@@ -959,6 +979,31 @@ impl SchemaValidator {
         } else {
             None
         }
+    }
+
+    fn find_column_type_position(&self, column_name: &str, data_type: &str) -> Option<SourceSpan> {
+        let source_lower = self.source.to_lowercase();
+        let type_lower = data_type.to_lowercase();
+        let column_lower = column_name.to_lowercase();
+        let patterns = [
+            format!("`{}` {}", column_lower, type_lower),
+            format!("\"{}\" {}", column_lower, type_lower),
+            format!("{} {}", column_lower, type_lower),
+        ];
+
+        for pattern in &patterns {
+            if let Some(offset) = source_lower.find(pattern)
+                && let Some(type_offset) = pattern.rfind(&type_lower)
+            {
+                let start_offset = offset + type_offset;
+                let end_offset = start_offset + data_type.len();
+                let start = SourcePosition::from_offset(&self.source, start_offset);
+                let end = SourcePosition::from_offset(&self.source, end_offset);
+                return Some(SourceSpan::new(start, end));
+            }
+        }
+
+        None
     }
 
     /// Find position of ALTER TABLE statement for a specific table
@@ -1777,6 +1822,8 @@ pub fn apply_sql_to_graph(
                     relationship_type: "many_to_one".to_string(),
                     from_column: from_col.clone(),
                     to_column: to_col.clone(),
+                    on_delete: "NO ACTION".to_string(),
+                    on_update: "NO ACTION".to_string(),
                 },
             });
 
@@ -1869,6 +1916,42 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|d| d.code == "E002_DUPLICATE_COLUMN")
+        );
+    }
+
+    #[test]
+    fn test_semantic_validation_unknown_data_type() {
+        let sql = "CREATE TABLE users (id INT PRIMARY KEY, typo tss);";
+        let result = validate_sql(sql, SqlDialect::MySQL);
+
+        assert!(!result.is_valid);
+        let error = result
+            .diagnostics
+            .iter()
+            .find(|d| d.code == "E007_UNSUPPORTED_DATA_TYPE");
+        assert!(error.is_some(), "unknown data type should be an error");
+        assert!(
+            error.unwrap().span.is_some(),
+            "error should underline the type"
+        );
+    }
+
+    #[test]
+    fn test_semantic_validation_supported_postgres_data_types() {
+        let sql = r#"
+            CREATE TABLE events (
+                id UUID PRIMARY KEY,
+                payload JSONB,
+                created_at TIMESTAMPTZ,
+                tags TEXT
+            );
+        "#;
+        let result = validate_sql(sql, SqlDialect::MySQL);
+
+        assert!(
+            result.is_valid,
+            "expected SQL to be valid: {:#?}",
+            result.diagnostics
         );
     }
 
